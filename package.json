@@ -1,0 +1,28 @@
+{
+  "name": "moonx-farm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MoonXFarm DEX - Decentralized Exchange with Smart Account Integration",
+
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "setup": "./scripts/setup/setup-local-env.sh",
+    "docker:dev": "docker-compose up -d",
+    "docker:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml up -d"
+  },
+  "devDependencies": {
+    "turbo": "^1.10.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+} 

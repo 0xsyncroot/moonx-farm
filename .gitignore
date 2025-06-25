@@ -1,0 +1,299 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules/
+*/node_modules/
+.pnpm-store
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+.next/
+.turbo/
+**/dist/
+**/build/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+**/.env.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+.nyc_output
+
+# Dependency directories
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js build output
+.next/
+out/
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Gatsby files
+.cache/
+public
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Test artifacts
+test-results/
+playwright-report/
+test-results.xml
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+
+# Kubernetes secrets
+**/k8s/**/secrets.yaml
+**/kubernetes/**/secrets.yaml
+
+# Local development
+.local/
+
+# Compiled binary addons (https://nodejs.org/api/addons.html)
+build/Release
+
+# Optional REPL history
+.node_repl_history
+
+# Yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# IDEs
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Generated files
+generated/
+**/generated/
+
+# Certificate files
+*.pem
+*.key
+*.crt
+*.p12
+
+# Backup files
+*.bak
+*.backup
+
+# Audit reports
+audit-reports/
+security-reports/
+
+# Performance reports
+performance-reports/
+
+# Contract artifacts
+**/artifacts/
+**/cache/
+**/typechain/
+**/typechain-types/
+
+# Foundry
+lib/
+cache/
+out/
+broadcast/
+
+# Local development overrides
+docker-compose.local.yml
+*.local.yml
+
+# Go
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Go workspace file
+go.work
+
+# Rust
+target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+coverage/
+.coverage
+.coverage.*
+.pytest_cache/
+cover/
+
+# Monitoring data
+monitoring-data/
+grafana-data/
+prometheus-data/
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# Certificate files
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Secret files
+secrets/
+private-keys/
+wallets/
+
+# Local development overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Generated files
+generated/
+auto-generated/
+
+# Audit reports
+audit-reports/
+security-reports/
+
+# Performance test results
+load-test-results/
+
+# Documentation generated files
+docs/generated/
+
+# Package manager lock files (choose one strategy)
+# package-lock.json  # Uncomment if using yarn
+# yarn.lock         # Uncomment if using npm 

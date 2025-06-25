@@ -1,0 +1,203 @@
+name: Backend Services CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/**'
+      - 'packages/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'services/**'
+      - 'packages/**'
+
+env:
+  NODE_VERSION: '18'
+  GO_VERSION: '1.21'
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api-gateway: ${{ steps.changes.outputs.api-gateway }}
+      notify-service: ${{ steps.changes.outputs.notify-service }}
+      auth-service: ${{ steps.changes.outputs.auth-service }}
+      wallet-registry: ${{ steps.changes.outputs.wallet-registry }}
+      quote-service: ${{ steps.changes.outputs.quote-service }}
+      swap-orchestrator: ${{ steps.changes.outputs.swap-orchestrator }}
+      position-indexer: ${{ steps.changes.outputs.position-indexer }}
+      packages: ${{ steps.changes.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            api-gateway:
+              - 'services/api-gateway/**'
+            notify-service:
+              - 'services/notify-service/**'
+            auth-service:
+              - 'services/auth-service/**'
+            wallet-registry:
+              - 'services/wallet-registry/**'
+            quote-service:
+              - 'services/quote-service/**'
+            swap-orchestrator:
+              - 'services/swap-orchestrator/**'
+            position-indexer:
+              - 'services/position-indexer/**'
+            packages:
+              - 'packages/**'
+
+  test-packages:
+    needs: changes
+    if: needs.changes.outputs.packages == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Test packages
+        run: npm run test --workspaces --if-present
+
+  test-node-services:
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api-gateway, notify-service, auth-service, wallet-registry, swap-orchestrator, position-indexer]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check if service changed
+        id: check
+        run: |
+          if [ "${{ fromJson(needs.changes.outputs)[matrix.service] }}" == "true" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Setup Node.js
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: npm ci
+      
+      - name: Install service dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: npm ci
+        working-directory: services/${{ matrix.service }}
+      
+      - name: Run tests
+        if: steps.check.outputs.changed == 'true'
+        run: npm test
+        working-directory: services/${{ matrix.service }}
+      
+      - name: Run linting
+        if: steps.check.outputs.changed == 'true'
+        run: npm run lint
+        working-directory: services/${{ matrix.service }}
+
+  test-go-services:
+    needs: changes
+    if: needs.changes.outputs.quote-service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      
+      - name: Run tests
+        run: go test ./...
+        working-directory: services/quote-service
+      
+      - name: Run linting
+        uses: golangci/golangci-lint-action@v3
+        with:
+          working-directory: services/quote-service
+
+  build-and-push:
+    needs: [changes, test-node-services, test-go-services, test-packages]
+    if: github.ref == 'refs/heads/main' && (needs.changes.outputs.api-gateway == 'true' || needs.changes.outputs.notify-service == 'true' || needs.changes.outputs.auth-service == 'true' || needs.changes.outputs.wallet-registry == 'true' || needs.changes.outputs.quote-service == 'true' || needs.changes.outputs.swap-orchestrator == 'true' || needs.changes.outputs.position-indexer == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api-gateway, notify-service, auth-service, wallet-registry, quote-service, swap-orchestrator, position-indexer]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check if service changed
+        id: check
+        run: |
+          if [ "${{ fromJson(needs.changes.outputs)[matrix.service] }}" == "true" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Container Registry
+        if: steps.check.outputs.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push Docker image
+        if: steps.check.outputs.changed == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/${{ matrix.service }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/${{ matrix.service }}:latest
+            ghcr.io/${{ github.repository }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment"
+          # Add your deployment script here
+          # kubectl apply -f infrastructure/kubernetes/staging/
+
+  deploy-production:
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment"
+          # Add your deployment script here
+          # kubectl apply -f infrastructure/kubernetes/production/ 
