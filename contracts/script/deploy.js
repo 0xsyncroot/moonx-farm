@@ -9,27 +9,32 @@ const AGGREGATOR_ADDRESSES = {
   // Ethereum Mainnet
   1: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
-    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65"
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    relay: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE"
   },
   // Polygon
   137: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
-    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65"
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    relay: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE"
   },
   // BSC
   56: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
-    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65"
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    relay: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE"
   },
   // Base
   8453: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
-    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65"
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    relay: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE"
   },
   // Local
   31337: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
-    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65"
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    relay: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE"
   }
 }
 
@@ -44,7 +49,8 @@ const FACET_CONFIG = {
   // Aggregator facets (require constructor params)
   aggregator: {
     'LifiProxyFacet': (addresses) => [addresses.lifi],
-    'OneInchProxyFacet': (addresses) => [addresses.oneInch]
+    'OneInchProxyFacet': (addresses) => [addresses.oneInch],
+    'RelayProxyFacet': (addresses) => [addresses.relay]
   }
 }
 
@@ -73,10 +79,10 @@ async function deployDiamond() {
     console.log("DiamondInit deployed:", await diamondInit.getAddress());
 
     // Deploy Diamond
-    const Diamond = await ethers.getContractFactory("CastWatchDiamond");
+    const Diamond = await ethers.getContractFactory("MoonXFarmRouter");
     const diamond = await Diamond.deploy(await owner.getAddress(), await diamondCutFacet.getAddress());
     await diamond.waitForDeployment();
-    console.log("Diamond deployed:", await diamond.getAddress());
+    console.log("MoonXFarmRouter deployed:", await diamond.getAddress());
 
     console.log('\nDeploying facets...');
     const cut = [];

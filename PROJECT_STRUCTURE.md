@@ -63,39 +63,71 @@ moonx-farm/
 │   ├── env.ts                         # Environment variable schemas
 │   └── example.ts                     # Configuration examples
 │
-├── contracts/                          # Smart Contracts
-│   ├── foundry.toml                   # Foundry configuration
-│   ├── package.json                   # Node.js dependencies
-│   ├── .env.example
+├── contracts/                          # Smart Contracts (Diamond Proxy Pattern)
+│   ├── package.json                   # Node.js dependencies & Hardhat setup
+│   ├── hardhat.config.js              # Hardhat configuration với multi-network
+│   ├── README.md                      # Comprehensive contracts documentation
+│   ├── .env                           # Environment variables (not in repo)
 │   ├── src/                           # Solidity contracts
-│   │   ├── interfaces/
-│   │   │   ├── IDiamond.sol
-│   │   │   ├── ISwapFacet.sol
-│   │   │   ├── ILimitFacet.sol
-│   │   │   └── IDCAFacet.sol
-│   │   ├── facets/                    # Diamond facets
-│   │   │   ├── SwapFacet.sol
-│   │   │   ├── LimitFacet.sol
-│   │   │   ├── DCAFacet.sol
-│   │   │   └── DiamondCutFacet.sol
-│   │   ├── libraries/
-│   │   │   ├── LibDiamond.sol
-│   │   │   ├── LibSwap.sol
-│   │   │   └── LibOrder.sol
-│   │   └── Diamond.sol                # Main Diamond contract
-│   ├── script/                        # Deployment scripts
-│   │   ├── Deploy.s.sol
-│   │   ├── UpgradeFacet.s.sol
-│   │   └── SetupTestnet.s.sol
+│   │   ├── Diamond.sol                # MoonXFarmRouter (main Diamond contract)
+│   │   ├── MockERC20.sol              # Test token contract
+│   │   ├── interfaces/                # Contract interfaces
+│   │   │   ├── IDiamondCut.sol
+│   │   │   ├── IDiamondLoupe.sol
+│   │   │   ├── IERC165.sol
+│   │   │   └── IERC173.sol
+│   │   ├── facets/                    # Diamond facets (ACTUAL IMPLEMENTATION)
+│   │   │   ├── DiamondCutFacet.sol    # Upgrade functionality
+│   │   │   ├── DiamondLoupeFacet.sol  # Introspection
+│   │   │   ├── OwnershipFacet.sol     # Access control
+│   │   │   ├── FeeCollectorFacet.sol  # Fee management
+│   │   │   ├── LifiProxyFacet.sol     # LI.FI aggregator integration
+│   │   │   ├── OneInchProxyFacet.sol  # 1inch aggregator integration
+│   │   │   ├── RelayProxyFacet.sol    # Relay.link aggregator integration
+│   │   │   ├── Test1Facet.sol         # Test facet for upgrades
+│   │   │   └── Test2Facet.sol         # Test facet for upgrades
+│   │   ├── helpers/                   # Helper contracts
+│   │   │   ├── AggregatorProxy.sol    # Base proxy for aggregators
+│   │   │   ├── ReentrancyGuard.sol    # Reentrancy protection
+│   │   │   └── test/                  # Test utility contracts
+│   │   │       ├── BadInit.sol        # Test initialization failure
+│   │   │       ├── ComplexStorage*.sol # Diamond upgrade testing
+│   │   │       ├── RecursiveInit.sol  # Recursive call testing
+│   │   │       └── StorageInitializer.sol # Storage layout testing
+│   │   ├── libraries/                 # Shared libraries
+│   │   │   ├── LibDiamond.sol         # Diamond storage & management
+│   │   │   ├── LibFeeCollector.sol    # Fee collection logic
+│   │   │   ├── LibReentrancyGuard.sol # Reentrancy protection
+│   │   │   ├── LibUtil.sol            # General utilities
+│   │   │   └── LibBytes.sol           # Byte manipulation
+│   │   ├── errors/                    # Custom error definitions
+│   │   │   ├── GenericErrors.sol      # General errors
+│   │   │   └── RouterErrors.sol       # Router-specific errors
+│   │   ├── mocks/                     # Mock contracts for testing
+│   │   │   ├── MockAggregator.sol     # Mock aggregator
+│   │   │   └── MockERC20.sol          # Mock ERC20 token
+│   │   └── upgradeInitializers/       # Contract upgrade initializers
+│   ├── script/                        # Deployment & management scripts
+│   │   ├── deploy.js                  # Main deployment script (Hardhat)
+│   │   ├── deploy-and-verify.js       # Deploy with verification
+│   │   ├── manageFacets.js            # Facet management
+│   │   ├── add-aggregator-facets.sh   # Add aggregator facets
+│   │   ├── manage-facets.sh           # Facet management shell script
+│   │   ├── test-deployed.js           # Test deployed contracts
+│   │   ├── test-deployed.sh           # Test deployment shell script
+│   │   ├── fund-accounts.js           # Fund test accounts
+│   │   ├── setup-test-tokens.js       # Setup test tokens
+│   │   └── libraries/
+│   │       └── diamond.js             # Diamond utilities
 │   ├── test/                          # Contract tests
-│   │   ├── Diamond.t.sol
-│   │   ├── SwapFacet.t.sol
-│   │   ├── LimitFacet.t.sol
-│   │   └── integration/
+│   │   ├── unit/                      # Unit tests
+│   │   │   └── MoonXFarmRouter.test.js # Main router tests
+│   │   └── {integration}/             # Integration tests (future)
 │   └── deployments/                   # Deployment artifacts
-│       ├── mainnet/
-│       ├── polygon/
-│       └── testnet/
+│       ├── base-mainnet/              # Base mainnet deployments
+│       ├── base-testnet/              # Base testnet deployments
+│       ├── bsc-mainnet/               # BSC mainnet deployments
+│       └── bsc-testnet/               # BSC testnet deployments
 │
 ├── services/                          # Core Backend Services
 │   ├── api-gateway/                   # API Gateway (Nginx/Fastify)
@@ -422,12 +454,15 @@ moonx-farm/
 
 ## Mô Tả Chi Tiết Các Thư Mục Chính
 
-### 1. `/contracts` - Smart Contracts
-**Mục đích**: Chứa toàn bộ smart contracts sử dụng Diamond Proxy pattern
-- **Diamond.sol**: Contract chính triển khai EIP-2535
-- **Facets**: SwapFacet, LimitFacet, DCAFacet cho các chức năng cốt lõi
-- **Libraries**: Thư viện dùng chung cho các facet
-- **Scripts**: Deployment và upgrade scripts sử dụng Foundry
+### 1. `/contracts` - Smart Contracts (Multi-Aggregator Router)
+**Mục đích**: MoonXFarmRouter - Diamond Proxy với multi-aggregator integration
+- **Diamond.sol**: MoonXFarmRouter contract chính triển khai EIP-2535
+- **Aggregator Facets**: LifiProxyFacet, OneInchProxyFacet, RelayProxyFacet cho liquidity aggregation
+- **Core Facets**: DiamondCutFacet, DiamondLoupeFacet, OwnershipFacet, FeeCollectorFacet
+- **AggregatorProxy**: Base contract với sophisticated fee collection system
+- **Libraries**: LibDiamond, LibFeeCollector, LibUtil cho shared functionality
+- **Scripts**: Hardhat deployment scripts với multi-network support
+- **Testing**: Unit tests với comprehensive facet testing
 
 ### 2. `/services` - Core Backend Services
 **Mục đích**: Các microservices xử lý logic nghiệp vụ chính
@@ -616,4 +651,4 @@ Cấu trúc này đảm bảo:
 - ✅ **Configuration Management**: Tập trung, type-safe, profile-based
 - ✅ **CI/CD**: Pipeline tối ưu cho từng component
 - ✅ **Security**: Tách biệt secrets và permissions
-- ✅ **Monitoring**: Observability toàn diện 
+- ✅ **Monitoring**: Observability toàn diện

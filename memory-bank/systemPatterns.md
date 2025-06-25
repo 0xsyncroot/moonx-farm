@@ -7,6 +7,30 @@
 
 MoonXFarm được thiết kế theo kiến trúc **Microservices** với **Event-Driven Architecture**, đảm bảo scalability, maintainability và fault tolerance.
 
+### **Project Structure Reference**
+> **📋 Chi tiết đầy đủ**: Xem `PROJECT_STRUCTURE.md` cho cấu trúc thư mục toàn diện và mô tả từng component
+
+**Monorepo Organization**:
+```
+moonx-farm/
+├── contracts/              # Smart contracts (Diamond Proxy)
+├── services/               # Backend microservices
+├── workers/                # Async workers (price, orders)
+├── apps/web/              # Next.js frontend
+├── packages/              # Shared libraries
+├── configs/               # Centralized configuration
+├── infrastructure/        # DevOps configs
+├── database/              # Schemas & migrations
+├── scripts/               # Utility scripts
+└── tests/                 # Integration & E2E tests
+```
+
+**Key Architecture Decisions**:
+- **Monorepo**: Single repository với independent deployment
+- **Profile-based Configuration**: Service-specific config loading
+- **Diamond Proxy**: Upgradeable smart contracts (EIP-2535)
+- **Multi-aggregator Router**: LI.FI, 1inch, Relay integration
+
 ```mermaid
 graph TB
     subgraph "User Layer"
