@@ -1,12 +1,13 @@
 # MoonX Farm DEX - Configuration Manager
 
-Hệ thống quản lý cấu hình tập trung cho toàn bộ monorepo MoonX Farm DEX. Cho phép mỗi service chỉ load những configuration cần thiết.
+Hệ thống quản lý cấu hình tập trung cho toàn bộ monorepo MoonX Farm DEX. Cho phép mỗi service chỉ load những configuration cần thiết với hỗ trợ RPC fallback và private RPC URLs.
 
 ## 🎯 Tính năng
 
 - **Configuration Profiles**: Mỗi service chỉ load config cần thiết
 - **Type Safety**: Validation với Zod schema
 - **Environment Variables**: Quản lý tập trung từ file `.env` root
+- **RPC Management**: Hỗ trợ private RPC và fallback RPC URLs
 - **Flexible Usage**: Dễ dàng extend và customize cho từng service
 - **Validation**: Kiểm tra config bắt buộc cho từng service
 
@@ -14,9 +15,11 @@ Hệ thống quản lý cấu hình tập trung cho toàn bộ monorepo MoonX Fa
 
 ```
 configs/
-├── index.ts          # Main config manager
-├── utils.ts          # Utility functions
-├── package.json      # Dependencies
+├── index.ts          # Main config manager & profiles
+├── schemas.ts        # Zod schemas cho validation
+├── utils.ts          # Utility functions & RPC management
+├── example.ts        # Usage examples
+├── package.json      # @moonx/configs
 ├── tsconfig.json     # TypeScript config
 └── README.md         # Documentation
 ```
@@ -55,9 +58,16 @@ const jwtConfig = getJwtConfig('auth-service');
 console.log(jwtConfig.secret); // your-jwt-secret
 ```
 
-#### Quote Service
+#### Quote Service với RPC Management
 ```typescript
-import { createQuoteServiceConfig, getRedisConfig, getApiKeys, getNetworkConfigs } from '@moonx/configs';
+import { 
+  createQuoteServiceConfig, 
+  getRedisConfig, 
+  getApiKeys, 
+  getNetworkConfigs,
+  getRpcConfig,
+  getBestRpcUrl 
+} from '@moonx/configs';
 
 const config = createQuoteServiceConfig();
 
@@ -68,19 +78,30 @@ const redisConfig = getRedisConfig('quote-service');
 const apiKeys = getApiKeys('quote-service');
 console.log(apiKeys.coingecko); // your-coingecko-api-key
 
-// Blockchain networks
+// Blockchain networks với RPC management
 const networks = getNetworkConfigs('quote-service');
-console.log(networks.base.mainnet.rpc); // https://mainnet.base.org
+const baseMainnet = networks.base.mainnet;
+
+// Lấy RPC URL tốt nhất (private trước, fallback sau)
+const bestRpcUrl = getBestRpcUrl(baseMainnet);
+console.log('Best RPC URL:', bestRpcUrl);
+
+// Hoặc sử dụng RPC config helper
+const rpcConfig = getRpcConfig('quote-service', 'base', 'mainnet');
+console.log('Private RPC:', rpcConfig.privateRpc);
+console.log('Fallback RPCs:', rpcConfig.fallbackRpcs);
+console.log('Best URL:', rpcConfig.getBestUrl());
 ```
 
-#### Swap Orchestrator
+#### Swap Orchestrator với RPC Fallback
 ```typescript
 import { 
   createSwapOrchestratorConfig, 
   getDatabaseConfig, 
   getRedisConfig, 
   getKafkaConfig,
-  getTradingConfig 
+  getTradingConfig,
+  getAllRpcUrls 
 } from '@moonx/configs';
 
 const config = createSwapOrchestratorConfig();
@@ -97,25 +118,70 @@ const kafkaConfig = getKafkaConfig('swap-orchestrator');
 // Trading parameters
 const tradingConfig = getTradingConfig('swap-orchestrator');
 console.log(tradingConfig.defaultSlippageTolerance); // 0.5
+
+// RPC URLs cho fallback
+const networks = getNetworkConfigs('swap-orchestrator');
+const baseAllRpcs = getAllRpcUrls(networks.base.mainnet);
+console.log('All Base RPCs:', baseAllRpcs); // [privateRpc, fallback1, fallback2, ...]
 ```
 
-### 3. Sử dụng với @moonx/config package
+### 3. RPC Management
 
+#### Private RPC vs Fallback RPCs
 ```typescript
-import { createDatabase, createRedis, createKafka } from '@moonx/config';
-import { getDatabaseConfig, getRedisConfig, getKafkaConfig } from '@moonx/configs';
+import { getRpcConfig, hasPrivateRpc, getPublicRpcUrls } from '@moonx/configs';
 
-// Tạo database connection
-const dbConfig = getDatabaseConfig('auth-service');
-const database = createDatabase(dbConfig);
+const rpcConfig = getRpcConfig('quote-service', 'base', 'mainnet');
 
-// Tạo Redis connection
-const redisConfig = getRedisConfig('auth-service');
-const redis = createRedis(redisConfig);
+// Kiểm tra có private RPC không
+if (rpcConfig.hasPrivate()) {
+  console.log('Using private RPC for high-speed operations');
+  // Sử dụng private RPC cho operations cần tốc độ
+} else {
+  console.log('Using public fallback RPCs');
+  // Sử dụng fallback RPCs
+}
 
-// Tạo Kafka connection
-const kafkaConfig = getKafkaConfig('swap-orchestrator');
-const kafka = createKafka(kafkaConfig);
+// Lấy chỉ public RPC URLs
+const publicRpcs = rpcConfig.getPublicUrls();
+console.log('Public RPCs:', publicRpcs);
+```
+
+#### Fallback Implementation
+```typescript
+import { getAllRpcUrls } from '@moonx/configs';
+
+const networks = getNetworkConfigs('swap-orchestrator');
+const baseAllRpcs = getAllRpcUrls(networks.base.mainnet);
+
+// Thử từng RPC URL theo thứ tự
+for (const rpcUrl of baseAllRpcs) {
+  try {
+    console.log(`Trying RPC: ${rpcUrl}`);
+    
+    // Thực hiện RPC call
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_blockNumber',
+        params: [],
+        id: 1
+      })
+    });
+    
+    if (response.ok) {
+      console.log(`✅ RPC ${rpcUrl} is working`);
+      return rpcUrl; // Sử dụng RPC URL này
+    }
+  } catch (error) {
+    console.log(`❌ RPC ${rpcUrl} failed:`, error.message);
+    continue; // Thử RPC URL tiếp theo
+  }
+}
+
+throw new Error('All RPC URLs failed');
 ```
 
 ## 📋 Configuration Profiles
@@ -165,6 +231,7 @@ const webConfig = createWebConfig();
 NODE_ENV: 'development' | 'production' | 'test'
 LOG_LEVEL: 'error' | 'warn' | 'info' | 'debug'
 APP_NAME: string
+APP_VERSION: string
 ```
 
 ### Database Configuration
@@ -176,6 +243,8 @@ DATABASE_USER: string
 DATABASE_PASSWORD: string
 DATABASE_SSL: boolean
 DATABASE_MAX_CONNECTIONS: number
+DATABASE_IDLE_TIMEOUT_MS: number
+DATABASE_CONNECTION_TIMEOUT_MS: number
 ```
 
 ### Redis Configuration
@@ -185,202 +254,282 @@ REDIS_PORT: number
 REDIS_PASSWORD?: string
 REDIS_DB: number
 REDIS_KEY_PREFIX: string
+REDIS_ENABLE_READY_CHECK: boolean
+REDIS_LAZY_CONNECT: boolean
+REDIS_MAX_RETRIES_PER_REQUEST: number
+REDIS_CONNECT_TIMEOUT: number
+REDIS_COMMAND_TIMEOUT: number
 ```
 
-### Kafka Configuration
+### Blockchain Configuration
 ```typescript
-KAFKA_BROKERS: string (comma-separated)
-KAFKA_CLIENT_ID: string
-KAFKA_SSL: boolean
-KAFKA_USERNAME?: string
-KAFKA_PASSWORD?: string
+// Base Mainnet
+BASE_MAINNET_RPC?: string (private RPC URL)
+BASE_MAINNET_FALLBACK_RPCS: string (comma-separated public RPCs)
+BASE_MAINNET_CHAIN_ID: number
+BASE_MAINNET_EXPLORER: string
+
+// Base Testnet
+BASE_TESTNET_RPC?: string (private RPC URL)
+BASE_TESTNET_FALLBACK_RPCS: string (comma-separated public RPCs)
+BASE_TESTNET_CHAIN_ID: number
+BASE_TESTNET_EXPLORER: string
+
+// BSC Mainnet
+BSC_MAINNET_RPC?: string (private RPC URL)
+BSC_MAINNET_FALLBACK_RPCS: string (comma-separated public RPCs)
+BSC_MAINNET_CHAIN_ID: number
+BSC_MAINNET_EXPLORER: string
+
+// BSC Testnet
+BSC_TESTNET_RPC?: string (private RPC URL)
+BSC_TESTNET_FALLBACK_RPCS: string (comma-separated public RPCs)
+BSC_TESTNET_CHAIN_ID: number
+BSC_TESTNET_EXPLORER: string
 ```
 
 ## 🛠️ Utility Functions
 
-### getDatabaseConfig(profile)
-Lấy database configuration cho service.
-
-### getRedisConfig(profile)
-Lấy Redis configuration cho service.
-
-### getKafkaConfig(profile)
-Lấy Kafka configuration cho service.
-
-### getJwtConfig(profile)
-Lấy JWT configuration cho service.
-
-### getServiceUrls(profile)
-Lấy URLs của tất cả services.
-
-### getNetworkConfigs(profile)
-Lấy blockchain network configurations.
-
-### getTradingConfig(profile)
-Lấy trading parameters.
-
-### getApiKeys(profile)
-Lấy external API keys.
-
-### getServerConfig(profile)
-Lấy server host/port cho service.
-
-### validateServiceConfig(profile, requiredConfigs)
-Validate config bắt buộc cho service.
-
-## 📝 Ví dụ thực tế
-
-### Setup Auth Service
-
+### Configuration Utilities
 ```typescript
-// services/auth-service/src/index.ts
-import express from 'express';
-import { createDatabase } from '@moonx/config';
-import { createRedis } from '@moonx/config';
-import { 
-  createAuthServiceConfig,
+import {
   getDatabaseConfig,
   getRedisConfig,
+  getKafkaConfig,
   getJwtConfig,
-  getServerConfig 
-} from '@moonx/config-manager';
-
-async function startAuthService() {
-  // Load config
-  const config = createAuthServiceConfig();
-  
-  // Setup database
-  const dbConfig = getDatabaseConfig('auth-service');
-  const database = createDatabase(dbConfig);
-  await database.connect();
-  
-  // Setup Redis
-  const redisConfig = getRedisConfig('auth-service');
-  const redis = createRedis(redisConfig);
-  await redis.connect();
-  
-  // Setup JWT
-  const jwtConfig = getJwtConfig('auth-service');
-  
-  // Setup server
-  const serverConfig = getServerConfig('auth-service');
-  const app = express();
-  
-  app.listen(serverConfig.port, () => {
-    console.log(`Auth service running on port ${serverConfig.port}`);
-  });
-}
-
-startAuthService();
-```
-
-### Setup Quote Service
-
-```typescript
-// services/quote-service/src/index.ts
-import { 
-  createQuoteServiceConfig,
-  getRedisConfig,
-  getApiKeys,
+  getServiceUrls,
   getNetworkConfigs,
-  getServerConfig 
-} from '@moonx/config-manager';
+  getTradingConfig,
+  getApiKeys,
+  getCacheConfig,
+  validateServiceConfig,
+  getServerConfig,
+} from '@moonx/configs';
 
-async function startQuoteService() {
-  const config = createQuoteServiceConfig();
-  
-  // Redis for caching
-  const redisConfig = getRedisConfig('quote-service');
-  
-  // External API keys
-  const apiKeys = getApiKeys('quote-service');
-  
-  // Blockchain networks
-  const networks = getNetworkConfigs('quote-service');
-  
-  // Server config
-  const serverConfig = getServerConfig('quote-service');
-  
-  console.log('Quote service configuration loaded:', {
-    redis: redisConfig.host,
-    coingecko: !!apiKeys.coingecko,
-    baseRpc: networks.base.mainnet.rpc,
-    port: serverConfig.port
-  });
-}
+// Lấy config cho từng service
+const dbConfig = getDatabaseConfig('auth-service');
+const redisConfig = getRedisConfig('quote-service');
+const networks = getNetworkConfigs('swap-orchestrator');
 ```
 
-## 🔄 Dynamic Configuration
-
-### Reload Configuration
+### RPC Management Utilities
 ```typescript
-const config = createAuthServiceConfig();
+import {
+  getBestRpcUrl,
+  getAllRpcUrls,
+  getPublicRpcUrls,
+  hasPrivateRpc,
+  getRpcConfig,
+} from '@moonx/configs';
 
-// Reload configuration (useful for testing)
-config.reload();
+// Lấy RPC URL tốt nhất
+const bestUrl = getBestRpcUrl(networkConfig);
+
+// Lấy tất cả RPC URLs (private trước, fallback sau)
+const allUrls = getAllRpcUrls(networkConfig);
+
+// Lấy chỉ public RPC URLs
+const publicUrls = getPublicRpcUrls(networkConfig);
+
+// Kiểm tra có private RPC không
+const hasPrivate = hasPrivateRpc(networkConfig);
+
+// Lấy RPC config hoàn chỉnh
+const rpcConfig = getRpcConfig('quote-service', 'base', 'mainnet');
 ```
 
-### Environment-specific Configuration
+## 🔄 Migration từ Common Package
+
+### Trước (Legacy)
 ```typescript
-const config = createAuthServiceConfig();
+import { validateEnv, BaseEnvSchema } from '@moonx/common';
 
-if (config.isDevelopment()) {
-  console.log('Running in development mode');
-}
-
-if (config.isProduction()) {
-  console.log('Running in production mode');
-}
-```
-
-## 🧪 Testing
-
-```typescript
-// test/config.test.ts
-import { createConfig, validateServiceConfig } from '@moonx/config-manager';
-
-describe('Configuration', () => {
-  test('should load auth service config', () => {
-    const config = createConfig('auth-service');
-    expect(config.get('NODE_ENV')).toBeDefined();
-  });
-  
-  test('should validate required configs', () => {
-    expect(() => {
-      validateServiceConfig('auth-service', ['JWT_SECRET']);
-    }).not.toThrow();
-  });
+const AuthServiceEnvSchema = BaseEnvSchema.extend({
+  PRIVY_APP_ID: z.string(),
+  PRIVY_APP_SECRET: z.string(),
 });
+
+export const env = validateEnv(AuthServiceEnvSchema);
 ```
 
-## 🚨 Best Practices
-
-1. **Single Source of Truth**: Tất cả environment variables trong file `.env` root
-2. **Profile-based Loading**: Mỗi service chỉ load config cần thiết
-3. **Type Safety**: Sử dụng TypeScript types từ config schemas
-4. **Validation**: Validate config khi service khởi động
-5. **Environment Separation**: Sử dụng `.env.development`, `.env.production` khi cần
-
-## 🔗 Integration với Services
-
-### package.json của service
-```json
-{
-  "dependencies": {
-    "@moonx/config-manager": "workspace:*",
-    "@moonx/config": "workspace:*"
-  }
-}
-```
-
-### Service index.ts
+### Sau (Configs Package)
 ```typescript
-import { createServiceConfig, getServerConfig } from '@moonx/config-manager';
+import { createAuthServiceConfig } from '@moonx/configs';
 
-const config = createServiceConfig('your-service-name');
-const serverConfig = getServerConfig('your-service-name');
-
-// Your service logic here
+const config = createAuthServiceConfig();
+const privyAppId = config.get('PRIVY_APP_ID');
+const privyAppSecret = config.get('PRIVY_APP_SECRET');
 ```
 
-Hệ thống này giúp quản lý configuration một cách tập trung, type-safe và dễ bảo trì cho toàn bộ monorepo! 🎉 
+## 📝 Environment Variables
+
+### Blockchain RPC Configuration
+```bash
+# Base Mainnet
+BASE_MAINNET_RPC=https://your-private-base-rpc.com
+BASE_MAINNET_FALLBACK_RPCS=https://mainnet.base.org,https://base.blockpi.network/v1/rpc/public,https://1rpc.io/base,https://base.meowrpc.com
+BASE_MAINNET_CHAIN_ID=8453
+BASE_MAINNET_EXPLORER=https://basescan.org
+
+# Base Testnet
+BASE_TESTNET_RPC=https://your-private-base-testnet-rpc.com
+BASE_TESTNET_FALLBACK_RPCS=https://sepolia.base.org,https://base-sepolia.blockpi.network/v1/rpc/public,https://base-sepolia.publicnode.com
+BASE_TESTNET_CHAIN_ID=84532
+BASE_TESTNET_EXPLORER=https://sepolia.basescan.org
+
+# BSC Mainnet
+BSC_MAINNET_RPC=https://your-private-bsc-rpc.com
+BSC_MAINNET_FALLBACK_RPCS=https://bsc-dataseed1.binance.org,https://bsc-dataseed2.binance.org,https://bsc-dataseed3.binance.org,https://bsc-dataseed4.binance.org,https://bsc.nodereal.io
+BSC_MAINNET_CHAIN_ID=56
+BSC_MAINNET_EXPLORER=https://bscscan.com
+
+# BSC Testnet
+BSC_TESTNET_RPC=https://your-private-bsc-testnet-rpc.com
+BSC_TESTNET_FALLBACK_RPCS=https://data-seed-prebsc-1-s1.binance.org:8545,https://data-seed-prebsc-2-s1.binance.org:8545,https://data-seed-prebsc-1-s2.binance.org:8545,https://data-seed-prebsc-2-s2.binance.org:8545
+BSC_TESTNET_CHAIN_ID=97
+BSC_TESTNET_EXPLORER=https://testnet.bscscan.com
+```
+
+## 🚀 Setup
+
+### 1. Automated Setup
+```bash
+# Chạy script setup tự động
+./scripts/setup-env.sh
+
+# Script sẽ:
+# - Tạo .env từ env.example
+# - Generate secure JWT/session secrets
+# - Prompt cho database, Redis, Kafka config
+# - Tạo environment-specific files
+```
+
+### 2. Manual Setup
+```bash
+# Copy environment template
+cp env.example .env
+
+# Điền các giá trị thực tế
+nano .env
+
+# Install dependencies
+pnpm install
+
+# Build packages
+pnpm build
+```
+
+## 🔒 Security Best Practices
+
+1. **Private RPC URLs**: Sử dụng private RPC cho production
+2. **Fallback RPCs**: Luôn có fallback RPCs cho reliability
+3. **Environment Separation**: Sử dụng different configs cho dev/staging/prod
+4. **Secret Management**: Không commit secrets vào version control
+5. **Validation**: Luôn validate environment variables với Zod schemas
+
+## 📚 Examples
+
+Xem file `example.ts` để có thêm examples chi tiết về:
+- Basic network configuration
+- RPC utilities usage
+- Service-specific RPC usage
+- Environment-specific configuration
+- Fallback RPC implementation 
+
+## Logger Configuration
+
+The system includes centralized logger configuration with the following features:
+
+### Environment Variables
+
+```bash
+# Log level (error, warn, info, debug)
+LOG_LEVEL=info
+
+# Enable console logging
+LOG_ENABLE_CONSOLE=true
+
+# Enable file logging (recommended for production)
+LOG_ENABLE_FILE=false
+
+# Log directory
+LOG_DIR=logs
+
+# Maximum number of log files to keep
+LOG_MAX_FILES=5
+
+# Maximum size of each log file (e.g., 10m, 100m, 1g)
+LOG_MAX_SIZE=10m
+
+# Log format (json, console)
+LOG_FORMAT=console
+```
+
+### Usage Examples
+
+```typescript
+import { createLogger, createLoggerForProfile, createLoggerWithConfig, LoggerConfig } from '@moonx/common';
+
+// Basic usage with default configuration
+const logger = createLogger('auth-service');
+logger.info('Service started', { port: 3001 });
+
+// Profile-based configuration (recommended)
+const authLogger = createLoggerForProfile('auth-service');
+authLogger.info('Auth service started', { port: 3001 });
+
+const quoteLogger = createLoggerForProfile('quote-service');
+quoteLogger.debug('Quote calculation started', { 
+  tokenIn: 'USDC', 
+  tokenOut: 'ETH',
+  amount: '1000'
+});
+
+// Custom configuration
+const customConfig: LoggerConfig = {
+  level: 'debug',
+  service: 'quote-service',
+  enableConsole: true,
+  enableFile: true,
+  logDir: 'logs/quote',
+  maxFiles: 10,
+  maxSize: '20m',
+  format: 'json',
+};
+
+const customLogger = createLoggerWithConfig(customConfig);
+
+// Environment-specific configuration
+const getLoggerForEnvironment = (service: string) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  const config: LoggerConfig = {
+    level: isProduction ? 'info' : 'debug',
+    service,
+    enableConsole: !isProduction,
+    enableFile: isProduction,
+    logDir: 'logs',
+    maxFiles: isProduction ? 10 : 5,
+    maxSize: isProduction ? '50m' : '10m',
+    format: isProduction ? 'json' : 'console',
+  };
+  
+  return createLoggerWithConfig(config);
+};
+
+// Child logger with context
+const userLogger = authLogger.child({ userId: 'user123' });
+userLogger.info('User action performed', { action: 'login' });
+```
+
+### Features
+
+- **Profile-based**: Each service can have its own logger configuration
+- **Environment-aware**: Different settings for development, staging, and production
+- **Flexible output**: Console and/or file logging
+- **Structured logging**: JSON format for production, colored console for development
+- **Context support**: Child loggers with default context
+- **Performance timing**: Built-in timing utilities
+- **Error handling**: Automatic error logging with context
+
+## Environment Variables 

@@ -19,7 +19,8 @@
     "zod": "^3.22.4",
     "winston": "^3.11.0",
     "nanoid": "^5.0.4",
-    "ethers": "^6.8.1"
+    "ethers": "^6.8.1",
+    "@moonx/configs": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

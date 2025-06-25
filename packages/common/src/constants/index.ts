@@ -8,7 +8,13 @@ export const NETWORKS: Record<ChainId, NetworkConfig> = {
   8453: {
     chainId: 8453,
     name: 'Base',
-    rpcUrl: 'https://mainnet.base.org',
+    rpcUrls: [
+      'https://mainnet.base.org',
+      'https://base.blockpi.network/v1/rpc/public',
+      'https://1rpc.io/base',
+      'https://base.meowrpc.com',
+    ],
+    privateRpcUrl: process.env.BASE_MAINNET_RPC,
     blockExplorer: 'https://basescan.org',
     nativeCurrency: {
       name: 'Ethereum',
@@ -21,7 +27,12 @@ export const NETWORKS: Record<ChainId, NetworkConfig> = {
   84532: {
     chainId: 84532,
     name: 'Base Sepolia',
-    rpcUrl: 'https://sepolia.base.org',
+    rpcUrls: [
+      'https://sepolia.base.org',
+      'https://base-sepolia.blockpi.network/v1/rpc/public',
+      'https://base-sepolia.publicnode.com',
+    ],
+    privateRpcUrl: process.env.BASE_TESTNET_RPC,
     blockExplorer: 'https://sepolia.basescan.org',
     nativeCurrency: {
       name: 'Ethereum',
@@ -34,7 +45,15 @@ export const NETWORKS: Record<ChainId, NetworkConfig> = {
   56: {
     chainId: 56,
     name: 'BNB Smart Chain',
-    rpcUrl: 'https://bsc-dataseed1.binance.org',
+    rpcUrls: [
+      'https://bsc-dataseed1.binance.org',
+      'https://bsc-dataseed2.binance.org',
+      'https://bsc-dataseed3.binance.org',
+      'https://bsc-dataseed4.binance.org',
+      'https://bsc.nodereal.io',
+      'https://bsc-mainnet.nodereal.io/v1/64a9df0874fb4a93b9d0a3849de012d3',
+    ],
+    privateRpcUrl: process.env.BSC_MAINNET_RPC,
     blockExplorer: 'https://bscscan.com',
     nativeCurrency: {
       name: 'BNB',
@@ -47,7 +66,13 @@ export const NETWORKS: Record<ChainId, NetworkConfig> = {
   97: {
     chainId: 97,
     name: 'BNB Smart Chain Testnet',
-    rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
+    rpcUrls: [
+      'https://data-seed-prebsc-1-s1.binance.org:8545',
+      'https://data-seed-prebsc-2-s1.binance.org:8545',
+      'https://data-seed-prebsc-1-s2.binance.org:8545',
+      'https://data-seed-prebsc-2-s2.binance.org:8545',
+    ],
+    privateRpcUrl: process.env.BSC_TESTNET_RPC,
     blockExplorer: 'https://testnet.bscscan.com',
     nativeCurrency: {
       name: 'BNB',
@@ -319,4 +344,43 @@ export const REGEX = {
   ETHEREUM_ADDRESS: /^0x[a-fA-F0-9]{40}$/,
   TRANSACTION_HASH: /^0x[a-fA-F0-9]{64}$/,
   NUMERIC_STRING: /^\d+(\.\d+)?$/,
+} as const;
+
+/**
+ * RPC URL utilities
+ */
+export const RPC_UTILS = {
+  /**
+   * Get the best available RPC URL for a network
+   * Priority: privateRpcUrl > first public RPC URL
+   */
+  getBestRpcUrl: (network: NetworkConfig): string => {
+    return network.privateRpcUrl || network.rpcUrls[0];
+  },
+
+  /**
+   * Get all available RPC URLs for a network (private first, then public)
+   */
+  getAllRpcUrls: (network: NetworkConfig): string[] => {
+    const urls = [];
+    if (network.privateRpcUrl) {
+      urls.push(network.privateRpcUrl);
+    }
+    urls.push(...network.rpcUrls);
+    return urls;
+  },
+
+  /**
+   * Get public RPC URLs only (excluding private)
+   */
+  getPublicRpcUrls: (network: NetworkConfig): string[] => {
+    return [...network.rpcUrls];
+  },
+
+  /**
+   * Check if network has private RPC configured
+   */
+  hasPrivateRpc: (network: NetworkConfig): boolean => {
+    return !!network.privateRpcUrl;
+  },
 } as const; 

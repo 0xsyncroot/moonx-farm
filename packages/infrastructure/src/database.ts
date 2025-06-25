@@ -1,5 +1,6 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
-import { createLogger, DatabaseError, isDevelopment } from '@moonx/common';
+import { createLogger, DatabaseError } from '@moonx/common';
+import { isDevelopment } from '@moonx/configs';
 
 const logger = createLogger('database');
 

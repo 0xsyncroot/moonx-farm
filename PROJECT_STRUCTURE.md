@@ -47,7 +47,7 @@ moonx-farm/
 │   │   │   ├── types/
 │   │   │   └── index.ts
 │   │   └── tests/
-│   └── config/                         # Legacy shared configurations
+│   └── infrastructure/                         # Legacy shared configurations
 │       ├── package.json
 │       └── src/
 │           ├── database.ts

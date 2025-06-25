@@ -11,7 +11,8 @@ export type ChainId = 8453 | 84532 | 56 | 97; // Base Mainnet, Base Sepolia, BSC
 export interface NetworkConfig {
   chainId: ChainId;
   name: string;
-  rpcUrl: string;
+  rpcUrls: string[]; // Array of public RPC URLs for fallback
+  privateRpcUrl?: string; // Private RPC URL for high-speed operations
   blockExplorer: string;
   nativeCurrency: {
     name: string;

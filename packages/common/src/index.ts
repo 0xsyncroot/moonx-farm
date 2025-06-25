@@ -2,16 +2,15 @@
  * @moonx/common - Shared utilities and types for MoonXFarm DEX
  * 
  * This package provides:
- * - Environment validation with Zod
  * - Structured logging with Winston
  * - Custom error classes
  * - Type definitions
  * - Utility functions
  * - Constants and configuration
+ * 
+ * Note: Environment validation is now handled by @moonx/configs package
+ * Use createConfig() from @moonx/configs for environment management
  */
-
-// Environment validation
-export * from './env';
 
 // Logging
 export * from './logger';

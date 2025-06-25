@@ -1,7 +1,7 @@
 {
-  "name": "@moonx/config",
+  "name": "@moonx/infrastructure",
   "version": "1.0.0",
-  "description": "Shared configuration for MoonXFarm DEX services",
+  "description": "Infrastructure clients and managers for MoonXFarm DEX services",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@moonx/common": "workspace:*",
+    "@moonx/configs": "workspace:*",
     "pg": "^8.11.3",
     "ioredis": "^5.3.2",
     "kafkajs": "^2.2.4"

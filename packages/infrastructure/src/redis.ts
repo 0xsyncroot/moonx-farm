@@ -1,7 +1,8 @@
 import Redis, { Redis as RedisClient, RedisOptions } from 'ioredis';
-import { createLogger, ServiceUnavailableError, isDevelopment } from '@moonx/common';
+import { createLogger, ServiceUnavailableError } from '@moonx/common';
 
 const logger = createLogger('redis');
+
 
 /**
  * Redis configuration options

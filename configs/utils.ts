@@ -134,31 +134,34 @@ export const getNetworkConfigs = (profile: ConfigProfile) => {
   return {
     base: {
       mainnet: {
-        rpc: configData.BASE_MAINNET_RPC,
+        privateRpc: configData.BASE_MAINNET_RPC,
+        fallbackRpcs: configData.BASE_MAINNET_FALLBACK_RPCS?.split(',').map((url: string) => url.trim()) || [],
         chainId: configData.BASE_MAINNET_CHAIN_ID,
-        explorer: configData.BASE_MAINNET_EXPLORER,
+        explorer: configData.BASE_MAINNET_EXPLORER || 'https://basescan.org',
       },
       testnet: {
-        rpc: configData.BASE_TESTNET_RPC,
+        privateRpc: configData.BASE_TESTNET_RPC,
+        fallbackRpcs: configData.BASE_TESTNET_FALLBACK_RPCS?.split(',').map((url: string) => url.trim()) || [],
         chainId: configData.BASE_TESTNET_CHAIN_ID,
-        explorer: configData.BASE_TESTNET_EXPLORER,
+        explorer: configData.BASE_TESTNET_EXPLORER || 'https://sepolia.basescan.org',
       },
     },
     bsc: {
       mainnet: {
-        rpc: configData.BSC_MAINNET_RPC,
+        privateRpc: configData.BSC_MAINNET_RPC,
+        fallbackRpcs: configData.BSC_MAINNET_FALLBACK_RPCS?.split(',').map((url: string) => url.trim()) || [],
         chainId: configData.BSC_MAINNET_CHAIN_ID,
-        explorer: configData.BSC_MAINNET_EXPLORER,
+        explorer: configData.BSC_MAINNET_EXPLORER || 'https://bscscan.com',
       },
       testnet: {
-        rpc: configData.BSC_TESTNET_RPC,
+        privateRpc: configData.BSC_TESTNET_RPC,
+        fallbackRpcs: configData.BSC_TESTNET_FALLBACK_RPCS?.split(',').map((url: string) => url.trim()) || [],
         chainId: configData.BSC_TESTNET_CHAIN_ID,
-        explorer: configData.BSC_TESTNET_EXPLORER,
+        explorer: configData.BSC_TESTNET_EXPLORER || 'https://testnet.bscscan.com',
       },
     },
     default: {
       chainId: configData.DEFAULT_CHAIN_ID,
-      rpc: configData.DEFAULT_RPC_URL,
     },
   };
 };
@@ -282,5 +285,122 @@ export const getServerConfig = (profile: ConfigProfile) => {
   return {
     port: configData[portKey] || 3000,
     host: configData[hostKey] || 'localhost',
+    cors: {
+      origin: configData.CORS_ORIGIN || '*',
+      credentials: configData.CORS_CREDENTIALS || true,
+    },
   };
-}; 
+};
+
+/**
+ * RPC Management Utilities
+ */
+
+/**
+ * Get the best available RPC URL for a network
+ * Priority: privateRpc > first fallback RPC
+ */
+export const getBestRpcUrl = (networkConfig: any): string => {
+  return networkConfig.privateRpc || networkConfig.fallbackRpcs[0];
+};
+
+/**
+ * Get all available RPC URLs for a network (private first, then fallbacks)
+ */
+export const getAllRpcUrls = (networkConfig: any): string[] => {
+  const urls = [];
+  if (networkConfig.privateRpc) {
+    urls.push(networkConfig.privateRpc);
+  }
+  urls.push(...networkConfig.fallbackRpcs);
+  return urls;
+};
+
+/**
+ * Get public RPC URLs only (excluding private)
+ */
+export const getPublicRpcUrls = (networkConfig: any): string[] => {
+  return [...networkConfig.fallbackRpcs];
+};
+
+/**
+ * Check if network has private RPC configured
+ */
+export const hasPrivateRpc = (networkConfig: any): boolean => {
+  return !!networkConfig.privateRpc;
+};
+
+/**
+ * Get RPC configuration for a specific network and environment
+ */
+export const getRpcConfig = (profile: ConfigProfile, network: 'base' | 'bsc', environment: 'mainnet' | 'testnet') => {
+  const networks = getNetworkConfigs(profile);
+  const networkConfig = networks[network][environment];
+  
+  return {
+    privateRpc: networkConfig.privateRpc,
+    fallbackRpcs: networkConfig.fallbackRpcs,
+    chainId: networkConfig.chainId,
+    explorer: networkConfig.explorer,
+    // Utility methods
+    getBestUrl: () => getBestRpcUrl(networkConfig),
+    getAllUrls: () => getAllRpcUrls(networkConfig),
+    getPublicUrls: () => getPublicRpcUrls(networkConfig),
+    hasPrivate: () => hasPrivateRpc(networkConfig),
+  };
+};
+
+/**
+ * Environment utility functions
+ */
+
+/**
+ * Check if current environment is development
+ */
+export function isDevelopment(): boolean {
+  return process.env.NODE_ENV === 'development';
+}
+
+/**
+ * Check if current environment is production
+ */
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * Check if current environment is test
+ */
+export function isTest(): boolean {
+  return process.env.NODE_ENV === 'test';
+}
+
+/**
+ * Get current environment
+ */
+export function getCurrentEnv(): 'development' | 'staging' | 'production' | 'test' {
+  return (process.env.NODE_ENV as any) || 'development';
+}
+
+/**
+ * Get logger configuration from environment
+ * @returns Logger configuration object
+ */
+export function getLoggerConfig() {
+  return {
+    level: (process.env.LOG_LEVEL as 'error' | 'warn' | 'info' | 'debug') || 'info',
+    service: process.env.APP_NAME || 'moonx-farm',
+    enableConsole: process.env.LOG_ENABLE_CONSOLE !== 'false',
+    enableFile: process.env.LOG_ENABLE_FILE === 'true',
+    logDir: process.env.LOG_DIR || 'logs',
+    maxFiles: parseInt(process.env.LOG_MAX_FILES || '5'),
+    maxSize: process.env.LOG_MAX_SIZE || '10m',
+    format: (process.env.LOG_FORMAT as 'json' | 'console') || 'console',
+  };
+}
+
+/**
+ * Get RPC configuration for a specific network
+ * @param network - Network name (e.g., 'base-mainnet', 'bsc-testnet')
+ * @returns RPC configuration object
+ */ 
