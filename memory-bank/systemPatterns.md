@@ -155,25 +155,35 @@ sequenceDiagram
 ### 3. **Diamond Proxy Pattern (EIP-2535)**
 **Rationale**: Upgradeable contracts, code organization, gas optimization
 
-**Contract Structure**:
+**Actual Contract Structure**:
 ```
-Diamond Proxy (0x...)
-├── DiamondCutFacet     # Upgrade functionality
-├── DiamondLoupeFacet   # Introspection
-├── SwapFacet          # Instant swaps
-├── LimitFacet         # Limit orders  
-├── DCAFacet           # Dollar-cost averaging
-└── LibDiamond         # Shared storage
+MoonXFarmRouter (Diamond)
+├── DiamondCutFacet        # Upgrade functionality
+├── DiamondLoupeFacet      # Introspection
+├── OwnershipFacet         # Access control
+├── FeeCollectorFacet      # Fee recipient management
+├── LifiProxyFacet         # LI.FI aggregator integration
+├── OneInchProxyFacet      # 1inch aggregator integration
+├── RelayProxyFacet        # Relay.link aggregator integration
+└── LibDiamond             # Shared storage
 ```
 
-**Storage Layout**:
+**Key Libraries**:
 ```solidity
-struct DiamondStorage {
-    mapping(address => UserInfo) users;
-    mapping(bytes32 => Order) orders;
-    mapping(address => uint256) balances;
-    uint256 totalFees;
-    address paymaster;
+// Fee collection storage
+library LibFeeCollector {
+    struct Storage {
+        address recipient;
+    }
+}
+
+// Diamond storage with facet management
+library LibDiamond {
+    struct DiamondStorage {
+        mapping(bytes4 => FacetAddressAndPosition) selectorToFacetAndPosition;
+        mapping(address => uint256) supportedInterfaces;
+        address contractOwner;
+    }
 }
 ```
 
@@ -214,58 +224,123 @@ graph LR
 - Limited permissions và expiry time
 - Automatic rotation mỗi 24h
 
-### 5. **Aggregator Pattern**
-**Rationale**: Best price discovery, multiple liquidity sources
+### 5. **Multi-Aggregator Router Pattern**
+**Rationale**: Best price discovery, redundancy, comprehensive liquidity access
 
-**Quote Aggregation Flow**:
+**MoonXFarmRouter Architecture**:
 ```mermaid
 graph TB
     USER[User Request<br/>ETH → USDC]
     
-    subgraph "Quote Service"
+    subgraph "Quote Service (Backend)"
         QS[Quote Service]
         CACHE[Redis Cache]
     end
     
-    subgraph "Aggregators"
-        LIFI[LI.FI]
-        ONEINCH[1inch]
-        PARASWAP[ParaSwap]
+    subgraph "MoonXFarmRouter (On-chain)"
+        ROUTER[Diamond Proxy]
+        LIFI_FACET[LifiProxyFacet]
+        ONEINCH_FACET[OneInchProxyFacet]
+        RELAY_FACET[RelayProxyFacet]
+        FEE_FACET[FeeCollectorFacet]
     end
     
-    subgraph "DEXs"
+    subgraph "External Aggregators"
+        LIFI[LI.FI API]
+        ONEINCH[1inch API]
+        RELAY[Relay.link API]
+    end
+    
+    subgraph "Underlying DEXs"
         UNI[Uniswap V3]
         SUSHI[SushiSwap]
         PANCAKE[PancakeSwap]
+        CURVE[Curve]
     end
     
     USER --> QS
     QS --> CACHE
     QS --> LIFI
     QS --> ONEINCH
-    QS --> PARASWAP
+    QS --> RELAY
+    
+    QS --> USER
+    USER --> ROUTER
+    
+    ROUTER --> LIFI_FACET
+    ROUTER --> ONEINCH_FACET
+    ROUTER --> RELAY_FACET
+    
+    LIFI_FACET --> LIFI
+    ONEINCH_FACET --> ONEINCH
+    RELAY_FACET --> RELAY
     
     LIFI --> UNI
     LIFI --> SUSHI
     ONEINCH --> UNI
     ONEINCH --> PANCAKE
-    PARASWAP --> SUSHI
+    RELAY --> CURVE
     
-    QS --> USER
+    ROUTER --> FEE_FACET
+```
+
+**Aggregator Proxy Pattern**:
+```solidity
+contract AggregatorProxy is ReentrancyGuard {
+    // Parse token address + fee from packed uint256
+    function _parseAddressAndFee(uint256 tokenWithFee) 
+        internal pure returns (address token, uint16 fee);
+    
+    // Process fees on input/output tokens
+    function _processFees(address token, uint256 amount, uint16 fee, bool isInput) 
+        internal returns (uint256 remainingAmount);
+    
+    // Execute aggregator call with fee collection
+    function _callAggregator(
+        uint256 fromTokenWithFee,
+        uint256 fromAmount,
+        uint256 toTokenWithFee,
+        bytes calldata callData
+    ) internal nonReentrant;
+}
 ```
 
 ## 🔄 Data Flow Patterns
 
-### 1. **Command Query Responsibility Segregation (CQRS)**
-**Write Side (Commands)**:
-- User actions: Swap, CreateLimitOrder, SetupDCA
-- Events published to Kafka
-- Immediate response to user
+### 1. **Router-First Architecture**
+**Quote Phase (Off-chain)**:
+- Query multiple aggregators for best routes
+- Cache results in Redis
+- Return optimized route to user
 
-**Read Side (Queries)**:
-- Portfolio data từ Position Indexer
-- Price data từ Redis cache
-- Trade history từ PostgreSQL
+**Execution Phase (On-chain)**:
+- User calls appropriate router facet
+- Router executes via selected aggregator
+- Fees collected automatically
+- Events emitted for tracking
+
+### 2. **Fee Collection Pattern**
+**Inline Fee Processing**:
+```solidity
+// Fees encoded in token address
+uint256 tokenWithFee = (token_address) | (fee_bps << 160);
+
+// Automatic fee deduction
+function _processFees(address token, uint256 amount, uint16 fee, bool isInput) 
+    internal returns (uint256 remainingAmount) {
+    if (fee == 0) return amount;
+    
+    address feeRecipient = LibFeeCollector.getRecipient();
+    uint256 feeAmount = (amount * fee) / FEE_PERCENTAGE_BASE;
+    remainingAmount = amount - feeAmount;
+    
+    // Transfer fees to recipient
+    _handleTokenTransfer(token, feeRecipient, feeAmount);
+    emit FeeCollected(token, feeRecipient, feeAmount);
+    
+    return remainingAmount;
+}
+```
 
 ### 2. **Event Sourcing for Audit Trail**
 **Events Store**:

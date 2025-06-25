@@ -49,11 +49,11 @@
 ### **Blockchain & Web3**
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **Smart Contracts** | Solidity 0.8.20+ | Diamond proxy contracts |
+| **Smart Contracts** | Solidity 0.8.23 | MoonXFarmRouter (Diamond proxy) |
 | **Testing Framework** | Foundry | Contract testing & deployment |
 | **Account Abstraction** | ZeroDev | AA wallets, bundler, paymaster |
-| **Networks** | Base, BSC | Supported blockchains |
-| **Aggregators** | LI.FI, 1inch, ParaSwap | Liquidity aggregation |
+| **Networks** | Base, BSC, Ethereum, Polygon | Multi-chain support |
+| **Aggregators** | LI.FI, 1inch, Relay.link | 3 aggregator integrations |
 
 ## 🏗️ Development Environment
 

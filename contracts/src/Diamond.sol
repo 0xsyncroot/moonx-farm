@@ -5,7 +5,7 @@ import {LibDiamond} from "./libraries/LibDiamond.sol";
 import {IDiamondCut} from "./interfaces/IDiamondCut.sol";
 import {LibUtil} from "./libraries/LibUtil.sol";
 
-contract CastWatchDiamond {
+contract MoonXFarmRouter {
     constructor(address _contractOwner, address _diamondCutFacet) payable {
         LibDiamond.setContractOwner(_contractOwner);
 

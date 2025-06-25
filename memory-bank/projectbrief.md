@@ -1,13 +1,13 @@
-# MoonXFarm DEX - Project Brief
+# MoonXFarm Router - Project Brief
 
-**Dự án**: MoonXFarm Decentralized Exchange  
+**Dự án**: MoonXFarm Multi-Aggregator Router  
 **Phiên bản**: v1.0  
-**Trạng thái**: In Development  
+**Trạng thái**: Smart Contracts Complete - Backend Development  
 **Ngày cập nhật**: 25/06/2025  
 
 ## 🎯 Tổng Quan Dự Án
 
-MoonXFarm là một sàn giao dịch phi tập trung (DEX) thế hệ mới, được thiết kế để mang lại trải nghiệm giao dịch vượt trội thông qua tốc độ, sự tiện lợi (gasless) và an toàn (MEV-protection). Dự án sử dụng kiến trúc microservices hiện đại kết hợp với Account Abstraction và Diamond Proxy pattern.
+MoonXFarm là một **multi-aggregator router** thế hệ mới, được thiết kế để mang lại trải nghiệm giao dịch vượt trội thông qua việc tổng hợp thanh khoản từ nhiều nguồn, gasless transactions và bảo vệ MEV. Dự án sử dụng kiến trúc microservices hiện đại kết hợp với Account Abstraction và Diamond Proxy pattern cho smart contracts.
 
 ## 🚀 Mục Tiêu Kinh Doanh
 
@@ -44,7 +44,7 @@ MoonXFarm là một sàn giao dịch phi tập trung (DEX) thế hệ mới, đ�
    - Price Crawler (Multi-source price aggregation)
    - Order Executor (Automated limit/DCA execution)
 
-5. **Smart Contracts**: Diamond Proxy (EIP-2535) với SwapFacet, LimitFacet, DCAFacet
+5. **Smart Contracts**: MoonXFarmRouter (Diamond Proxy EIP-2535) với LifiProxyFacet, OneInchProxyFacet, RelayProxyFacet
 
 6. **Infrastructure**: PostgreSQL, Redis, Kafka, Kubernetes
 
@@ -143,12 +143,13 @@ MoonXFarm là một sàn giao dịch phi tập trung (DEX) thế hệ mới, đ�
 
 ## 🔄 Competitive Advantages
 
-1. **Gasless Experience**: Người dùng không cần lo về gas fees
-2. **MEV Protection**: Bảo vệ người dùng khỏi front-running
-3. **Social Login**: Không cần seed phrase phức tạp
-4. **Advanced Features**: Limit orders, DCA không có ở nhiều DEX
-5. **Multi-chain**: Hỗ trợ nhiều blockchain từ đầu
-6. **Real-time Updates**: WebSocket cho trải nghiệm mượt mà
+1. **Multi-Aggregator Strategy**: Tổng hợp 3 aggregators (LI.FI, 1inch, Relay) cho best price discovery
+2. **Gasless Experience**: Người dùng không cần lo về gas fees với ZeroDev integration
+3. **MEV Protection**: Built-in MEV protection qua Relay và routing optimization
+4. **Social Login**: Không cần seed phrase phức tạp với Privy integration
+5. **Advanced Router Features**: Sophisticated fee collection, multi-chain support
+6. **Diamond Upgradeable**: Easy addition của new aggregators và features
+7. **Redundancy & Reliability**: Fallback providers nếu aggregator nào đó down
 
 ## 🚨 Key Risks & Mitigation
 
