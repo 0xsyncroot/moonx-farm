@@ -43,23 +43,24 @@ type QuoteRequest struct {
 
 // Quote represents a swap quote from an aggregator
 type Quote struct {
-	ID                string          `json:"id"`
-	FromToken         *Token          `json:"fromToken"`
-	ToToken           *Token          `json:"toToken"`
-	FromAmount        decimal.Decimal `json:"fromAmount"`
-	ToAmount          decimal.Decimal `json:"toAmount"`
-	ToAmountMin       decimal.Decimal `json:"toAmountMin"`
-	Price             decimal.Decimal `json:"price"`
-	PriceImpact       decimal.Decimal `json:"priceImpact"`
-	SlippageTolerance decimal.Decimal `json:"slippageTolerance"`
-	GasEstimate       *GasEstimate    `json:"gasEstimate,omitempty"`
-	Route             *Route          `json:"route"`
-	Provider          string          `json:"provider"`
-	CreatedAt         time.Time       `json:"createdAt"`
-	ExpiresAt         time.Time       `json:"expiresAt"`
-	CallData          string          `json:"callData,omitempty"`
-	Value             string          `json:"value,omitempty"`
-	To                string          `json:"to,omitempty"`
+	ID                string                 `json:"id"`
+	FromToken         *Token                 `json:"fromToken"`
+	ToToken           *Token                 `json:"toToken"`
+	FromAmount        decimal.Decimal        `json:"fromAmount"`
+	ToAmount          decimal.Decimal        `json:"toAmount"`
+	ToAmountMin       decimal.Decimal        `json:"toAmountMin"`
+	Price             decimal.Decimal        `json:"price"`
+	PriceImpact       decimal.Decimal        `json:"priceImpact"`
+	SlippageTolerance decimal.Decimal        `json:"slippageTolerance"`
+	GasEstimate       *GasEstimate           `json:"gasEstimate,omitempty"`
+	Route             *Route                 `json:"route"`
+	Provider          string                 `json:"provider"`
+	CreatedAt         time.Time              `json:"createdAt"`
+	ExpiresAt         time.Time              `json:"expiresAt"`
+	CallData          string                 `json:"callData,omitempty"`
+	Value             string                 `json:"value,omitempty"`
+	To                string                 `json:"to,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Route represents a swap route through multiple DEXs
@@ -109,6 +110,16 @@ type CompareQuotesResponse struct {
 	BestQuote   *Quote          `json:"bestQuote"`
 	Comparison  *QuoteComparison `json:"comparison"`
 	RequestedAt time.Time       `json:"requestedAt"`
+}
+
+// AllQuotesResponse represents all quotes from providers with best quote suggestion
+type AllQuotesResponse struct {
+	AllQuotes    []*Quote               `json:"allQuotes"`
+	BestQuote    *Quote                 `json:"bestQuote"`
+	QuotesCount  int                    `json:"quotesCount"`
+	ResponseTime time.Duration          `json:"responseTime"`
+	CreatedAt    time.Time              `json:"createdAt"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // QuoteComparison provides comparison metrics between quotes

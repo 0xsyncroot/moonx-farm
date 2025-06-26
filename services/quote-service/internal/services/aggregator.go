@@ -98,19 +98,34 @@ func NewAggregatorService(
 
 // GetBestQuote gets the best quote with intelligent validation and fallback strategies
 func (a *AggregatorService) GetBestQuote(ctx context.Context, req *models.QuoteRequest) (*models.Quote, error) {
+	// Get all available quotes
+	quotesResponse, err := a.GetAllQuotes(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if quotesResponse.BestQuote == nil {
+		return nil, fmt.Errorf("no valid quotes found")
+	}
+
+	return quotesResponse.BestQuote, nil
+}
+
+// GetAllQuotes gets all quotes from providers and returns them with best quote suggestion
+func (a *AggregatorService) GetAllQuotes(ctx context.Context, req *models.QuoteRequest) (*models.AllQuotesResponse, error) {
 	// Step 1: Check cache first for ultra-fast response (15 seconds TTL)
-	cacheKey := fmt.Sprintf("quote:%d:%s:%s:%s", req.ChainID, req.FromToken, req.ToToken, req.Amount)
-	var cachedQuote models.Quote
-	if err := a.CacheService.Get(ctx, cacheKey, &cachedQuote); err == nil {
-		// Validate cached quote is still fresh and accurate
-		if time.Since(cachedQuote.CreatedAt) < 15*time.Second && cachedQuote.ExpiresAt.After(time.Now()) {
+	cacheKey := fmt.Sprintf("allquotes:%d:%s:%s:%s", req.ChainID, req.FromToken, req.ToToken, req.Amount)
+	var cachedResponse models.AllQuotesResponse
+	if err := a.CacheService.Get(ctx, cacheKey, &cachedResponse); err == nil {
+		// Validate cached response is still fresh
+		if time.Since(cachedResponse.CreatedAt) < 15*time.Second {
 			logrus.WithFields(logrus.Fields{
-				"fromToken": req.FromToken,
-				"toToken":   req.ToToken,
-				"provider":  cachedQuote.Provider,
-				"age":       time.Since(cachedQuote.CreatedAt),
-			}).Debug("Quote found in cache")
-			return &cachedQuote, nil
+				"fromToken":   req.FromToken,
+				"toToken":     req.ToToken,
+				"quotesCount": len(cachedResponse.AllQuotes),
+				"age":         time.Since(cachedResponse.CreatedAt),
+			}).Debug("All quotes found in cache")
+			return &cachedResponse, nil
 		}
 	}
 
@@ -118,21 +133,36 @@ func (a *AggregatorService) GetBestQuote(ctx context.Context, req *models.QuoteR
 	startTime := time.Now()
 	
 	// Tier 1: Fast providers (1inch pattern - <400ms response time target)
-	fastQuotes := a.getFastQuotes(ctx, req, 800*time.Millisecond)
+	fastQuotes := a.getFastQuotesAll(ctx, req, 800*time.Millisecond)
 	
 	// If we have good fast quotes, validate and return immediately for speed
 	if len(fastQuotes) > 0 {
 		bestFastQuote := a.selectBestQuoteWithValidation(fastQuotes, ValidationFast)
 		if bestFastQuote != nil {
+			response := &models.AllQuotesResponse{
+				AllQuotes:    fastQuotes,
+				BestQuote:    bestFastQuote,
+				QuotesCount:  len(fastQuotes),
+				ResponseTime: time.Since(startTime),
+				CreatedAt:    time.Now(),
+				Metadata: map[string]interface{}{
+					"tier":         "fast",
+					"providers":    a.getProvidersFromQuotes(fastQuotes),
+					"strategy":     "fast_tier_optimization",
+				},
+			}
+			
 			// Cache immediately and return
-			go a.cacheQuote(cacheKey, bestFastQuote)
+			go a.cacheAllQuotes(cacheKey, response)
+			
 			logrus.WithFields(logrus.Fields{
-				"provider":   bestFastQuote.Provider,
-				"toAmount":   bestFastQuote.ToAmount,
-				"duration":   time.Since(startTime),
-				"tier":       "fast",
-			}).Info("Fast quote selected")
-			return bestFastQuote, nil
+				"provider":     bestFastQuote.Provider,
+				"toAmount":     bestFastQuote.ToAmount,
+				"quotesCount":  len(fastQuotes),
+				"duration":     response.ResponseTime,
+				"tier":         "fast",
+			}).Info("Fast quotes tier completed")
+			return response, nil
 		}
 	}
 	
@@ -140,7 +170,7 @@ func (a *AggregatorService) GetBestQuote(ctx context.Context, req *models.QuoteR
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	
-	allQuotes, err := a.getAllQuotesOptimized(ctx, req)
+	allQuotes, err := a.getAllQuotesOptimizedMultiple(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get quotes: %w", err)
 	}
@@ -151,36 +181,53 @@ func (a *AggregatorService) GetBestQuote(ctx context.Context, req *models.QuoteR
 
 	// Step 3: Apply intelligent quote selection with validation
 	bestQuote := a.selectBestQuoteWithValidation(allQuotes, ValidationStandard)
-	if bestQuote == nil {
-		return nil, fmt.Errorf("no valid quotes found after validation")
+	
+	totalTime := time.Since(startTime)
+	response := &models.AllQuotesResponse{
+		AllQuotes:    allQuotes,
+		BestQuote:    bestQuote,
+		QuotesCount:  len(allQuotes),
+		ResponseTime: totalTime,
+		CreatedAt:    time.Now(),
+		Metadata: map[string]interface{}{
+			"tier":         "comprehensive",
+			"providers":    a.getProvidersFromQuotes(allQuotes),
+			"strategy":     "multi_provider_aggregation",
+			"validation":   "standard",
+		},
 	}
 
-	// Step 4: Cache the best quote for future requests
-	go a.cacheQuote(cacheKey, bestQuote)
+	// Step 4: Cache the response for future requests
+	go a.cacheAllQuotes(cacheKey, response)
 
 	logrus.WithFields(logrus.Fields{
 		"fromToken":    req.FromToken,
 		"toToken":      req.ToToken,
 		"amount":       req.Amount,
-		"bestProvider": bestQuote.Provider,
-		"toAmount":     bestQuote.ToAmount,
+		"bestProvider": func() string { if bestQuote != nil { return bestQuote.Provider }; return "none" }(),
+		"bestAmount":   func() string { if bestQuote != nil { return bestQuote.ToAmount.String() }; return "0" }(),
 		"quotesCount":  len(allQuotes),
-		"totalTime":    time.Since(startTime),
-	}).Info("Best quote selected with validation")
+		"totalTime":    totalTime,
+	}).Info("Comprehensive quotes aggregation completed")
 
-	return bestQuote, nil
+	return response, nil
 }
 
-// getFastQuotes gets quotes from fastest providers with aggressive timeout
-func (a *AggregatorService) getFastQuotes(ctx context.Context, req *models.QuoteRequest, timeout time.Duration) []*models.Quote {
+// getFastQuotesAll gets multiple quotes from fastest providers with aggressive timeout
+func (a *AggregatorService) getFastQuotesAll(ctx context.Context, req *models.QuoteRequest, timeout time.Duration) []*models.Quote {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	
 	// Get only the fastest providers based on metrics
 	fastProviders := a.getFastestProviders(2) // Top 2 fastest
 	
-	quotes, _ := a.getQuotesFromSourcesOptimized(ctx, req, fastProviders)
+	quotes, _ := a.getQuotesFromSourcesOptimizedMultiple(ctx, req, fastProviders)
 	return quotes
+}
+
+// getFastQuotes gets single quote from fastest providers with aggressive timeout (legacy compatibility)
+func (a *AggregatorService) getFastQuotes(ctx context.Context, req *models.QuoteRequest, timeout time.Duration) []*models.Quote {
+	return a.getFastQuotesAll(ctx, req, timeout)
 }
 
 // selectBestQuoteWithValidation selects best quote with appropriate validation level
@@ -363,6 +410,30 @@ func (a *AggregatorService) cacheQuote(cacheKey string, quote *models.Quote) {
 	if err := a.CacheService.Set(context.Background(), cacheKey, quote, 15*time.Second); err != nil {
 		logrus.WithError(err).Warn("Failed to cache best quote")
 	}
+}
+
+// cacheAllQuotes caches all quotes response in background
+func (a *AggregatorService) cacheAllQuotes(cacheKey string, response *models.AllQuotesResponse) {
+	if err := a.CacheService.Set(context.Background(), cacheKey, response, 15*time.Second); err != nil {
+		logrus.WithError(err).Warn("Failed to cache all quotes response")
+	}
+}
+
+// getProvidersFromQuotes extracts unique providers from quotes
+func (a *AggregatorService) getProvidersFromQuotes(quotes []*models.Quote) []string {
+	providerMap := make(map[string]bool)
+	for _, quote := range quotes {
+		if quote != nil && quote.Provider != "" {
+			providerMap[quote.Provider] = true
+		}
+	}
+	
+	providers := make([]string, 0, len(providerMap))
+	for provider := range providerMap {
+		providers = append(providers, provider)
+	}
+	
+	return providers
 }
 
 // isCircuitBreakerOpen checks if circuit breaker is open for provider
@@ -1087,7 +1158,164 @@ func (a *AggregatorService) getAllQuotesOptimized(ctx context.Context, req *mode
 	return a.getQuotesFromSourcesOptimized(ctx, req, orderedProviders)
 }
 
-// getQuotesFromSourcesOptimized gets quotes from specified sources with circuit breaker and validation
+// getAllQuotesOptimizedMultiple gets multiple quotes from all available sources
+func (a *AggregatorService) getAllQuotesOptimizedMultiple(ctx context.Context, req *models.QuoteRequest) ([]*models.Quote, error) {
+	// Order providers by performance
+	orderedProviders := a.getOrderedProviders([]string{
+		models.ProviderLiFi,
+		models.ProviderOneInch,
+		"relay",
+	})
+
+	return a.getQuotesFromSourcesOptimizedMultiple(ctx, req, orderedProviders)
+}
+
+// getQuotesFromSourcesOptimizedMultiple gets multiple quotes from specified sources with circuit breaker and validation
+func (a *AggregatorService) getQuotesFromSourcesOptimizedMultiple(ctx context.Context, req *models.QuoteRequest, sources []string) ([]*models.Quote, error) {
+	type result struct {
+		provider string
+		quotes   []*models.Quote
+		err      error
+		duration time.Duration
+	}
+
+	// Filter out providers with open circuit breakers
+	availableSources := make([]string, 0, len(sources))
+	for _, provider := range sources {
+		if !a.isCircuitBreakerOpen(provider) {
+			availableSources = append(availableSources, provider)
+		} else {
+			logrus.WithField("provider", provider).Debug("Skipping provider due to open circuit breaker")
+		}
+	}
+	
+	if len(availableSources) == 0 {
+		return nil, fmt.Errorf("all providers have open circuit breakers")
+	}
+
+	results := make(chan result, len(availableSources))
+	
+	// Launch available providers concurrently with optimized staggering
+	for i, source := range availableSources {
+		go func(provider string, stagger time.Duration) {
+			// Smart staggering based on provider performance
+			if stagger > 0 {
+				time.Sleep(stagger)
+			}
+			
+			start := time.Now()
+			var quotes []*models.Quote
+			var err error
+
+			// Route to appropriate service with error handling - GET MULTIPLE QUOTES
+			switch provider {
+			case models.ProviderLiFi:
+				quotes, err = a.LiFiService.GetMultipleQuotes(ctx, req, 5) // Max 5 quotes
+			case models.ProviderOneInch:
+				// 1inch usually returns single quote, so wrap in array
+				if quote, qErr := a.OneInchService.GetQuote(ctx, req); qErr == nil {
+					quotes = []*models.Quote{quote}
+				} else {
+					err = qErr
+				}
+			case "relay":
+				// Relay can return multiple routes, get up to 5
+				quotes, err = a.RelayService.GetMultipleQuotes(ctx, req, 5) // Max 5 quotes
+			default:
+				err = fmt.Errorf("unknown provider: %s", provider)
+			}
+
+			duration := time.Since(start)
+			success := err == nil && len(quotes) > 0
+			
+			// Record result for circuit breaker and metrics
+			a.recordProviderResult(provider, success, duration, err)
+
+			results <- result{
+				provider: provider, 
+				quotes: quotes, 
+				err: err,
+				duration: duration,
+			}
+		}(source, time.Duration(i*50)*time.Millisecond) // Reduced stagger for speed
+	}
+
+	// Intelligent result collection with tiered timeout strategy
+	var allQuotes []*models.Quote
+	var errors []error
+	resultsCollected := 0
+	
+	// Dynamic timeout based on context and request urgency
+	timeoutDuration := 2*time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < timeoutDuration {
+			timeoutDuration = remaining - 100*time.Millisecond // Leave buffer
+		}
+	}
+	
+	timeout := time.NewTimer(timeoutDuration)
+	defer timeout.Stop()
+	
+	for resultsCollected < len(availableSources) {
+		select {
+		case res := <-results:
+			resultsCollected++
+			
+			if res.err != nil {
+				logrus.WithFields(logrus.Fields{
+					"provider": res.provider,
+					"error":    res.err,
+					"duration": res.duration,
+				}).Debug("Provider failed to get quotes")
+				errors = append(errors, res.err)
+				continue
+			}
+
+			if len(res.quotes) > 0 {
+				// Quick validation before adding to results
+				validQuotes := make([]*models.Quote, 0, len(res.quotes))
+				for _, quote := range res.quotes {
+					if a.isQuoteValid(quote, ValidationFast) {
+						validQuotes = append(validQuotes, quote)
+					}
+				}
+				
+				if len(validQuotes) > 0 {
+					allQuotes = append(allQuotes, validQuotes...)
+					
+					logrus.WithFields(logrus.Fields{
+						"provider":      res.provider,
+						"quotesCount":   len(validQuotes),
+						"totalQuotes":   len(res.quotes),
+						"duration":      res.duration,
+					}).Debug("Valid quotes received from provider")
+				}
+			}
+			
+		case <-timeout.C:
+			logrus.WithFields(logrus.Fields{
+				"timeout":          timeoutDuration,
+				"resultsCollected": resultsCollected,
+				"quotesFound":      len(allQuotes),
+			}).Debug("Quote aggregation timeout - using available results")
+			break
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"requestedSources": len(sources),
+		"availableSources": len(availableSources),
+		"successfulQuotes": len(allQuotes),
+		"errors":           len(errors),
+		"resultsCollected": resultsCollected,
+		"totalDuration":    timeoutDuration,
+	}).Debug("Optimized multiple quotes aggregation completed")
+
+	return allQuotes, nil
+}
+
+// getQuotesFromSourcesOptimized gets single quote from specified sources with circuit breaker and validation (legacy compatibility)
 func (a *AggregatorService) getQuotesFromSourcesOptimized(ctx context.Context, req *models.QuoteRequest, sources []string) ([]*models.Quote, error) {
 	type result struct {
 		provider string

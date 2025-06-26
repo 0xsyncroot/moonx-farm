@@ -228,6 +228,202 @@ func (r *RelayService) GetQuote(ctx context.Context, req *models.QuoteRequest) (
 	return quote, nil
 }
 
+// GetMultipleQuotes gets multiple quotes from Relay with different optimization strategies
+func (r *RelayService) GetMultipleQuotes(ctx context.Context, req *models.QuoteRequest, maxQuotes int) ([]*models.Quote, error) {
+	// Relay supports different optimization strategies and liquidity sources
+	quotes := make([]*models.Quote, 0, maxQuotes)
+	
+	// Strategy 1: Default fastest route
+	defaultQuote, err := r.getQuoteWithOptions(ctx, req, false, false) // No external liquidity, no fallbacks
+	if err == nil && defaultQuote != nil {
+		quotes = append(quotes, defaultQuote)
+	}
+	
+	// Strategy 2: With external liquidity for better rates
+	if len(quotes) < maxQuotes {
+		externalQuote, err := r.getQuoteWithOptions(ctx, req, true, false) // External liquidity, no fallbacks
+		if err == nil && externalQuote != nil {
+			// Only add if it's different from default quote
+			if len(quotes) == 0 || !r.isQuoteSimilar(defaultQuote, externalQuote) {
+				quotes = append(quotes, externalQuote)
+			}
+		}
+	}
+	
+	// Strategy 3: With fallbacks for reliability
+	if len(quotes) < maxQuotes {
+		fallbackQuote, err := r.getQuoteWithOptions(ctx, req, false, true) // No external liquidity, with fallbacks
+		if err == nil && fallbackQuote != nil {
+			// Only add if it's different from existing quotes
+			isDifferent := true
+			for _, existingQuote := range quotes {
+				if r.isQuoteSimilar(existingQuote, fallbackQuote) {
+					isDifferent = false
+					break
+				}
+			}
+			if isDifferent {
+				quotes = append(quotes, fallbackQuote)
+			}
+		}
+	}
+	
+	// Strategy 4: Full optimization (external liquidity + fallbacks)
+	if len(quotes) < maxQuotes {
+		fullOptQuote, err := r.getQuoteWithOptions(ctx, req, true, true) // External liquidity + fallbacks
+		if err == nil && fullOptQuote != nil {
+			// Only add if it's different from existing quotes
+			isDifferent := true
+			for _, existingQuote := range quotes {
+				if r.isQuoteSimilar(existingQuote, fullOptQuote) {
+					isDifferent = false
+					break
+				}
+			}
+			if isDifferent {
+				quotes = append(quotes, fullOptQuote)
+			}
+		}
+	}
+	
+	// Strategy 5: Try different trade types if available (not typical for Relay but for completeness)
+	if len(quotes) < maxQuotes && req.ChainID == req.ToChainID {
+		// For same-chain swaps, try exact output if we haven't reached max
+		if len(quotes) < maxQuotes {
+			exactOutQuote, err := r.getQuoteWithTradeType(ctx, req, "EXACT_OUTPUT")
+			if err == nil && exactOutQuote != nil {
+				// Only add if it's different from existing quotes
+				isDifferent := true
+				for _, existingQuote := range quotes {
+					if r.isQuoteSimilar(existingQuote, exactOutQuote) {
+						isDifferent = false
+						break
+					}
+				}
+				if isDifferent {
+					quotes = append(quotes, exactOutQuote)
+				}
+			}
+		}
+	}
+	
+	logrus.WithFields(logrus.Fields{
+		"fromToken":   req.FromToken,
+		"toToken":     req.ToToken,
+		"amount":      req.Amount,
+		"maxQuotes":   maxQuotes,
+		"quotesFound": len(quotes),
+		"provider":    "relay",
+	}).Info("Relay multiple quotes retrieved")
+	
+	return quotes, nil
+}
+
+// getQuoteWithOptions gets quote with specific Relay options
+func (r *RelayService) getQuoteWithOptions(ctx context.Context, req *models.QuoteRequest, useExternalLiquidity, useFallbacks bool) (*models.Quote, error) {
+	// Check cache with options key
+	cacheKey := fmt.Sprintf("%s:external:%v:fallbacks:%v", r.generateUserAwareCacheKey(req), useExternalLiquidity, useFallbacks)
+	if cachedQuote, err := r.cacheService.GetQuote(ctx, cacheKey); err == nil && cachedQuote != nil {
+		if r.validateCachedQuote(cachedQuote) {
+			return cachedQuote, nil
+		}
+	}
+	
+	// Build request with specific options
+	requestPayload, err := r.buildQuoteRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build quote request: %w", err)
+	}
+	
+	// Override options
+	requestPayload.UseExternalLiquidity = useExternalLiquidity
+	requestPayload.UseFallbacks = useFallbacks
+	
+	// Execute request with reduced retries for multiple quotes
+	relayResp, err := r.executeRequestWithRetry(ctx, requestPayload, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get quote from Relay with options: %w", err)
+	}
+	
+	// Convert to Quote model
+	quote, err := r.convertToQuote(relayResp, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Relay response: %w", err)
+	}
+	
+	// Validate quote
+	if err := r.validateQuote(quote); err != nil {
+		return nil, fmt.Errorf("quote validation failed: %w", err)
+	}
+	
+	// Add options metadata
+	if quote.Metadata == nil {
+		quote.Metadata = make(map[string]interface{})
+	}
+	quote.Metadata["useExternalLiquidity"] = useExternalLiquidity
+	quote.Metadata["useFallbacks"] = useFallbacks
+	quote.Metadata["relayStrategy"] = fmt.Sprintf("external:%v_fallbacks:%v", useExternalLiquidity, useFallbacks)
+	
+	// Cache with shorter TTL for option-specific quotes
+	cacheTTL := 10 * time.Second
+	if err := r.cacheService.SetQuoteWithTTL(ctx, cacheKey, quote, cacheTTL); err != nil {
+		logrus.WithError(err).Warn("Failed to cache Relay options quote")
+	}
+	
+	return quote, nil
+}
+
+// getQuoteWithTradeType gets quote with specific trade type
+func (r *RelayService) getQuoteWithTradeType(ctx context.Context, req *models.QuoteRequest, tradeType string) (*models.Quote, error) {
+	// Build request with specific trade type
+	requestPayload, err := r.buildQuoteRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build quote request: %w", err)
+	}
+	
+	// Override trade type
+	requestPayload.TradeType = tradeType
+	
+	// Execute request
+	relayResp, err := r.executeRequestWithRetry(ctx, requestPayload, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get quote from Relay with trade type %s: %w", tradeType, err)
+	}
+	
+	// Convert to Quote model
+	quote, err := r.convertToQuote(relayResp, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Relay response: %w", err)
+	}
+	
+	// Validate quote
+	if err := r.validateQuote(quote); err != nil {
+		return nil, fmt.Errorf("quote validation failed: %w", err)
+	}
+	
+	// Add trade type metadata
+	if quote.Metadata == nil {
+		quote.Metadata = make(map[string]interface{})
+	}
+	quote.Metadata["tradeType"] = tradeType
+	quote.Metadata["relayTradeStrategy"] = tradeType
+	
+	return quote, nil
+}
+
+// isQuoteSimilar checks if two quotes are similar (within 1% of each other)
+func (r *RelayService) isQuoteSimilar(quote1, quote2 *models.Quote) bool {
+	if quote1 == nil || quote2 == nil {
+		return false
+	}
+	
+	// Check if output amounts are within 1% of each other
+	diff := quote1.ToAmount.Sub(quote2.ToAmount).Abs()
+	threshold := quote1.ToAmount.Mul(decimal.NewFromFloat(0.01)) // 1%
+	
+	return diff.LessThanOrEqual(threshold)
+}
+
 // GetTokenList gets supported tokens from Relay.link with ultra-fast caching
 func (r *RelayService) GetTokenList(ctx context.Context, chainID int) ([]*models.Token, error) {
 	// Multi-layer cache strategy optimized for speed

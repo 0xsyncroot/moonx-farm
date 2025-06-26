@@ -119,17 +119,20 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 		SlippageTolerance:  slippage,
 	}
 
-	// Get best quote
-	quote, err := h.aggregatorService.GetBestQuote(c.Request.Context(), req)
+	// Get all quotes with best quote suggestion
+	quotesResponse, err := h.aggregatorService.GetAllQuotes(c.Request.Context(), req)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to get best quote")
-		h.errorResponse(c, http.StatusInternalServerError, "Failed to get quote", err)
+		logrus.WithError(err).Error("Failed to get quotes")
+		h.errorResponse(c, http.StatusInternalServerError, "Failed to get quotes", err)
 		return
 	}
 
 	// Enhance response with metadata
 	response := gin.H{
-		"quote": quote,
+		"allQuotes":    quotesResponse.AllQuotes,
+		"bestQuote":    quotesResponse.BestQuote,
+		"quotesCount":  quotesResponse.QuotesCount,
+		"responseTime": quotesResponse.ResponseTime.Milliseconds(),
 		"request": gin.H{
 			"fromChainId": fromChainID,
 			"toChainId":   toChainID,
@@ -140,6 +143,7 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 		},
 		"crossChain": fromChainID != toChainID,
 		"timestamp":  time.Now().Unix(),
+		"metadata":   quotesResponse.Metadata,
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -148,10 +152,22 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 		"fromToken":   fromToken,
 		"toToken":     toToken,
 		"amount":      amount.String(),
-		"provider":    quote.Provider,
-		"toAmount":    quote.ToAmount.String(),
-		"crossChain":  fromChainID != toChainID,
-	}).Info("Best quote retrieved")
+		"quotesCount": quotesResponse.QuotesCount,
+		"bestProvider": func() string {
+			if quotesResponse.BestQuote != nil {
+				return quotesResponse.BestQuote.Provider
+			}
+			return "none"
+		}(),
+		"bestAmount": func() string {
+			if quotesResponse.BestQuote != nil {
+				return quotesResponse.BestQuote.ToAmount.String()
+			}
+			return "0"
+		}(),
+		"responseTime": quotesResponse.ResponseTime,
+		"crossChain":   fromChainID != toChainID,
+	}).Info("All quotes retrieved with best suggestion")
 
 	c.JSON(http.StatusOK, response)
 }

@@ -212,11 +212,28 @@ docker-compose.local.yml
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Go build outputs
+server
+*/server
+**/server
+bin/
+*/bin/
+**/bin/
+build/
+*/build/
+**/build/
+cmd/*/main
+services/*/cmd/*/main
+
 # Dependency directories (remove the comment below to include it)
 vendor/
+*/vendor/
 
 # Go workspace file
 go.work
+
+# Go module cache
+go.sum.backup
 
 # Rust
 target/
@@ -296,4 +313,65 @@ docs/generated/
 
 # Package manager lock files (choose one strategy)
 # package-lock.json  # Uncomment if using yarn
-# yarn.lock         # Uncomment if using npm 
+# yarn.lock         # Uncomment if using npm
+
+# Development and testing files
+*.tmp
+*.temp
+debug.log
+debug-*.log
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# Application specific
+# Quote service
+services/quote-service/server
+services/quote-service/*.log
+services/quote-service/debug
+
+# Auth service
+services/auth-service/dist/
+services/auth-service/*.log
+services/auth-service/debug
+
+# Config files with sensitive data
+configs/*.local.yaml
+configs/*.secret.yaml
+configs/development.yaml
+configs/production.yaml
+
+# Cache and temporary files
+*.cache
+cache/
+.tmp/
+temp/
+
+# Profiling files
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+trace.out 

@@ -243,6 +243,208 @@ func (l *LiFiService) GetQuote(ctx context.Context, req *models.QuoteRequest) (*
 	return quote, nil
 }
 
+// GetMultipleQuotes gets multiple quotes from LiFi with route variations
+func (l *LiFiService) GetMultipleQuotes(ctx context.Context, req *models.QuoteRequest, maxQuotes int) ([]*models.Quote, error) {
+	// LiFi supports multiple routes through different strategies
+	quotes := make([]*models.Quote, 0, maxQuotes)
+	
+	// Strategy 1: Get fastest route
+	fastQuote, err := l.getQuoteWithStrategy(ctx, req, "FASTEST")
+	if err == nil && fastQuote != nil {
+		quotes = append(quotes, fastQuote)
+	}
+	
+	// Strategy 2: Get cheapest route
+	if len(quotes) < maxQuotes {
+		cheapQuote, err := l.getQuoteWithStrategy(ctx, req, "CHEAPEST")
+		if err == nil && cheapQuote != nil {
+			// Only add if it's different from the fast quote
+			if len(quotes) == 0 || !l.isQuoteSimilar(fastQuote, cheapQuote) {
+				quotes = append(quotes, cheapQuote)
+			}
+		}
+	}
+	
+	// Strategy 3: Get recommended route (balanced)
+	if len(quotes) < maxQuotes {
+		balancedQuote, err := l.getQuoteWithStrategy(ctx, req, "RECOMMENDED")
+		if err == nil && balancedQuote != nil {
+			// Only add if it's different from existing quotes
+			isDifferent := true
+			for _, existingQuote := range quotes {
+				if l.isQuoteSimilar(existingQuote, balancedQuote) {
+					isDifferent = false
+					break
+				}
+			}
+			if isDifferent {
+				quotes = append(quotes, balancedQuote)
+			}
+		}
+	}
+	
+	// Strategy 4: Try different DEX preferences for variety
+	if len(quotes) < maxQuotes {
+		dexStrategies := []string{"uniswap", "1inch", "paraswap"}
+		for _, dex := range dexStrategies {
+			if len(quotes) >= maxQuotes {
+				break
+			}
+			
+			dexQuote, err := l.getQuoteWithDEXPreference(ctx, req, dex)
+			if err == nil && dexQuote != nil {
+				// Only add if it's different from existing quotes
+				isDifferent := true
+				for _, existingQuote := range quotes {
+					if l.isQuoteSimilar(existingQuote, dexQuote) {
+						isDifferent = false
+						break
+					}
+				}
+				if isDifferent {
+					quotes = append(quotes, dexQuote)
+				}
+			}
+		}
+	}
+	
+	logrus.WithFields(logrus.Fields{
+		"fromToken":   req.FromToken,
+		"toToken":     req.ToToken,
+		"amount":      req.Amount,
+		"maxQuotes":   maxQuotes,
+		"quotesFound": len(quotes),
+		"provider":    "lifi",
+	}).Info("LiFi multiple quotes retrieved")
+	
+	return quotes, nil
+}
+
+// getQuoteWithStrategy gets quote with specific LiFi strategy
+func (l *LiFiService) getQuoteWithStrategy(ctx context.Context, req *models.QuoteRequest, strategy string) (*models.Quote, error) {
+	// Check cache first
+	cacheKey := fmt.Sprintf("%s:strategy:%s", l.generateIntelligentCacheKey(req), strategy)
+	if cachedQuote, err := l.cacheService.GetQuote(ctx, cacheKey); err == nil && cachedQuote != nil {
+		if l.validateCachedQuote(cachedQuote) {
+			return cachedQuote, nil
+		}
+	}
+	
+	// Normalize token addresses
+	fromToken := l.normalizeTokenAddress(req.FromToken)
+	toToken := l.normalizeTokenAddress(req.ToToken)
+	
+	// Convert amount to wei format
+	amountWei, err := l.convertAmountToWei(req.Amount, fromToken, req.ChainID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert amount to wei: %w", err)
+	}
+	
+	// Build request with specific strategy
+	lifiReq, err := l.buildOptimizedRequest(req, fromToken, toToken, amountWei)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build LiFi request: %w", err)
+	}
+	
+	// Override strategy
+	lifiReq.Order = strategy
+	
+	// Execute request
+	lifiResp, err := l.executeWithIntelligentRetry(ctx, lifiReq, 2) // Reduced retries for multiple quotes
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LiFi quote with strategy %s: %w", strategy, err)
+	}
+	
+	// Validate quote
+	validation := l.validateQuoteExecutability(lifiResp, req)
+	if !validation.IsValid {
+		return nil, fmt.Errorf("quote validation failed for strategy %s", strategy)
+	}
+	
+	// Convert to Quote model
+	quote, err := l.convertToEnhancedQuote(lifiResp, req, validation.Score)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert LiFi response: %w", err)
+	}
+	
+	// Add strategy metadata
+	if quote.Metadata == nil {
+		quote.Metadata = make(map[string]interface{})
+	}
+	quote.Metadata["strategy"] = strategy
+	quote.Metadata["tool"] = lifiResp.Tool
+	
+	// Cache with shorter TTL for strategy-specific quotes
+	cacheTTL := 10 * time.Second
+	if err := l.cacheService.SetQuoteWithTTL(ctx, cacheKey, quote, cacheTTL); err != nil {
+		logrus.WithError(err).Warn("Failed to cache LiFi strategy quote")
+	}
+	
+	return quote, nil
+}
+
+// getQuoteWithDEXPreference gets quote with specific DEX preference
+func (l *LiFiService) getQuoteWithDEXPreference(ctx context.Context, req *models.QuoteRequest, dexPreference string) (*models.Quote, error) {
+	// Normalize token addresses
+	fromToken := l.normalizeTokenAddress(req.FromToken)
+	toToken := l.normalizeTokenAddress(req.ToToken)
+	
+	// Convert amount to wei format
+	amountWei, err := l.convertAmountToWei(req.Amount, fromToken, req.ChainID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert amount to wei: %w", err)
+	}
+	
+	// Build request with DEX preference
+	lifiReq, err := l.buildOptimizedRequest(req, fromToken, toToken, amountWei)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build LiFi request: %w", err)
+	}
+	
+	// Set DEX preference
+	lifiReq.PreferExchanges = dexPreference
+	
+	// Execute request
+	lifiResp, err := l.executeWithIntelligentRetry(ctx, lifiReq, 1) // Single retry for DEX-specific quotes
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LiFi quote with DEX %s: %w", dexPreference, err)
+	}
+	
+	// Validate quote
+	validation := l.validateQuoteExecutability(lifiResp, req)
+	if !validation.IsValid {
+		return nil, fmt.Errorf("quote validation failed for DEX %s", dexPreference)
+	}
+	
+	// Convert to Quote model
+	quote, err := l.convertToEnhancedQuote(lifiResp, req, validation.Score)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert LiFi response: %w", err)
+	}
+	
+	// Add DEX metadata
+	if quote.Metadata == nil {
+		quote.Metadata = make(map[string]interface{})
+	}
+	quote.Metadata["preferredDEX"] = dexPreference
+	quote.Metadata["tool"] = lifiResp.Tool
+	
+	return quote, nil
+}
+
+// isQuoteSimilar checks if two quotes are similar (within 1% of each other)
+func (l *LiFiService) isQuoteSimilar(quote1, quote2 *models.Quote) bool {
+	if quote1 == nil || quote2 == nil {
+		return false
+	}
+	
+	// Check if output amounts are within 1% of each other
+	diff := quote1.ToAmount.Sub(quote2.ToAmount).Abs()
+	threshold := quote1.ToAmount.Mul(decimal.NewFromFloat(0.01)) // 1%
+	
+	return diff.LessThanOrEqual(threshold)
+}
+
 // GetTokenList gets supported tokens from LiFi with aggressive caching and speed optimization
 func (l *LiFiService) GetTokenList(ctx context.Context, chainID int) ([]*models.Token, error) {
 	// Multi-layer cache strategy for maximum speed
