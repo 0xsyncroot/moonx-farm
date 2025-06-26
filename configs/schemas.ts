@@ -72,10 +72,19 @@ export const KafkaConfigSchema = z.object({
  */
 export const JwtConfigSchema = z.object({
   JWT_SECRET: z.string().min(32, 'JWT secret must be at least 32 characters'),
-  JWT_EXPIRES_IN: z.string().default('7d'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
+  JWT_EXPIRES_IN: z.string().default('1h'),
+  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   JWT_ISSUER: z.string().default('moonx-farm'),
   JWT_AUDIENCE: z.string().default('moonx-farm-users'),
+});
+
+/**
+ * Privy authentication configuration schema
+ */
+export const PrivyConfigSchema = z.object({
+  PRIVY_APP_ID: z.string().min(1, 'Privy App ID is required'),
+  PRIVY_APP_SECRET: z.string().min(1, 'Privy App Secret is required'),
+  PRIVY_VERIFICATION_KEY: z.string().optional(),
 });
 
 /**
@@ -91,7 +100,8 @@ export const ServicesConfigSchema = z.object({
   
   // Auth Service
   AUTH_SERVICE_PORT: z.coerce.number().default(3001),
-  AUTH_SERVICE_HOST: z.string().default('localhost'),
+  AUTH_SERVICE_HOST: z.string().default('0.0.0.0'),
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
   
   // Wallet Registry
   WALLET_REGISTRY_PORT: z.coerce.number().default(3002),

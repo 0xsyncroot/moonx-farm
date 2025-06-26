@@ -7,6 +7,7 @@ import {
   RedisConfigSchema,
   KafkaConfigSchema,
   JwtConfigSchema,
+  PrivyConfigSchema,
   ServicesConfigSchema,
   BlockchainConfigSchema,
   ExternalApisConfigSchema,
@@ -30,12 +31,13 @@ export const CONFIG_PROFILES = {
     .merge(RedisConfigSchema)
     .merge(LoggerConfigSchema),
 
-  // Auth service needs database, redis, jwt
+  // Auth service needs database, redis, jwt, privy
   'auth-service': BaseConfigSchema
     .merge(DatabaseConfigSchema)
     .merge(RedisConfigSchema)
     .merge(JwtConfigSchema)
-    .merge(ServicesConfigSchema.pick({ AUTH_SERVICE_PORT: true, AUTH_SERVICE_HOST: true }))
+    .merge(PrivyConfigSchema)
+    .merge(ServicesConfigSchema.pick({ AUTH_SERVICE_PORT: true, AUTH_SERVICE_HOST: true, FRONTEND_URL: true }))
     .merge(LoggerConfigSchema),
 
   // Wallet registry needs database, blockchain
@@ -122,40 +124,40 @@ export type ConfigForProfile<T extends ConfigProfile> = z.infer<typeof CONFIG_PR
 /**
  * Configuration Manager
  */
-class ConfigManager {
-  private static instances: Map<ConfigProfile, ConfigManager> = new Map();
-  private config: any;
-  private profile: ConfigProfile;
+class ConfigManager<T extends ConfigProfile> {
+  private static instances: Map<ConfigProfile, ConfigManager<any>> = new Map();
+  private config: ConfigForProfile<T>;
+  private profile: T;
 
-  private constructor(profile: ConfigProfile) {
+  private constructor(profile: T) {
     this.profile = profile;
     this.config = this.loadConfig(profile);
   }
 
-  public static getInstance<T extends ConfigProfile>(profile: T): ConfigManager {
+  public static getInstance<T extends ConfigProfile>(profile: T): ConfigManager<T> {
     if (!ConfigManager.instances.has(profile)) {
       ConfigManager.instances.set(profile, new ConfigManager(profile));
     }
     return ConfigManager.instances.get(profile)!;
   }
 
-  private loadConfig(profile: ConfigProfile) {
+  private loadConfig(profile: T): ConfigForProfile<T> {
     try {
       const schema = CONFIG_PROFILES[profile];
       const config = schema.parse(process.env);
       console.log(`✅ Configuration loaded for profile: ${profile}`);
-      return config;
+      return config as ConfigForProfile<T>;
     } catch (error) {
       console.error(`❌ Configuration validation failed for profile: ${profile}`, error);
       throw new Error(`Invalid configuration for profile: ${profile}`);
     }
   }
 
-  public get<K extends keyof ConfigForProfile<ConfigProfile>>(key: K): ConfigForProfile<ConfigProfile>[K] {
+  public get<K extends keyof ConfigForProfile<T>>(key: K): ConfigForProfile<T>[K] {
     return this.config[key];
   }
 
-  public getAll(): ConfigForProfile<ConfigProfile> {
+  public getAll(): ConfigForProfile<T> {
     return this.config;
   }
 
@@ -179,7 +181,7 @@ class ConfigManager {
 /**
  * Helper functions to create config instances for each service
  */
-export const createConfig = <T extends ConfigProfile>(profile: T) => {
+export const createConfig = <T extends ConfigProfile>(profile: T): ConfigManager<T> => {
   return ConfigManager.getInstance(profile);
 };
 
