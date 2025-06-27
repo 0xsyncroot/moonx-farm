@@ -61,7 +61,7 @@ console.log(jwtConfig.secret); // your-jwt-secret
 #### Quote Service với RPC Management
 ```typescript
 import { 
-  createQuoteServiceConfig, 
+  createAggregatorServiceConfig, 
   getRedisConfig, 
   getApiKeys, 
   getNetworkConfigs,
@@ -69,17 +69,17 @@ import {
   getBestRpcUrl 
 } from '@moonx/configs';
 
-const config = createQuoteServiceConfig();
+const config = createAggregatorServiceConfig();
 
 // Redis cho caching
-const redisConfig = getRedisConfig('quote-service');
+const redisConfig = getRedisConfig('aggregator-service');
 
 // API keys cho external services
-const apiKeys = getApiKeys('quote-service');
+const apiKeys = getApiKeys('aggregator-service');
 console.log(apiKeys.coingecko); // your-coingecko-api-key
 
 // Blockchain networks với RPC management
-const networks = getNetworkConfigs('quote-service');
+const networks = getNetworkConfigs('aggregator-service');
 const baseMainnet = networks.base.mainnet;
 
 // Lấy RPC URL tốt nhất (private trước, fallback sau)
@@ -87,7 +87,7 @@ const bestRpcUrl = getBestRpcUrl(baseMainnet);
 console.log('Best RPC URL:', bestRpcUrl);
 
 // Hoặc sử dụng RPC config helper
-const rpcConfig = getRpcConfig('quote-service', 'base', 'mainnet');
+const rpcConfig = getRpcConfig('aggregator-service', 'base', 'mainnet');
 console.log('Private RPC:', rpcConfig.privateRpc);
 console.log('Fallback RPCs:', rpcConfig.fallbackRpcs);
 console.log('Best URL:', rpcConfig.getBestUrl());
@@ -131,7 +131,7 @@ console.log('All Base RPCs:', baseAllRpcs); // [privateRpc, fallback1, fallback2
 ```typescript
 import { getRpcConfig, hasPrivateRpc, getPublicRpcUrls } from '@moonx/configs';
 
-const rpcConfig = getRpcConfig('quote-service', 'base', 'mainnet');
+const rpcConfig = getRpcConfig('aggregator-service', 'base', 'mainnet');
 
 // Kiểm tra có private RPC không
 if (rpcConfig.hasPrivate()) {
@@ -193,7 +193,7 @@ throw new Error('All RPC URLs failed');
 | `api-gateway` | API Gateway service | Base, Services, JWT, Redis |
 | `auth-service` | Authentication service | Base, Database, Redis, JWT |
 | `wallet-registry` | Wallet management | Base, Database, Blockchain |
-| `quote-service` | Price quotes | Base, Redis, External APIs, Blockchain |
+| `aggregator-service` | Price quotes | Base, Redis, External APIs, Blockchain |
 | `swap-orchestrator` | Trade execution | Base, Database, Redis, Kafka, Blockchain, Trading |
 | `position-indexer` | Portfolio tracking | Base, Database, Redis, Kafka, Blockchain |
 | `notify-service` | Notifications | Base, Redis, Kafka |
@@ -209,18 +209,18 @@ import { createConfig } from '@moonx/configs';
 
 // Tạo config cho service cụ thể
 const authConfig = createConfig('auth-service');
-const quoteConfig = createConfig('quote-service');
+const aggregatorConfig = createConfig('aggregator-service');
 const webConfig = createConfig('web');
 
 // Hoặc sử dụng helper functions
 import { 
   createAuthServiceConfig,
-  createQuoteServiceConfig,
+  createAggregatorServiceConfig,
   createWebConfig 
 } from '@moonx/configs';
 
 const authConfig = createAuthServiceConfig();
-const quoteConfig = createQuoteServiceConfig();
+const aggregatorConfig = createAggregatorServiceConfig();
 const webConfig = createWebConfig();
 ```
 
@@ -308,7 +308,7 @@ import {
 
 // Lấy config cho từng service
 const dbConfig = getDatabaseConfig('auth-service');
-const redisConfig = getRedisConfig('quote-service');
+const redisConfig = getRedisConfig('aggregator-service');
 const networks = getNetworkConfigs('swap-orchestrator');
 ```
 
@@ -335,7 +335,7 @@ const publicUrls = getPublicRpcUrls(networkConfig);
 const hasPrivate = hasPrivateRpc(networkConfig);
 
 // Lấy RPC config hoàn chỉnh
-const rpcConfig = getRpcConfig('quote-service', 'base', 'mainnet');
+const rpcConfig = getRpcConfig('aggregator-service', 'base', 'mainnet');
 ```
 
 ## 🔄 Migration từ Common Package
@@ -478,8 +478,8 @@ logger.info('Service started', { port: 3001 });
 const authLogger = createLoggerForProfile('auth-service');
 authLogger.info('Auth service started', { port: 3001 });
 
-const quoteLogger = createLoggerForProfile('quote-service');
-quoteLogger.debug('Quote calculation started', { 
+const aggregatorLogger = createLoggerForProfile('aggregator-service');
+aggregatorLogger.debug('Aggregator calculation started', { 
   tokenIn: 'USDC', 
   tokenOut: 'ETH',
   amount: '1000'
@@ -488,10 +488,10 @@ quoteLogger.debug('Quote calculation started', {
 // Custom configuration
 const customConfig: LoggerConfig = {
   level: 'debug',
-  service: 'quote-service',
+  service: 'aggregator-service',
   enableConsole: true,
   enableFile: true,
-  logDir: 'logs/quote',
+  logDir: 'logs/aggregator',
   maxFiles: 10,
   maxSize: '20m',
   format: 'json',

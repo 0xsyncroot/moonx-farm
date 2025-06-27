@@ -1,0 +1,12 @@
+# Kibana Configuration for MoonX Aggregator Service
+# Minimal configuration for Kibana 8.11.0
+
+server.name: "moonx-kibana"
+server.host: "0.0.0.0"
+server.port: 5601
+
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+xpack.security.enabled: false
+elasticsearch.ssl.verify: false
+
+telemetry.enabled: false 

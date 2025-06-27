@@ -22,7 +22,7 @@
 | **API Gateway** | TypeScript | Fastify/Nginx | - | High performance, routing |
 | **Auth Service** | TypeScript | Fastify | PostgreSQL | JWT, Privy integration |
 | **Wallet Registry** | TypeScript | Fastify | PostgreSQL | AA wallet management |
-| **Quote Service** | Go | Gin/Fiber | Redis | High performance quotes |
+| **Aggregator Service** | Go | Gin/Fiber | Redis | High performance quotes |
 | **Swap Orchestrator** | TypeScript | Fastify | PostgreSQL | Complex business logic |
 | **Position Indexer** | TypeScript | Fastify | PostgreSQL | Event processing |
 | **Notify Service** | TypeScript | Socket.IO | Redis | Real-time notifications |
@@ -105,12 +105,12 @@ moonx-farm/
 
 #### **Go cho Performance-Critical Services**
 **Rationale**:
-- Quote Service cần <200ms response time
+- Aggregator Service cần <200ms response time
 - Price Crawler xử lý high-frequency data
 - Better performance cho concurrent operations
 
 **Implementation**:
-- Quote Service: Go với Gin framework
+- Aggregator Service: Go với Gin framework
 - Price Crawler: Go với goroutines
 
 ### **2. Database Choices**
@@ -182,7 +182,7 @@ const redisConfig = {
 
 **Example Service Definition**:
 ```protobuf
-service QuoteService {
+service AggregatorService {
   rpc GetQuote(QuoteRequest) returns (QuoteResponse);
   rpc GetBestRoute(RouteRequest) returns (RouteResponse);
 }
@@ -322,7 +322,7 @@ INCLUDE (status, amount, token_in, token_out);
 #### **Caching Strategy**
 ```typescript
 // Multi-level caching
-class QuoteService {
+class AggregatorService {
   async getQuote(tokenIn: string, tokenOut: string, amount: string) {
     // L1: In-memory cache (1s TTL)
     const memoryKey = `${tokenIn}:${tokenOut}:${amount}`;
@@ -404,12 +404,12 @@ class DatabaseService {
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: quote-service-hpa
+  name: aggregator-service-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment  
-    name: quote-service
+    name: aggregator-service
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -458,9 +458,9 @@ pnpm dev              # Start all services
 ### **Testing Strategy**
 ```typescript
 // Unit tests với Jest
-describe('QuoteService', () => {
+describe('AggregatorService', () => {
   it('should return cached quote', async () => {
-    const service = new QuoteService();
+    const service = new AggregatorService();
     const quote = await service.getQuote('ETH', 'USDC', '1000000');
     expect(quote).toBeDefined();
   });

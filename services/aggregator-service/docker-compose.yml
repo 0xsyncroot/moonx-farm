@@ -1,0 +1,230 @@
+version: '3.8'
+
+services:
+  aggregator-service:
+    image: hiepht/moonx-farm:aggregator-service-v0.0.1
+    container_name: moonx-aggregator-service
+    ports:
+      - "3007:3003"
+      - "9091:9090"
+    environment:
+      # Service Configuration
+      NODE_ENV: production
+      LOG_LEVEL: info
+      QUOTE_SERVICE_PORT: 3003
+      QUOTE_SERVICE_HOST: 0.0.0.0
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: 0
+      REDIS_KEY_PREFIX: "moonx:quote:"
+      REDIS_ENABLE_READY_CHECK: true
+      REDIS_LAZY_CONNECT: false
+      REDIS_MAX_RETRIES_PER_REQUEST: 3
+      REDIS_CONNECT_TIMEOUT: 10000
+      REDIS_COMMAND_TIMEOUT: 5000
+      
+      # Cache Configuration
+      QUOTE_CACHE_TTL_SECONDS: 10
+      PRICE_CACHE_TTL_SECONDS: 30
+      ROUTE_CACHE_TTL_SECONDS: 60
+      
+      # External API Keys
+      DEXSCREENER_API_KEY: ""
+      ONE_INCH_API_KEY: ""
+      PARASWAP_API_KEY: ""
+      LIFI_API_KEY: ""
+      
+      # Blockchain Networks
+      BASE_MAINNET_RPC: https://mainnet.base.org
+      BASE_MAINNET_CHAIN_ID: 8453
+      BASE_TESTNET_RPC: https://sepolia.base.org
+      BASE_TESTNET_CHAIN_ID: 84532
+      BSC_MAINNET_RPC: https://bsc-dataseed1.binance.org
+      BSC_MAINNET_CHAIN_ID: 56
+      BSC_TESTNET_RPC: https://data-seed-prebsc-1-s1.binance.org:8545
+      BSC_TESTNET_CHAIN_ID: 97
+      DEFAULT_CHAIN_ID: 8453
+      
+      # Monitoring & Logging
+      PROMETHEUS_METRICS_ENABLED: true
+      PROMETHEUS_METRICS_PORT: 9090
+      LOG_FORMAT: json
+      LOG_OUTPUT: stdout
+      
+      # ELK Logging Configuration
+      ELK_LOGGING_ENABLED: true
+      APP_VERSION: v0.0.1
+      ENVIRONMENT: production
+      HOSTNAME: moonx-aggregator-service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - aggregator_logs:/var/log/aggregator-service
+    networks:
+      - moonx-network
+    depends_on:
+      - redis
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "prometheus.enable=true"
+      - "prometheus.job=aggregator-service"
+      - "prometheus.port=9090"
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: moonx-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - moonx-network
+    command: redis-server --appendonly yes
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: moonx-prometheus-aggregator
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - moonx-network
+    depends_on:
+      - aggregator-service
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: moonx-grafana-aggregator
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+    networks:
+      - moonx-network
+    depends_on:
+      - prometheus
+
+  # Elasticsearch for log storage
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: moonx-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    restart: unless-stopped
+    networks:
+      - moonx-network
+
+  # Logstash for log processing
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: moonx-logstash
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./monitoring/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - aggregator_logs:/var/log/aggregator-service:ro
+    ports:
+      - "5044:5044"
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    restart: unless-stopped
+    networks:
+      - moonx-network
+    depends_on:
+      - elasticsearch
+
+  # Kibana for log visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: moonx-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      NODE_OPTIONS: "--openssl-legacy-provider"
+      ELASTIC_APM_ENABLED: "false"
+      ELASTIC_APM_SERVER_URL: ""
+    volumes:
+      - ./monitoring/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml
+    restart: unless-stopped
+    networks:
+      - moonx-network
+    depends_on:
+      - elasticsearch
+
+  # Filebeat for log collection (optional - for host logs)
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    container_name: moonx-filebeat
+    user: root
+    volumes:
+      - ./monitoring/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      - moonx-network
+    depends_on:
+      - logstash
+
+networks:
+  moonx-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+  aggregator_logs:
+#   postgres_data: 

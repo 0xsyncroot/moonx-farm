@@ -19,7 +19,7 @@ install: ## Install all dependencies
 	@echo "Installing dependencies..."
 	npm install
 	@echo "Installing service dependencies..."
-	cd services/quote-service && go mod download
+	cd services/aggregator-service && go mod download
 	cd workers/price-crawler && go mod download
 
 build: ## Build all services

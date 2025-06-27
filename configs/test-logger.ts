@@ -19,8 +19,8 @@ console.log('\n2. Profile-based logger:');
 console.log('const authLogger = createLoggerForProfile("auth-service");');
 console.log('authLogger.info("Auth service logger test", { profile: "auth-service" });');
 
-console.log('const quoteLogger = createLoggerForProfile("quote-service");');
-console.log('quoteLogger.debug("Quote service logger test", { profile: "quote-service" });');
+console.log('const aggregatorLogger = createLoggerForProfile("aggregator-service");');
+console.log('aggregatorLogger.debug("Aggregator service logger test", { profile: "aggregator-service" });');
 
 // Test 3: Custom configuration
 console.log('\n3. Custom configuration:');

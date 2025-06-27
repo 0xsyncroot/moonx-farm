@@ -39,7 +39,7 @@ All profiles now include logger configuration:
 - `api-gateway`
 - `auth-service`
 - `wallet-registry`
-- `quote-service`
+- `aggregator-service`
 - `swap-orchestrator`
 - `position-indexer`
 - `notify-service`
@@ -88,7 +88,7 @@ import { createLoggerForService, createLoggerForProfile, ConfigProfile } from '@
 
 // Type-safe service logger creation
 const authLogger = createLoggerForService('auth-service');
-const quoteLogger = createLoggerForService('quote-service', 'debug');
+const aggregatorLogger = createLoggerForService('aggregator-service', 'debug');
 
 // Type-safe profile logger creation
 const fullLogger = createLoggerForProfile('full');

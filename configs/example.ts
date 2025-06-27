@@ -17,8 +17,8 @@ import {
 export const exampleBasicNetworkConfig = () => {
   console.log('=== Basic Network Configuration ===');
   
-  const config = createConfig('quote-service');
-  const networks = getNetworkConfigs('quote-service');
+  const config = createConfig('aggregator-service');
+  const networks = getNetworkConfigs('aggregator-service');
   
   console.log('Base Mainnet:', networks.base.mainnet);
   console.log('BSC Mainnet:', networks.bsc.mainnet);
@@ -58,7 +58,7 @@ export const exampleRpcConfigHelper = () => {
   console.log('=== RPC Config Helper ===');
   
   // Get complete RPC configuration for Base mainnet
-  const baseMainnetConfig = getRpcConfig('quote-service', 'base', 'mainnet');
+  const baseMainnetConfig = getRpcConfig('aggregator-service', 'base', 'mainnet');
   
   console.log('Base Mainnet Config:', {
     privateRpc: baseMainnetConfig.privateRpc,
@@ -143,8 +143,8 @@ export const exampleServiceRpcUsage = () => {
   console.log('=== Service-Specific RPC Usage ===');
   
   // Quote Service - needs fast RPC for price queries
-  const quoteServiceConfig = createConfig('quote-service');
-  const quoteNetworks = getNetworkConfigs('quote-service');
+  const quoteServiceConfig = createConfig('aggregator-service');
+  const quoteNetworks = getNetworkConfigs('aggregator-service');
   
   // Use private RPC for fast price queries
   const basePrivateRpc = quoteNetworks.base.mainnet.privateRpc;

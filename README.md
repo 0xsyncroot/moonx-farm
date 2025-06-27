@@ -18,7 +18,7 @@ MoonXFarm is a decentralized exchange (DEX) platform with microservices architec
 - **API Gateway**: Request routing and load balancing (Nginx)
 - **Auth Service**: Authentication and authorization
 - **Wallet Registry**: Smart account management
-- **Quote Service**: Real-time price quotes and market data
+- **Aggregator Service**: Real-time price quotes and market data
 - **Swap Orchestrator**: Trade execution and order management
 - **Position Indexer**: Portfolio tracking and analytics
 - **Notify Service**: Real-time notifications via Socket.IO
@@ -149,7 +149,7 @@ moonx-farm/
 │   ├── api-gateway/           # Request routing
 │   ├── auth-service/          # Authentication
 │   ├── wallet-registry/       # Wallet management
-│   ├── quote-service/         # Price quotes
+│   ├── aggregator-service/     # Price quotes
 │   ├── swap-orchestrator/     # Trade execution
 │   ├── position-indexer/      # Portfolio tracking
 │   └── notify-service/        # Real-time notifications

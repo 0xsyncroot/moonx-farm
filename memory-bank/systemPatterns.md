@@ -450,12 +450,12 @@ interface Permission {
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: quote-service-hpa
+  name: aggregator-service-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: quote-service
+    name: aggregator-service
   minReplicas: 2
   maxReplicas: 10
   metrics:

@@ -48,11 +48,11 @@ export const CONFIG_PROFILES = {
     .merge(LoggerConfigSchema),
 
   // Quote service needs redis, external APIs, blockchain
-  'quote-service': BaseConfigSchema
+  'aggregator-service': BaseConfigSchema
     .merge(RedisConfigSchema)
     .merge(ExternalApisConfigSchema)
     .merge(BlockchainConfigSchema)
-    .merge(ServicesConfigSchema.pick({ QUOTE_SERVICE_PORT: true, QUOTE_SERVICE_HOST: true }))
+    .merge(ServicesConfigSchema.pick({ AGGREGATOR_SERVICE_PORT: true, AGGREGATOR_SERVICE_HOST: true }))
     .merge(LoggerConfigSchema),
 
   // Swap orchestrator needs database, redis, kafka, blockchain, trading
@@ -189,7 +189,7 @@ export const createConfig = <T extends ConfigProfile>(profile: T): ConfigManager
 export const createApiGatewayConfig = () => createConfig('api-gateway');
 export const createAuthServiceConfig = () => createConfig('auth-service');
 export const createWalletRegistryConfig = () => createConfig('wallet-registry');
-export const createQuoteServiceConfig = () => createConfig('quote-service');
+export const createAggregatorServiceConfig = () => createConfig('aggregator-service');
 export const createSwapOrchestratorConfig = () => createConfig('swap-orchestrator');
 export const createPositionIndexerConfig = () => createConfig('position-indexer');
 export const createNotifyServiceConfig = () => createConfig('notify-service');
@@ -206,7 +206,7 @@ export const getConfigForService = (serviceName: string) => {
     'api-gateway': 'api-gateway',
     'auth-service': 'auth-service',
     'wallet-registry': 'wallet-registry',
-    'quote-service': 'quote-service',
+    'aggregator-service': 'aggregator-service',
     'swap-orchestrator': 'swap-orchestrator',
     'position-indexer': 'position-indexer',
     'notify-service': 'notify-service',

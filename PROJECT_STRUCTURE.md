@@ -23,7 +23,7 @@ moonx-farm/
 │   │   ├── system-design.md
 │   │   ├── api-specs/                 # OpenAPI specifications
 │   │   │   ├── auth-service.yaml
-│   │   │   ├── quote-service.yaml
+│   │   │   ├── aggregator-service.yaml
 │   │   │   ├── swap-orchestrator.yaml
 │   │   │   └── wallet-registry.yaml
 │   │   └── diagrams/                  # Mermaid diagrams
@@ -232,7 +232,7 @@ moonx-farm/
 │   │   │   └── server.ts
 │   │   └── tests/
 │   │
-│   ├── quote-service/                 # Quote Service (Go) - ✅ OPTIMIZED
+│   ├── aggregator-service/                 # Aggregator Service (Go) - ✅ OPTIMIZED
 │   │   ├── Dockerfile
 │   │   ├── go.mod                     # Go dependencies với performance optimization
 │   │   ├── go.sum
@@ -242,16 +242,16 @@ moonx-farm/
 │   │   │       └── main.go
 │   │   ├── internal/
 │   │   │   ├── handlers/
-│   │   │   │   └── quote.go           # HTTP handlers cho quotes
+│   │   │   │   └── aggregator.go           # HTTP handlers cho aggregator
 │   │   │   ├── services/
-│   │   │   │   ├── aggregator.go      # ✅ Multi-tier aggregation với circuit breaker
-│   │   │   │   ├── lifi.go            # ✅ LiFi integration với cross-chain support
-│   │   │   │   ├── oneinch.go         # ✅ 1inch integration (same-chain only)
-│   │   │   │   ├── relay.go           # ✅ Relay integration với cross-chain support
-│   │   │   │   ├── external.go        # External API service (DexScreener, etc.)
-│   │   │   │   └── cache.go           # Redis caching với TTL optimization
+│   │   │   │   ├── aggregator.go            # ✅ Multi-tier aggregation với circuit breaker
+│   │   │   │   ├── lifi.go                  # ✅ LiFi integration với cross-chain support
+│   │   │   │   ├── oneinch.go                # ✅ 1inch integration (same-chain only)
+│   │   │   │   ├── relay.go                  # ✅ Relay integration với cross-chain support
+│   │   │   │   ├── external.go                # External API service (DexScreener, etc.)
+│   │   │   │   └── cache.go                  # Redis caching với TTL optimization
 │   │   │   ├── models/
-│   │   │   │   └── quote.go           # ✅ Cross-chain models với ToChainID support
+│   │   │   │   └── aggregator.go              # ✅ Cross-chain models với ToChainID support
 │   │   │   └── config/
 │   │   └── tests/
 │   │
@@ -382,7 +382,7 @@ moonx-farm/
 │   │   │   ├── notify-service/
 │   │   │   ├── auth-service/
 │   │   │   ├── wallet-registry/
-│   │   │   ├── quote-service/
+│   │   │   ├── aggregator-service/
 │   │   │   ├── swap-orchestrator/
 │   │   │   └── position-indexer/
 │   │   ├── workers/
@@ -506,7 +506,7 @@ moonx-farm/
 - **notify-service**: Hệ thống thông báo real-time với Socket.IO, xử lý notifications toàn hệ thống
 - **auth-service**: ✅ **IMPLEMENTED** - Xác thực với Privy, quản lý JWT, Fastify v5, auto-generated OpenAPI docs
 - **wallet-registry**: Quản lý AA wallets và session keys
-- **quote-service**: ✅ **OPTIMIZED** - Multi-tier quote aggregation với circuit breaker, cross-chain support (LiFi, Relay), industry-standard optimization
+- **aggregator-service**: ✅ **OPTIMIZED** - Multi-tier quote aggregation với circuit breaker, cross-chain support (LiFi, Relay), industry-standard optimization
 - **swap-orchestrator**: Xây dựng và gửi UserOperations
 - **position-indexer**: Theo dõi events on-chain, tính P&L
 
@@ -541,7 +541,7 @@ moonx-farm/
 - **Type-safe validation**: ✅ Sử dụng Zod schemas cho validation
 - **Environment management**: ✅ Quản lý biến môi trường từ file `.env` root
 - **Utility functions**: ✅ Helper functions cho database, Redis, Kafka, JWT, v.v.
-- **Configuration profiles**: ✅ `auth-service`, `quote-service`, `swap-orchestrator`, `web`, etc.
+- **Configuration profiles**: ✅ `auth-service`, `aggregator-service`, `swap-orchestrator`, `web`, etc.
 
 ## File Cấu Hình Cần Thiết
 
@@ -564,7 +564,7 @@ moonx-farm/
 - `configs/`: Centralized configuration package với profile-based loading
 - `env.example`: Comprehensive template với 300+ environment variables
 - `scripts/setup-env.sh`: Automated environment setup với secure secret generation
-- Configuration profiles cho từng service (auth-service, quote-service, etc.)
+- Configuration profiles cho từng service (auth-service, aggregator-service, etc.)
 - Type-safe validation với Zod schemas
 
 ### CI/CD
@@ -611,9 +611,9 @@ Mỗi service có profile riêng, chỉ load config cần thiết:
 import { createAuthServiceConfig } from '@moonx/configs';
 const config = createAuthServiceConfig();
 
-// Quote Service - cần Redis, external APIs, blockchain
-import { createQuoteServiceConfig } from '@moonx/configs';  
-const config = createQuoteServiceConfig();
+// Aggregator Service - cần Redis, external APIs, blockchain
+import { createAggregatorServiceConfig } from '@moonx/configs';  
+const config = createAggregatorServiceConfig();
 
 // Web App - cần frontend config
 import { createWebConfig } from '@moonx/configs';
@@ -626,7 +626,7 @@ const config = createWebConfig();
 | `api-gateway` | Base + Services + JWT + Redis | API Gateway routing |
 | `auth-service` | Base + Database + Redis + JWT | User authentication |
 | `wallet-registry` | Base + Database + Blockchain | Wallet management |
-| `quote-service` | Base + Redis + APIs + Blockchain | Price quotes |
+| `aggregator-service` | Base + Redis + APIs + Blockchain | Price quotes |
 | `swap-orchestrator` | Base + DB + Redis + Kafka + Blockchain + Trading | Trade execution |
 | `position-indexer` | Base + DB + Redis + Kafka + Blockchain | Portfolio tracking |
 | `notify-service` | Base + Redis + Kafka | Real-time notifications |
@@ -649,7 +649,7 @@ import {
 
 // Lấy config cho từng service
 const dbConfig = getDatabaseConfig('auth-service');
-const redisConfig = getRedisConfig('quote-service');
+const redisConfig = getRedisConfig('aggregator-service');
 const networks = getNetworkConfigs('swap-orchestrator');
 ```
 
@@ -691,7 +691,7 @@ configs/
 | **packages/common** | ✅ UPDATED | Validation schemas, centralized logging, utilities |
 | **packages/infrastructure** | ✅ UPDATED | Database, Redis, Kafka connection managers |
 | **auth-service** | ✅ IMPLEMENTED | Fastify v5, Privy integration, auto-generated OpenAPI docs |
-| **quote-service** | ✅ OPTIMIZED | Multi-tier aggregation, circuit breaker, cross-chain support |
+| **aggregator-service** | ✅ OPTIMIZED | Multi-tier aggregation, circuit breaker, cross-chain support |
 | **database/migrations** | ✅ PARTIAL | User và session tables |
 | **env.example** | ✅ IMPLEMENTED | 300+ environment variables với documentation |
 | **scripts/setup-env.sh** | ✅ IMPLEMENTED | Automated environment setup |

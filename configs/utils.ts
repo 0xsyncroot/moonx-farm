@@ -1,7 +1,6 @@
 import { 
   createConfig, 
-  ConfigProfile, 
-  ConfigForProfile
+  ConfigProfile
 } from './index';
 
 /**

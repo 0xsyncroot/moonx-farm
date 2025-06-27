@@ -1,0 +1,57 @@
+# Logstash Configuration for MoonX Aggregator Service
+# This file configures Logstash behavior and performance
+
+# Node configuration
+node.name: "moonx-logstash"
+path.data: /usr/share/logstash/data
+path.logs: /usr/share/logstash/logs
+
+# Pipeline configuration
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50
+pipeline.unsafe_shutdown: false
+
+# Queue configuration
+queue.type: memory
+queue.max_bytes: 1024mb
+
+# Monitoring and management
+http.host: "0.0.0.0"
+http.port: 9600
+
+# Logging configuration
+log.level: info
+log.format: json
+
+# Performance tuning
+# Increase memory for better performance
+# LS_JAVA_OPTS: "-Xmx512m -Xms512m" (set in docker-compose.yml)
+
+# Security (disabled for development)
+# xpack.monitoring.enabled: false
+# xpack.security.enabled: false
+
+# Input/Output configuration
+# Pipeline configuration is in pipeline/logstash.conf
+
+# Dead letter queue (optional)
+# dead_letter_queue.enable: true
+# dead_letter_queue.max_bytes: 1024mb
+
+# Monitoring
+monitoring.enabled: true
+monitoring.elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# Reload configuration
+config.reload.automatic: true
+config.reload.interval: 3s
+
+# API settings
+api.enabled: true
+api.http.host: "0.0.0.0"
+api.http.port: 9600
+
+# Pipeline settings
+pipeline.ordered: auto
+pipeline.ecs_compatibility: v1 

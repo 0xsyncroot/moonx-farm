@@ -214,8 +214,6 @@ docker-compose.local.yml
 
 # Go build outputs
 server
-*/server
-**/server
 bin/
 */bin/
 **/bin/
@@ -348,9 +346,9 @@ $RECYCLE.BIN/
 
 # Application specific
 # Quote service
-services/quote-service/server
-services/quote-service/*.log
-services/quote-service/debug
+services/aggregator-service/server
+services/aggregator-service/*.log
+services/aggregator-service/debug
 
 # Auth service
 services/auth-service/dist/
@@ -375,3 +373,5 @@ temp/
 cpu.prof
 mem.prof
 trace.out 
+
+build-and-push.sh

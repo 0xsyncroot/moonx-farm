@@ -107,9 +107,9 @@ export const ServicesConfigSchema = z.object({
   WALLET_REGISTRY_PORT: z.coerce.number().default(3002),
   WALLET_REGISTRY_HOST: z.string().default('localhost'),
   
-  // Quote Service
-  QUOTE_SERVICE_PORT: z.coerce.number().default(3003),
-  QUOTE_SERVICE_HOST: z.string().default('localhost'),
+  // Aggregator Service
+  AGGREGATOR_SERVICE_PORT: z.coerce.number().default(3003),
+  AGGREGATOR_SERVICE_HOST: z.string().default('localhost'),
   
   // Swap Orchestrator
   SWAP_ORCHESTRATOR_PORT: z.coerce.number().default(3004),
@@ -213,7 +213,7 @@ export const CacheConfigSchema = z.object({
   CACHE_TTL_DEFAULT: z.coerce.number().default(300), // 5 minutes
   CACHE_TTL_USER_PROFILE: z.coerce.number().default(300),
   CACHE_TTL_TOKEN_PRICE: z.coerce.number().default(60),
-  CACHE_TTL_QUOTE: z.coerce.number().default(30),
+  CACHE_TTL_AGGREGATOR: z.coerce.number().default(30),
   CACHE_TTL_PORTFOLIO: z.coerce.number().default(120),
   CACHE_MAX_KEYS: z.coerce.number().default(10000),
 });

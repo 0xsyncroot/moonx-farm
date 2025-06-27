@@ -1,0 +1,61 @@
+# Filebeat Configuration for MoonX Aggregator Service
+# This file configures Filebeat to collect Docker container logs
+
+filebeat.inputs:
+- type: container
+  paths:
+    - '/var/lib/docker/containers/*/*.log'
+  processors:
+    - add_docker_metadata:
+        host: "unix:///var/run/docker.sock"
+    - add_fields:
+        fields:
+          service: "filebeat"
+          environment: "production"
+
+# Processors for all inputs
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_kubernetes_metadata: ~
+
+# Output to Logstash
+output.logstash:
+  hosts: ["logstash:5044"]
+
+# Logging
+logging.level: info
+logging.json: true
+logging.metrics.enabled: false
+
+# Monitoring
+monitoring.enabled: true
+monitoring.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+
+# General settings
+name: "moonx-filebeat"
+tags: ["moonx-farm", "filebeat"]
+
+# Registry file
+registry.path: /var/lib/filebeat/registry
+
+# Setup
+setup.kibana:
+  host: "kibana:5601"
+
+setup.dashboards.enabled: true
+setup.template.enabled: true
+setup.template.name: "moonx-farm"
+setup.template.pattern: "moonx-farm-*"
+
+# ILM (Index Lifecycle Management)
+setup.ilm.enabled: true
+setup.ilm.rollover_alias: "moonx-farm"
+setup.ilm.policy_name: "moonx-farm-policy"
+
+# Pipeline configuration
+setup.pipeline.enabled: true
+setup.pipeline.overwrite: true 

@@ -33,7 +33,7 @@ configs/
 | `api-gateway` | Base + Services + JWT + Redis | API Gateway routing |
 | `auth-service` | Base + Database + Redis + JWT | User authentication |
 | `wallet-registry` | Base + Database + Blockchain | Wallet management |
-| `quote-service` | Base + Redis + APIs + Blockchain | Price quotes |
+| `aggregator-service` | Base + Redis + APIs + Blockchain | Price quotes |
 | `swap-orchestrator` | Base + DB + Redis + Kafka + Blockchain + Trading | Trade execution |
 | `position-indexer` | Base + DB + Redis + Kafka + Blockchain | Portfolio tracking |
 | `notify-service` | Base + Redis + Kafka | Real-time notifications |
