@@ -1,0 +1,103 @@
+import './globals.css'
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import { ThemeProvider } from '@/components/theme-provider'
+import { PrivyProvider } from '@/components/providers/privy-provider'
+import { QueryProvider } from '@/components/providers/query-provider'
+import { Toaster } from 'react-hot-toast'
+import { cn } from '@/lib/utils'
+
+const inter = Inter({ 
+  subsets: ['latin'],
+  variable: '--font-sans',
+})
+
+export const metadata: Metadata = {
+  title: 'MoonXFarm - Cross-Chain DEX Aggregator',
+  description: 'Trade across chains with gasless transactions, limit orders, and intelligent routing.',
+  keywords: ['DEX', 'DeFi', 'Cross-chain', 'Trading', 'Gasless', 'Account Abstraction'],
+  authors: [{ name: 'MoonXFarm Team' }],
+  openGraph: {
+    title: 'MoonXFarm - Cross-Chain DEX Aggregator',
+    description: 'Trade across chains with gasless transactions, limit orders, and intelligent routing.',
+    url: process.env.NEXT_PUBLIC_APP_URL,
+    siteName: 'MoonXFarm',
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'MoonXFarm DEX',
+      },
+    ],
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'MoonXFarm - Cross-Chain DEX Aggregator',
+    description: 'Trade across chains with gasless transactions, limit orders, and intelligent routing.',
+    images: ['/og-image.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+  },
+}
+
+interface RootLayoutProps {
+  children: React.ReactNode
+}
+
+export default function RootLayout({ children }: RootLayoutProps) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={cn(
+          'min-h-screen bg-background font-sans antialiased',
+          inter.variable
+        )}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <PrivyProvider>
+            <QueryProvider>
+              <div className="relative flex min-h-screen flex-col">
+                <div className="flex-1">{children}</div>
+              </div>
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  duration: 4000,
+                  className: 'glass glass-dark',
+                  style: {
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(12px)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: 'var(--foreground)',
+                  },
+                }}
+              />
+            </QueryProvider>
+          </PrivyProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+} 
