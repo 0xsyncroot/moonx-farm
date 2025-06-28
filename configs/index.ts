@@ -14,6 +14,7 @@ import {
   TradingConfigSchema,
   FrontendConfigSchema,
   CacheConfigSchema,
+  ZeroDevConfigSchema,
   LoggerConfigSchema,
 } from './schemas';
 
@@ -40,11 +41,22 @@ export const CONFIG_PROFILES = {
     .merge(ServicesConfigSchema.pick({ AUTH_SERVICE_PORT: true, AUTH_SERVICE_HOST: true, FRONTEND_URL: true }))
     .merge(LoggerConfigSchema),
 
-  // Wallet registry needs database, blockchain
+  // Wallet registry needs database, blockchain, JWT for auth verification, ZeroDev
   'wallet-registry': BaseConfigSchema
     .merge(DatabaseConfigSchema)
     .merge(BlockchainConfigSchema)
-    .merge(ServicesConfigSchema.pick({ WALLET_REGISTRY_PORT: true, WALLET_REGISTRY_HOST: true }))
+    .merge(JwtConfigSchema)
+    .merge(ZeroDevConfigSchema)
+    .merge(ServicesConfigSchema.pick({ WALLET_REGISTRY_PORT: true, WALLET_REGISTRY_HOST: true, FRONTEND_URL: true }))
+    .merge(LoggerConfigSchema),
+
+  // Core service needs database, redis, JWT, external APIs, logger
+  'core-service': BaseConfigSchema
+    .merge(DatabaseConfigSchema)
+    .merge(RedisConfigSchema)
+    .merge(JwtConfigSchema)
+    .merge(ExternalApisConfigSchema)
+    .merge(ServicesConfigSchema.pick({ CORE_SERVICE_PORT: true, CORE_SERVICE_HOST: true, FRONTEND_URL: true }))
     .merge(LoggerConfigSchema),
 
   // Quote service needs redis, external APIs, blockchain
@@ -189,6 +201,7 @@ export const createConfig = <T extends ConfigProfile>(profile: T): ConfigManager
 export const createApiGatewayConfig = () => createConfig('api-gateway');
 export const createAuthServiceConfig = () => createConfig('auth-service');
 export const createWalletRegistryConfig = () => createConfig('wallet-registry');
+export const createCoreServiceConfig = () => createConfig('core-service');
 export const createAggregatorServiceConfig = () => createConfig('aggregator-service');
 export const createSwapOrchestratorConfig = () => createConfig('swap-orchestrator');
 export const createPositionIndexerConfig = () => createConfig('position-indexer');
@@ -206,6 +219,7 @@ export const getConfigForService = (serviceName: string) => {
     'api-gateway': 'api-gateway',
     'auth-service': 'auth-service',
     'wallet-registry': 'wallet-registry',
+    'core-service': 'core-service',
     'aggregator-service': 'aggregator-service',
     'swap-orchestrator': 'swap-orchestrator',
     'position-indexer': 'position-indexer',

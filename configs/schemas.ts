@@ -107,6 +107,10 @@ export const ServicesConfigSchema = z.object({
   WALLET_REGISTRY_PORT: z.coerce.number().default(3002),
   WALLET_REGISTRY_HOST: z.string().default('localhost'),
   
+  // Core Service
+  CORE_SERVICE_PORT: z.coerce.number().default(3007),
+  CORE_SERVICE_HOST: z.string().default('localhost'),
+  
   // Aggregator Service
   AGGREGATOR_SERVICE_PORT: z.coerce.number().default(3003),
   AGGREGATOR_SERVICE_HOST: z.string().default('localhost'),
@@ -216,6 +220,13 @@ export const CacheConfigSchema = z.object({
   CACHE_TTL_AGGREGATOR: z.coerce.number().default(30),
   CACHE_TTL_PORTFOLIO: z.coerce.number().default(120),
   CACHE_MAX_KEYS: z.coerce.number().default(10000),
+});
+
+/**
+ * ZeroDev configuration schema
+ */
+export const ZeroDevConfigSchema = z.object({
+  ZERODEV_PROJECT_ID: z.string().min(1, 'ZeroDev Project ID is required'),
 });
 
 /**
