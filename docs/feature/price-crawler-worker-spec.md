@@ -1,51 +1,67 @@
-# 📦 Price Crawler Worker Specification
+# 📦 Đặc Tả Worker Thu Thập Giá (Price Crawler Worker)
 
-## 🧠 Objective
+## 🧠 Mục Tiêu
 
-Develop a scalable **Price Crawler Worker** system that:
+Phát triển hệ thống **Price Crawler Worker** có khả năng mở rộng, bao gồm:
 
-- Periodically collects **price**, **metadata**, and **audit** information for tokens.
-- Fetches data from **Binance API**, **DexScreener**, and other CEX/DEX sources.
-- Sends jobs via **Kafka** to worker services.
-- Stores results in **PostgreSQL** with upsert logic.
-- Supports real-time pricing for trading UI and backend order logic (Limit/DCA).
+- Định kỳ thu thập **giá**, **metadata**, và **audit** cho các token.
+- Lấy dữ liệu từ **Binance API**, **DexScreener** và các nguồn CEX/DEX khác.
+- Gửi job qua **Kafka** tới các worker service.
+- Lưu kết quả vào **PostgreSQL** với logic upsert.
+- Hỗ trợ giá real-time cho giao diện trading và backend order logic (Limit/DCA).
 
 ---
 
-## 🧱 System Architecture
+## 🛡️ Yêu Cầu & Tiêu Chuẩn Hệ Thống
+
+- **Cấu hình tập trung:** Sử dụng `@moonx/configs` cho toàn bộ config, profile-based loading.
+- **Logging chuẩn hóa:** Tích hợp logger chuẩn (`@moonx/common` - winston), log theo format toàn hệ thống.
+- **Xử lý lỗi:** Chuẩn hóa error boundary, retry logic, lưu log vào DB (`job_logs`).
+- **Healthcheck & Metrics:** Bắt buộc có endpoint healthcheck, expose Prometheus metrics.
+- **Observability:** Structured logging, metrics, healthcheck cho vận hành/giám sát.
+- **CI/CD & Docker:** Có Dockerfile, docker-compose, script setup/test/deploy, tích hợp pipeline CI/CD.
+- **Package chung:** Tận dụng tối đa `@moonx/common`, `@moonx/infrastructure` cho logger, config, DB/Kafka/Redis connection.
+- **Isolation:** Mỗi pipeline (price/meta/audit) độc lập, dễ scale/failure isolation.
+
+---
+
+## 🧱 Kiến Trúc Hệ Thống
 
 ```
 [SCHEDULER - node-cron]
    → [Kafka Producer - node-rdkafka]
       → Kafka Topics
-         → [Worker - Kafka Consumer (per job type)]
-             → [API Calls → Transformation → PostgreSQL]
+         → [Worker - Kafka Consumer (mỗi loại job)]
+             → [API Calls → Chuyển đổi dữ liệu → PostgreSQL]
 ```
 
-Each (token type + job type) is handled by **independent pipelines** to support modular scaling and failure isolation.
+- Tất cả thành phần worker phải tuân thủ chuẩn centralized config, logging, error handling, healthcheck, metrics như các service khác trong hệ thống MoonXFarm.
+- Mỗi pipeline là một process độc lập, có thể scale/failure isolation, dễ mở rộng.
+
+Mỗi (loại token + loại job) được xử lý bởi **pipeline độc lập** để hỗ trợ mở rộng và cô lập lỗi.
 
 ---
 
-## ⏱️ Job Schedule Requirements
+## ⏱️ Yêu Cầu Lịch Chạy Job
 
-| Token Type   | Job Type    | Frequency     | Notes                                 |
-|--------------|-------------|---------------|---------------------------------------|
-| Top 100      | Metadata    | Every 24h     | Static metadata, fetched rarely       |
-| Top 100      | Price       | Every 5 sec   | High frequency for trading UI         |
-| Trending     | Price+Meta  | Every 1 min   | Fetched together                      |
-| Trending     | Audit       | After price/meta | Executed immediately after completion |
+| Loại Token   | Loại Job    | Tần suất        | Ghi chú                                 |
+|--------------|-------------|-----------------|-----------------------------------------|
+| Top 100      | Metadata    | Mỗi 24h         | Metadata tĩnh, lấy ít                   |
+| Top 100      | Price       | Mỗi 5 giây      | Tần suất cao cho trading UI             |
+| Trending     | Price+Meta  | Mỗi 1 phút      | Lấy đồng thời                           |
+| Trending     | Audit       | Sau price/meta  | Chạy ngay sau khi xong price/meta       |
 
 ---
 
-## 📦 Kafka Topic Design
+## 📦 Thiết Kế Kafka Topic
 
-| Topic Name                          | Purpose                        |
-|------------------------------------|--------------------------------|
-| `price-crawler.price.request`      | Price crawling jobs            |
-| `price-crawler.metadata.request`   | Metadata crawling jobs         |
-| `price-crawler.audit.request`      | Audit crawling jobs            |
+| Tên Topic                        | Mục đích                      |
+|----------------------------------|-------------------------------|
+| `price-crawler.price.request`    | Job thu thập giá              |
+| `price-crawler.metadata.request` | Job thu thập metadata         |
+| `price-crawler.audit.request`    | Job audit token               |
 
-**Kafka Message Structure:**
+**Cấu trúc message Kafka:**
 
 ```json
 {
@@ -58,32 +74,36 @@ Each (token type + job type) is handled by **independent pipelines** to support 
 
 ---
 
-## ⚙️ Backend Stack
+## ⚙️ Công Nghệ Backend
 
-| Layer          | Technology                         |
-|----------------|-------------------------------------|
-| Scheduler      | `node-cron`                        |
-| Messaging      | Kafka + `node-rdkafka`             |
-| Worker         | `Node.js` + `TypeScript`           |
-| API Client     | `axios` or `node-fetch`            |
-| DB Access      | `Prisma` or `Knex.js`              |
-| Database       | PostgreSQL                         |
-
----
-
-## 🔐 Business Rules
-
-- Prices must always be fetched against **USDT**
-- **Stablecoins** (e.g. USDT, USDC, DAI, WETH) are excluded
-- Data is **overwritten** if a token contract already exists
-- Use **contract address** as the primary key
-- Audit jobs are executed **after** metadata/price for trending tokens
+| Lớp           | Công nghệ                              |
+|---------------|----------------------------------------|
+| Config        | `@moonx/configs` (profile-based)       |
+| Logging       | `@moonx/common` (winston logger)       |
+| DB/Kafka/Redis| `@moonx/infrastructure`                |
+| Scheduler     | `node-cron`                            |
+| Messaging     | Kafka + `node-rdkafka`                 |
+| Worker        | `Node.js` + `TypeScript`               |
+| API Client    | `axios` hoặc `node-fetch`              |
+| DB Access     | `Prisma` hoặc `Knex.js`                |
+| Database      | PostgreSQL                             |
+| Healthcheck   | Endpoint Express/Fastify + Prometheus metrics |
 
 ---
 
-## 🗃️ Database Schema
+## 🔐 Quy Tắc Nghiệp Vụ
 
-### 🔸 `tokens` (Token Metadata)
+- Giá luôn phải lấy theo **USDT**
+- **Stablecoin** (USDT, USDC, DAI, WETH,...) bị loại trừ
+- Dữ liệu sẽ **ghi đè** nếu contract token đã tồn tại
+- Sử dụng **địa chỉ contract** làm khóa chính
+- Job audit chỉ chạy **sau** khi đã có metadata/price cho trending token
+
+---
+
+## 🗃️ Thiết Kế CSDL
+
+### 🔸 `tokens` (Metadata Token)
 
 ```sql
 CREATE TABLE tokens (
@@ -101,7 +121,7 @@ CREATE TABLE tokens (
 
 ---
 
-### 🔸 `token_prices` (Price Tracking)
+### 🔸 `token_prices` (Theo Dõi Giá)
 
 ```sql
 CREATE TABLE token_prices (
@@ -116,7 +136,7 @@ CREATE TABLE token_prices (
 
 ---
 
-### 🔸 `token_audits` (Trending Token Audits)
+### 🔸 `token_audits` (Audit Token Trending)
 
 ```sql
 CREATE TABLE token_audits (
@@ -132,7 +152,7 @@ CREATE TABLE token_audits (
 
 ---
 
-### 🔸 `job_logs` (Optional Monitoring)
+### 🔸 `job_logs` (Theo Dõi Job - Tùy Chọn)
 
 ```sql
 CREATE TABLE job_logs (
@@ -148,7 +168,7 @@ CREATE TABLE job_logs (
 
 ---
 
-## 🔍 Index Recommendations
+## 🔍 Đề Xuất Index
 
 ```sql
 CREATE INDEX idx_tokens_symbol ON tokens(symbol);
@@ -159,30 +179,35 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
 
 ---
 
-## 📌 Implementation Goals for AI Agent
+## 📌 Mục Tiêu Triển Khai Cho AI Agent
 
-- [ ] Generate scheduler job definitions (using `node-cron`)
-- [ ] Implement Kafka producer for dispatching jobs
-- [ ] Setup consumer pipelines per job type (price, metadata, audit)
-- [ ] Implement data fetchers from Binance, DexScreener
-- [ ] Normalize & transform data
-- [ ] Connect to PostgreSQL using Prisma/Knex (In Progress)
-- [ ] Use upsert logic on contract key (In Progress)
-- [ ] Add retry, error logging, and healthcheck endpoints
-- [ ] Optional: Docker + Compose setup for Kafka/PostgreSQL
-
-## 🚀 Current Implementation Progress
+- [ ] Sinh định nghĩa job scheduler (dùng `node-cron`)
+- [ ] Cài đặt Kafka producer để gửi job
+- [ ] Thiết lập pipeline consumer cho từng loại job (price, metadata, audit)
+- [ ] Cài đặt fetcher lấy dữ liệu từ Binance, DexScreener
+- [ ] Chuẩn hóa & chuyển đổi dữ liệu
+- [ ] Kết nối PostgreSQL qua Prisma/Knex (Đang thực hiện)
+- [ ] Logic upsert theo contract key (Đang thực hiện)
+- [ ] Thêm retry, logging lỗi, healthcheck endpoint
+- [ ] Tích hợp config, logger, connection manager từ package chung
+- [ ] Thêm healthcheck endpoint, expose Prometheus metrics
+- [ ] Đảm bảo structured logging, error boundary, retry logic
+- [ ] Viết Dockerfile, docker-compose, script CI/CD
+- [ ] Tùy chọn: Docker + Compose cho Kafka/PostgreSQL
 
 ---
+
+## 🚀 Tiến Độ Hiện Tại
 
 ### Tiến độ các giai đoạn
 
 - **Giai đoạn 1: Khung code & cấu trúc dự án** — 100% hoàn thành
-- **Giai đoạn 2: Scheduler & Job Definition** — 100% hoàn thành
+- **Giai đoạn 2: Scheduler & Định nghĩa Job** — 100% hoàn thành
 - **Giai đoạn 3: Kafka Producer/Consumer, tích hợp end-to-end** — 100% hoàn thành
 
+---
 
-## 🛠️ Deployment Roadmap (Kế hoạch triển khai chi tiết)
+## 🛠️ Lộ Trình Triển Khai (Deployment Roadmap)
 
 ### Giai đoạn 1: Khung code & cấu trúc dự án
 - **Mục tiêu:** Tạo đầy đủ các file, module, class, interface chính cho toàn bộ luồng, chưa cần code logic chi tiết.
@@ -192,7 +217,7 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
   - Đảm bảo đủ các pipeline cho từng loại job (price, metadata, audit).
 - **Tiêu chí hoàn thành:** Review cấu trúc, xác nhận đủ thành phần, sẵn sàng cho code chi tiết.
 
-### Giai đoạn 2: Scheduler & Job Definition
+### Giai đoạn 2: Scheduler & Định nghĩa Job
 - **Mục tiêu:** Cài đặt Scheduler (node-cron), định nghĩa các loại job, lịch chạy, mapping với Kafka Topic.
 - **Đầu ra:** 
   - File scheduler với các cronjob cho từng loại token/job.
@@ -247,18 +272,21 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
   - Endpoint kiểm tra trạng thái service.
 - **Tiêu chí hoàn thành:** Có thể kiểm tra health qua HTTP.
 
-### Giai đoạn 9: Docker Compose & Deployment
+### Giai đoạn 9: Docker Compose & Triển khai
 - **Mục tiêu:** 
-  - Viết docker-compose cho Kafka, PostgreSQL, worker.
+  - Viết Dockerfile, docker-compose cho Kafka, PostgreSQL, worker.
+  - Tích hợp CI/CD pipeline, script setup/test/deploy.
 - **Đầu ra:** 
-  - File docker-compose, hướng dẫn chạy local.
-- **Tiêu chí hoàn thành:** Có thể chạy toàn bộ hệ thống local.
+  - File Dockerfile, docker-compose, hướng dẫn chạy local/dev/prod.
+- **Tiêu chí hoàn thành:** Có thể chạy toàn bộ hệ thống local/dev/prod, tích hợp CI/CD.
 
 ### Giai đoạn 10: Refactor, Test, Document
 - **Mục tiêu:** 
   - Refactor code, bổ sung test, hoàn thiện tài liệu.
+  - Refactor để dùng package chung cho config/logger/connection.
+  - Thêm healthcheck, metrics, structured logging.
 - **Đầu ra:** 
   - Unit test, integration test, tài liệu hướng dẫn.
-- **Tiêu chí hoàn thành:** Đảm bảo code sạch, dễ bảo trì, có test/tài liệu.
+- **Tiêu chí hoàn thành:** Đảm bảo code sạch, dễ bảo trì, có test/tài liệu, tuân thủ chuẩn hệ thống.
 
 ---
