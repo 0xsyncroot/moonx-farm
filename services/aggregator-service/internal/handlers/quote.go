@@ -99,7 +99,7 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 
 	// Parse optional parameters
 	userAddress := c.Query("userAddress")
-	
+
 	slippageStr := c.Query("slippage")
 	slippage := decimal.NewFromFloat(0.5) // Default 0.5%
 	if slippageStr != "" {
@@ -110,13 +110,13 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 
 	// Build quote request
 	req := &models.QuoteRequest{
-		FromToken:          fromToken,
-		ToToken:            toToken,
-		Amount:             amount,
-		ChainID:            fromChainID,
-		ToChainID:          toChainID,
-		UserAddress:        userAddress,
-		SlippageTolerance:  slippage,
+		FromToken:         fromToken,
+		ToToken:           toToken,
+		Amount:            amount,
+		ChainID:           fromChainID,
+		ToChainID:         toChainID,
+		UserAddress:       userAddress,
+		SlippageTolerance: slippage,
 	}
 
 	// Get all quotes with best quote suggestion
@@ -129,7 +129,7 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 
 	// Enhance response with metadata
 	response := gin.H{
-		"quotes":       quotesResponse.Quotes,        // Ordered list with best first
+		"quotes":       quotesResponse.Quotes, // Ordered list with best first
 		"quotesCount":  quotesResponse.QuotesCount,
 		"responseTime": quotesResponse.ResponseTime.Milliseconds(),
 		"request": gin.H{
@@ -171,14 +171,14 @@ func (h *QuoteHandler) GetBestQuote(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// SearchTokens unified token search with intelligent chain prioritization
+// SearchTokens unified token search với logic mới
 // @Summary Search tokens
-// @Description Search tokens by name, symbol, or address with intelligent chain-based prioritization
+// @Description Search tokens by name/symbol (CoinGecko) or address (onchain + DexScreener)
 // @Tags tokens
 // @Accept json
 // @Produce json
-// @Param q query string true "Search query (name, symbol, or address)"
-// @Param chainId query int false "Preferred chain ID for prioritization"
+// @Param q query string true "Search query (name/symbol or 0x address)"
+// @Param chainId query int false "Preferred chain ID for address searches"
 // @Param limit query int false "Maximum results (default: 20, max: 100)"
 // @Success 200 {object} models.TokenListResponse
 // @Failure 400 {object} ErrorResponse
@@ -198,213 +198,232 @@ func (h *QuoteHandler) SearchTokens(c *gin.Context) {
 		}
 	}
 
+	preferredChainID := 0
+	if chainIDStr := c.Query("chainId"); chainIDStr != "" {
+		if cid, err := strconv.Atoi(chainIDStr); err == nil && cid > 0 {
+			preferredChainID = cid
+		}
+	}
+
 	start := time.Now()
 
-	// Use external API service for comprehensive auto-detection search
-	tokens, err := h.aggregatorService.SearchTokensExternal(c.Request.Context(), query, limit)
+	// Detect input type: address (0x...) or symbol/name
+	inputType := "symbol"
+	if strings.HasPrefix(query, "0x") && len(query) == 42 {
+		inputType = "address"
+	}
+
+	var tokens []*models.Token
+	var err error
+
+	if inputType == "address" {
+		// Address flow: onchain detection -> DexScreener enhancement
+		tokens, err = h.searchTokenByAddress(c, query, preferredChainID)
+	} else {
+		// Symbol flow: CoinGecko search
+		tokens, err = h.searchTokenBySymbol(c, query, limit)
+	}
+
 	if err != nil {
-		logrus.WithError(err).WithField("query", query).Error("External token search failed")
+		logrus.WithError(err).WithField("query", query).Error("Token search failed")
 		h.errorResponse(c, http.StatusInternalServerError, "Token search failed", err)
 		return
 	}
 
 	duration := time.Since(start)
 
-	// Auto-detect input type for metadata
-	inputType := "symbol"
-	if strings.HasPrefix(query, "0x") && len(query) == 42 {
-		inputType = "address"
-	}
-
-	// Build chain distribution map
-	chainDistribution := make(map[string]int)
-	for _, token := range tokens {
-		chainName := fmt.Sprintf("Chain-%d", token.ChainID)
-		chainDistribution[chainName]++
-	}
-
-	// Apply limit
-	if len(tokens) > limit {
-		tokens = tokens[:limit]
-	}
-
+	// Build response
 	response := &models.TokenListResponse{
 		Tokens:    tokens,
 		Total:     len(tokens),
 		UpdatedAt: time.Now(),
 		Metadata: map[string]interface{}{
-			"query":             query,
-			"inputType":         inputType,
-			"searchStrategy":    "external_apis_with_onchain_fallback",
-			"resultCount":       len(tokens),
-			"responseTimeMs":    duration.Milliseconds(),
-			"chainDistribution": chainDistribution,
-			"sources":           []string{"coingecko", "dexscreener", "binance", "onchain"},
+			"query":          query,
+			"inputType":      inputType,
+			"resultCount":    len(tokens),
+			"responseTimeMs": duration.Milliseconds(),
+			"preferredChain": preferredChainID,
+			"strategy":       inputType + "_optimized",
 		},
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"query":       query,
-		"inputType":   inputType,
-		"results":     len(tokens),
-		"duration":    duration,
-		"chains":      len(chainDistribution),
-	}).Info("External token search completed")
+		"query":     query,
+		"inputType": inputType,
+		"results":   len(tokens),
+		"duration":  duration,
+	}).Info("Token search completed")
 
 	c.JSON(http.StatusOK, response)
 }
 
-// searchTokenByAddress searches for token by address across chains
-func (h *QuoteHandler) searchTokenByAddress(c *gin.Context, address string, preferredChainID int) *models.Token {
-	// Try preferred chain first if specified
-	if preferredChainID > 0 {
-		if token := h.tryGetTokenByAddress(c, address, preferredChainID); token != nil {
-			return token
-		}
-	}
-
-	// Try major chains
-	majorChains := []int{1, 8453, 137, 56, 42161, 10} // Ethereum, Base, Polygon, BSC, Arbitrum, Optimism
-	for _, chainID := range majorChains {
-		if chainID == preferredChainID {
-			continue // Already tried
-		}
-		if token := h.tryGetTokenByAddress(c, address, chainID); token != nil {
-			return token
-		}
-	}
-
-	return nil
-}
-
-// tryGetTokenByAddress attempts to get token from a specific chain
-func (h *QuoteHandler) tryGetTokenByAddress(c *gin.Context, address string, chainID int) *models.Token {
-	// Try each service
-	services := []string{"lifi", "oneinch", "relay"}
-	for _, service := range services {
-		token, err := h.getTokenFromService(c, service, address, chainID)
-		if err == nil && token != nil {
-			return token
-		}
-	}
-	return nil
-}
-
-// getTokenFromService gets token from specific service
-func (h *QuoteHandler) getTokenFromService(c *gin.Context, service, address string, chainID int) (*models.Token, error) {
+// searchTokenByAddress handles address-based token search
+func (h *QuoteHandler) searchTokenByAddress(c *gin.Context, address string, preferredChainID int) ([]*models.Token, error) {
 	ctx := c.Request.Context()
-	
-	switch service {
-	case "lifi":
-		return h.aggregatorService.LiFiService.GetTokenByAddress(ctx, address, chainID)
-	case "oneinch":
-		return h.aggregatorService.OneInchService.GetTokenByAddress(ctx, address, chainID)
-	case "relay":
-		return h.aggregatorService.RelayService.GetTokenByAddress(ctx, address, chainID)
-	default:
-		return nil, fmt.Errorf("unknown service: %s", service)
-	}
-}
 
-// searchTokensByText searches tokens by name/symbol with fallback
-func (h *QuoteHandler) searchTokensByText(c *gin.Context, query string, preferredChainID, limit int) []*models.Token {
-	var allResults []*models.Token
-	
-	// Try preferred chain first
-	if preferredChainID > 0 {
-		if tokens := h.getTokensFromChain(c, preferredChainID); len(tokens) > 0 {
-			allResults = append(allResults, h.filterTokensByQuery(tokens, query)...)
-		}
-	}
-
-	// Get tokens from other major chains
-	majorChains := []int{1, 8453, 137, 56, 42161, 10}
-	for _, chainID := range majorChains {
-		if chainID == preferredChainID {
-			continue
-		}
-		if tokens := h.getTokensFromChain(c, chainID); len(tokens) > 0 {
-			filtered := h.filterTokensByQuery(tokens, query)
-			allResults = append(allResults, filtered...)
-		}
-		
-		// Stop if we have enough results
-		if len(allResults) >= limit*3 {
-			break
-		}
-	}
-
-	return allResults
-}
-
-// getTokensFromChain gets token list from specific chain
-func (h *QuoteHandler) getTokensFromChain(c *gin.Context, chainID int) []*models.Token {
-	tokenList, err := h.aggregatorService.GetTokenList(c.Request.Context(), chainID)
+	// Step 1: Get basic token info from onchain (concurrent across chains)
+	baseToken, err := h.aggregatorService.OnchainService.GetTokenInfoByAddress(ctx, address)
 	if err != nil {
-		logrus.WithError(err).WithField("chainId", chainID).Warn("Failed to get tokens from chain")
-		return nil
+		logrus.WithError(err).WithField("address", address).Error("Failed to get onchain token info")
+		return nil, fmt.Errorf("token not found onchain: %w", err)
 	}
-	return tokenList.Tokens
+
+	logrus.WithFields(logrus.Fields{
+		"address": address,
+		"symbol":  baseToken.Symbol,
+		"name":    baseToken.Name,
+		"chainID": baseToken.ChainID,
+	}).Info("Token detected onchain")
+
+	// Step 2: Enhance with market data from DexScreener
+	enhancedToken, err := h.aggregatorService.MarketDataService.EnhanceTokenWithMarketData(ctx, baseToken)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to enhance token with DexScreener data, using base token")
+		enhancedToken = baseToken
+	}
+
+	// Step 3: Fallback to CoinGecko Terminal if no price data
+	if enhancedToken.PriceUSD.IsZero() {
+		// Try to get price from CoinGecko by searching the symbol
+		cgTokens, err := h.aggregatorService.CoinGeckoService.SearchTokensBySymbol(ctx, enhancedToken.Symbol)
+		if err == nil && len(cgTokens) > 0 {
+			// Find matching token for same chain
+			for _, cgToken := range cgTokens {
+				if cgToken.ChainID == enhancedToken.ChainID &&
+					strings.EqualFold(cgToken.Address, enhancedToken.Address) {
+					// Merge CoinGecko price data
+					if !cgToken.PriceUSD.IsZero() {
+						enhancedToken.PriceUSD = cgToken.PriceUSD
+						enhancedToken.Change24h = cgToken.Change24h
+						enhancedToken.Volume24h = cgToken.Volume24h
+						enhancedToken.MarketCap = cgToken.MarketCap
+						enhancedToken.Source = "onchain+coingecko"
+						enhancedToken.LogoURI = cgToken.LogoURI
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return []*models.Token{enhancedToken}, nil
+}
+
+// searchTokenBySymbol handles symbol-based token search using CoinGecko
+func (h *QuoteHandler) searchTokenBySymbol(c *gin.Context, symbol string, limit int) ([]*models.Token, error) {
+	ctx := c.Request.Context()
+
+	// Use CoinGecko search API for symbols/names
+	tokens, err := h.aggregatorService.CoinGeckoService.SearchTokensBySymbol(ctx, symbol)
+	if err != nil {
+		logrus.WithError(err).WithField("symbol", symbol).Error("CoinGecko search failed")
+		return nil, fmt.Errorf("symbol search failed: %w", err)
+	}
+
+	// Limit results
+	if len(tokens) > limit {
+		tokens = tokens[:limit]
+	}
+
+	// Sort by relevance (market cap, popularity)
+	h.sortTokensByRelevance(tokens, symbol)
+
+	logrus.WithFields(logrus.Fields{
+		"symbol":  symbol,
+		"results": len(tokens),
+		"source":  "coingecko",
+	}).Info("Symbol search completed")
+
+	return tokens, nil
+}
+
+// sortTokensByRelevance sorts tokens by market cap and symbol match quality
+func (h *QuoteHandler) sortTokensByRelevance(tokens []*models.Token, query string) {
+	if len(tokens) <= 1 {
+		return
+	}
+
+	query = strings.ToUpper(query)
+
+	// Simple sorting by multiple criteria
+	for i := 0; i < len(tokens)-1; i++ {
+		for j := i + 1; j < len(tokens); j++ {
+			shouldSwap := false
+
+			// Primary: Exact symbol match
+			iExactMatch := strings.EqualFold(tokens[i].Symbol, query)
+			jExactMatch := strings.EqualFold(tokens[j].Symbol, query)
+
+			if jExactMatch && !iExactMatch {
+				shouldSwap = true
+			} else if iExactMatch == jExactMatch {
+				// Secondary: Higher market cap
+				if tokens[j].MarketCap.GreaterThan(tokens[i].MarketCap) {
+					shouldSwap = true
+				} else if tokens[j].MarketCap.Equal(tokens[i].MarketCap) {
+					// Tertiary: Popular tokens first
+					if tokens[j].Popular && !tokens[i].Popular {
+						shouldSwap = true
+					}
+				}
+			}
+
+			if shouldSwap {
+				tokens[i], tokens[j] = tokens[j], tokens[i]
+			}
+		}
+	}
 }
 
 // filterTokensByQuery filters tokens by search query
 func (h *QuoteHandler) filterTokensByQuery(tokens []*models.Token, query string) []*models.Token {
+	if len(tokens) == 0 {
+		return tokens
+	}
+
 	query = strings.ToLower(query)
-	var exactMatches []*models.Token
-	var prefixMatches []*models.Token
-	var containsMatches []*models.Token
+	var filtered []*models.Token
 
 	for _, token := range tokens {
-		symbol := strings.ToLower(token.Symbol)
-		name := strings.ToLower(token.Name)
-
-		if symbol == query || name == query {
-			exactMatches = append(exactMatches, token)
-		} else if strings.HasPrefix(symbol, query) || strings.HasPrefix(name, query) {
-			prefixMatches = append(prefixMatches, token)
-		} else if strings.Contains(symbol, query) || strings.Contains(name, query) {
-			containsMatches = append(containsMatches, token)
+		if strings.Contains(strings.ToLower(token.Symbol), query) ||
+			strings.Contains(strings.ToLower(token.Name), query) {
+			filtered = append(filtered, token)
 		}
 	}
 
-	// Combine in priority order
-	result := append(exactMatches, prefixMatches...)
-	return append(result, containsMatches...)
+	return filtered
 }
 
-// prioritizeTokenResults prioritizes search results intelligently
+// prioritizeTokenResults sorts and prioritizes token results
 func (h *QuoteHandler) prioritizeTokenResults(tokens []*models.Token, preferredChainID int) []*models.Token {
-	var preferredChainTokens []*models.Token
-	var nativeTokens []*models.Token
-	var stablecoins []*models.Token
-	var popularTokens []*models.Token
-	var otherTokens []*models.Token
+	if len(tokens) <= 1 {
+		return tokens
+	}
 
-	// Categorize tokens
-	for _, token := range tokens {
-		// Preferred chain gets highest priority
-		if preferredChainID > 0 && token.ChainID == preferredChainID {
-			preferredChainTokens = append(preferredChainTokens, token)
-			continue
-		}
+	// Sort by multiple criteria
+	for i := 0; i < len(tokens)-1; i++ {
+		for j := i + 1; j < len(tokens); j++ {
+			// Primary: Popular tokens first
+			if tokens[j].Popular && !tokens[i].Popular {
+				tokens[i], tokens[j] = tokens[j], tokens[i]
+				continue
+			}
 
-		// Categorize by type
-		if token.IsNative {
-			nativeTokens = append(nativeTokens, token)
-		} else if h.isStablecoin(token) {
-			stablecoins = append(stablecoins, token)
-		} else if h.isPopularToken(token) {
-			popularTokens = append(popularTokens, token)
-		} else {
-			otherTokens = append(otherTokens, token)
+			// Secondary: Preferred chain
+			if tokens[j].ChainID == preferredChainID && tokens[i].ChainID != preferredChainID {
+				tokens[i], tokens[j] = tokens[j], tokens[i]
+				continue
+			}
+
+			// Tertiary: Stablecoins
+			if h.isStablecoin(tokens[j]) && !h.isStablecoin(tokens[i]) {
+				tokens[i], tokens[j] = tokens[j], tokens[i]
+				continue
+			}
 		}
 	}
 
-	// Combine in priority order
-	result := append(preferredChainTokens, nativeTokens...)
-	result = append(result, stablecoins...)
-	result = append(result, popularTokens...)
-	return append(result, otherTokens...)
+	return tokens
 }
 
 // Helper methods
@@ -422,7 +441,7 @@ func (h *QuoteHandler) isPopularToken(token *models.Token) bool {
 			return popular
 		}
 	}
-	
+
 	popularSymbols := map[string]bool{
 		"WETH": true, "WBTC": true, "UNI": true, "AAVE": true,
 		"LINK": true, "SUSHI": true, "CRV": true, "MKR": true,
@@ -443,4 +462,52 @@ func (h *QuoteHandler) errorResponse(c *gin.Context, statusCode int, message str
 	}
 
 	c.JSON(statusCode, response)
-} 
+}
+
+// GetPopularTokens gets popular tokens for cross-chain swap with Binance prices
+// @Summary Get popular tokens
+// @Description Get popular tokens for cross-chain swap with real-time prices from Binance
+// @Tags tokens
+// @Accept json
+// @Produce json
+// @Param chainId query int false "Chain ID to filter tokens (0 for all active chains)"
+// @Success 200 {object} models.TokenListResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /tokens/popular [get]
+func (h *QuoteHandler) GetPopularTokens(c *gin.Context) {
+	// Get chainID from query parameter, default to 0 (all active chains)
+	chainID := 0
+	if chainIDStr := c.Query("chainId"); chainIDStr != "" {
+		if parsed, err := strconv.Atoi(chainIDStr); err == nil && parsed > 0 {
+			chainID = parsed
+		}
+	}
+
+	tokens, err := h.aggregatorService.GetPopularTokensWithPrices(c.Request.Context(), chainID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get popular tokens")
+		h.errorResponse(c, http.StatusInternalServerError, "Failed to get popular tokens", err)
+		return
+	}
+
+	response := &models.TokenListResponse{
+		Tokens:    tokens,
+		Total:     len(tokens),
+		Page:      1,
+		Limit:     len(tokens),
+		UpdatedAt: time.Now(),
+		Metadata: map[string]interface{}{
+			"source":  "config+binance",
+			"type":    "popular",
+			"chainID": chainID,
+		},
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"tokenCount": len(tokens),
+		"chainID":    chainID,
+		"source":     "popular_tokens_with_binance_prices",
+	}).Info("Popular tokens retrieved with prices")
+
+	c.JSON(http.StatusOK, response)
+}

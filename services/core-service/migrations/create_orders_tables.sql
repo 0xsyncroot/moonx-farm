@@ -43,21 +43,21 @@ CREATE TABLE IF NOT EXISTS orders (
     metadata JSONB DEFAULT '{}',
     
     -- Constraints
-    UNIQUE(user_id, order_id),
-    
-    -- Indexes
-    INDEX idx_orders_user_id (user_id),
-    INDEX idx_orders_status (status),
-    INDEX idx_orders_type (type),
-    INDEX idx_orders_created_at (created_at),
-    INDEX idx_orders_user_status (user_id, status),
-    INDEX idx_orders_user_type (user_id, type)
+    UNIQUE(user_id, order_id)
 );
+
+-- Create indexes for orders table
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_type ON orders(type);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_user_type ON orders(user_id, type);
 
 -- Order executions table
 CREATE TABLE IF NOT EXISTS order_executions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id VARCHAR(255) NOT NULL,
+    order_id UUID NOT NULL, -- Reference to orders.id (primary key)
     execution_index INTEGER NOT NULL,
     
     -- Execution details
@@ -80,14 +80,14 @@ CREATE TABLE IF NOT EXISTS order_executions (
     -- Constraints
     UNIQUE(order_id, execution_index),
     
-    -- Foreign key reference (assuming orders.order_id is the reference)
-    FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
-    
-    -- Indexes
-    INDEX idx_executions_order_id (order_id),
-    INDEX idx_executions_executed_at (executed_at),
-    INDEX idx_executions_transaction_hash (transaction_hash)
+    -- Foreign key reference to orders primary key
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
+
+-- Create indexes for order_executions table
+CREATE INDEX IF NOT EXISTS idx_executions_order_id ON order_executions(order_id);
+CREATE INDEX IF NOT EXISTS idx_executions_executed_at ON order_executions(executed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_executions_transaction_hash ON order_executions(transaction_hash);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -132,7 +132,7 @@ LEFT JOIN (
         SUM(CAST(gas_fee AS DECIMAL)) as total_gas_fee
     FROM order_executions
     GROUP BY order_id
-) e ON o.order_id = e.order_id;
+) e ON o.id = e.order_id;
 
 -- Insert sample data for testing (commented out for production)
 /*

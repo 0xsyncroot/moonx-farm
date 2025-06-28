@@ -40,7 +40,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.HealthResponse"
+                            "$ref": "#/definitions/models.HealthResponse"
                         }
                     }
                 }
@@ -112,19 +112,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Quote"
+                            "$ref": "#/definitions/models.Quote"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                            "$ref": "#/definitions/handlers.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                            "$ref": "#/definitions/handlers.ErrorResponse"
                         }
                     }
                 }
@@ -147,13 +147,42 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.HealthResponse"
+                            "$ref": "#/definitions/models.HealthResponse"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.HealthResponse"
+                            "$ref": "#/definitions/models.HealthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/tokens/popular": {
+            "get": {
+                "description": "Get popular tokens for cross-chain swap with real-time prices from Binance",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tokens"
+                ],
+                "summary": "Get popular tokens",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.TokenListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
                         }
                     }
                 }
@@ -161,7 +190,7 @@ const docTemplate = `{
         },
         "/tokens/search": {
             "get": {
-                "description": "Search tokens by name, symbol, or address with intelligent chain-based prioritization",
+                "description": "Search tokens by name, symbol, or address with intelligent chain-based prioritization and concurrent processing",
                 "consumes": [
                     "application/json"
                 ],
@@ -197,19 +226,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.TokenListResponse"
+                            "$ref": "#/definitions/models.TokenListResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                            "$ref": "#/definitions/handlers.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                            "$ref": "#/definitions/handlers.ErrorResponse"
                         }
                     }
                 }
@@ -217,7 +246,22 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_moonx-farm_quote-service_internal_models.GasEstimate": {
+        "handlers.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "details": {},
+                "error": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.GasEstimate": {
             "type": "object",
             "properties": {
                 "gasFee": {
@@ -234,7 +278,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_moonx-farm_quote-service_internal_models.HealthResponse": {
+        "models.HealthResponse": {
             "type": "object",
             "properties": {
                 "checks": {
@@ -258,7 +302,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_moonx-farm_quote-service_internal_models.Quote": {
+        "models.Quote": {
             "type": "object",
             "properties": {
                 "callData": {
@@ -274,10 +318,10 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "fromToken": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Token"
+                    "$ref": "#/definitions/models.Token"
                 },
                 "gasEstimate": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.GasEstimate"
+                    "$ref": "#/definitions/models.GasEstimate"
                 },
                 "id": {
                     "type": "string"
@@ -296,7 +340,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "route": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Route"
+                    "$ref": "#/definitions/models.Route"
                 },
                 "slippageTolerance": {
                     "type": "number"
@@ -311,23 +355,23 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "toToken": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Token"
+                    "$ref": "#/definitions/models.Token"
                 },
                 "value": {
                     "type": "string"
                 }
             }
         },
-        "github_com_moonx-farm_quote-service_internal_models.Route": {
+        "models.Route": {
             "type": "object",
             "properties": {
                 "gasEstimate": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.GasEstimate"
+                    "$ref": "#/definitions/models.GasEstimate"
                 },
                 "steps": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.RouteStep"
+                        "$ref": "#/definitions/models.RouteStep"
                     }
                 },
                 "totalFee": {
@@ -335,7 +379,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_moonx-farm_quote-service_internal_models.RouteStep": {
+        "models.RouteStep": {
             "type": "object",
             "properties": {
                 "fee": {
@@ -345,10 +389,10 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "fromToken": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Token"
+                    "$ref": "#/definitions/models.Token"
                 },
                 "gasEstimate": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.GasEstimate"
+                    "$ref": "#/definitions/models.GasEstimate"
                 },
                 "poolAddress": {
                     "type": "string"
@@ -363,14 +407,14 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "toToken": {
-                    "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Token"
+                    "$ref": "#/definitions/models.Token"
                 },
                 "type": {
                     "type": "string"
                 }
             }
         },
-        "github_com_moonx-farm_quote-service_internal_models.Token": {
+        "models.Token": {
             "type": "object",
             "properties": {
                 "address": {
@@ -433,7 +477,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_moonx-farm_quote-service_internal_models.TokenListResponse": {
+        "models.TokenListResponse": {
             "type": "object",
             "properties": {
                 "limit": {
@@ -449,28 +493,13 @@ const docTemplate = `{
                 "tokens": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_moonx-farm_quote-service_internal_models.Token"
+                        "$ref": "#/definitions/models.Token"
                     }
                 },
                 "total": {
                     "type": "integer"
                 },
                 "updatedAt": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_handlers.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "details": {},
-                "error": {
-                    "type": "string"
-                },
-                "message": {
                     "type": "string"
                 }
             }

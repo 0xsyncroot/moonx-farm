@@ -28,38 +28,8 @@ interface TokenListResponse {
   updatedAt?: string | number
 }
 
-// Popular token addresses for production fallback
-const POPULAR_TOKENS_FALLBACK: Record<number, Token[]> = {
-  1: [ // Ethereum
-    {
-      address: '0x0000000000000000000000000000000000000000',
-      symbol: 'ETH',
-      name: 'Ethereum',
-      decimals: 18,
-      chainId: 1,
-      isNative: true,
-      verified: true,
-      popular: true,
-    },
-    {
-      address: '0xA0b86a33E6417fA6C08Bf0f1B6a3D4BB6Ac0f3c3',
-      symbol: 'USDC',
-      name: 'USD Coin',
-      decimals: 6,
-      chainId: 1,
-      verified: true,
-      popular: true,
-    },
-    {
-      address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-      symbol: 'USDT',
-      name: 'Tether USD',
-      decimals: 6,
-      chainId: 1,
-      verified: true,
-      popular: true,
-    },
-  ],
+// Minimal fallback for critical chains when API is down
+const CRITICAL_TOKENS_FALLBACK: Record<number, Token[]> = {
   8453: [ // Base
     {
       address: '0x0000000000000000000000000000000000000000',
@@ -124,38 +94,38 @@ export function useTokens(selectedChainId?: number) {
     }
   }, [])
 
-  // Popular tokens query
-  const { 
-    data: popularTokensData, 
-    isLoading: popularLoading,
-    error: popularError
-  } = useQuery<TokenListResponse>({
-    queryKey: ['popularTokens', selectedChainId],
-    queryFn: () => aggregatorApi.getPopularTokens(selectedChainId),
-    enabled: !!selectedChainId && !debouncedQuery,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
-    retry: 2,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-  })
+    // Simple popular tokens fallback - no auto-loading
+  const popularTokensData = null
+  const popularLoading = false  
+  const popularError = null
 
-  // Search tokens using aggregator service
+  // Search tokens using aggregator service - Cross-chain search
   const {
     data: searchResults,
     isLoading: isSearching,
     error: searchError,
   } = useQuery<TokenListResponse>({
-    queryKey: ['tokens', 'search', debouncedQuery, selectedChainId],
+    queryKey: ['tokens', 'search', debouncedQuery, 'all-chains'],
     queryFn: async () => {
       if (!debouncedQuery.trim()) {
         return { tokens: [], total: 0 }
       }
       
-      return aggregatorApi.searchTokens({
+      console.log('🔍 [Cross-Chain] Searching tokens across all chains:', debouncedQuery.trim())
+      // Don't pass chainId to search across all supported chains
+      const result = await aggregatorApi.searchTokens({
         q: debouncedQuery.trim(),
-        chainId: selectedChainId,
+        // chainId: undefined, // Search all chains
         limit: 50,
       })
+      
+             console.log('✅ [Cross-Chain] Search results:', {
+         query: debouncedQuery.trim(),
+         totalResults: result?.tokens?.length || 0,
+         chainsFound: Array.from(new Set(result?.tokens?.map(t => t.chainId) || [])),
+       })
+      
+      return result
     },
     enabled: !!debouncedQuery.trim(),
     staleTime: 30000, // 30 seconds
@@ -171,9 +141,9 @@ export function useTokens(selectedChainId?: number) {
       // Use search results
       tokensArray = searchResults?.tokens || []
     } else {
-      // Use popular tokens from API or fallback
-      tokensArray = popularTokensData?.tokens || 
-                   (selectedChainId ? POPULAR_TOKENS_FALLBACK[selectedChainId] || [] : [])
+      // Use fallback tokens when not searching
+      tokensArray = Object.values(CRITICAL_TOKENS_FALLBACK).flat()
+      console.log('🎯 Using fallback tokens from all chains:', tokensArray.length)
     }
 
     // Sort tokens by priority
@@ -273,6 +243,22 @@ export function useTokens(selectedChainId?: number) {
     }
   }
 
+  // Add function to manually load popular tokens
+  const loadPopularTokens = async (): Promise<TokenListResponse | null> => {
+    try {
+      console.log('🪙 [Manual] Loading popular tokens from all chains')
+      const result = await aggregatorApi.getPopularTokens()
+      console.log('✅ [Manual] Popular tokens loaded:', {
+        totalTokens: result?.tokens?.length || 0,
+        chainsFound: Array.from(new Set(result?.tokens?.map(t => t.chainId) || [])),
+      })
+      return result
+    } catch (error) {
+      console.error('❌ [Manual] Popular tokens load failed:', error)
+      return null
+    }
+  }
+
   // Compute loading and error states
   const isLoading = popularLoading || isSearching
   const hasSearchQuery = Boolean(debouncedQuery.trim())
@@ -299,9 +285,10 @@ export function useTokens(selectedChainId?: number) {
     getTokenByAddress,
     getTokenBySymbol,
     searchToken,
+    loadPopularTokens, // New manual load function
 
     // Metadata
-    total: searchResults?.total || popularTokensData?.total || tokens.length,
-    updatedAt: searchResults?.updatedAt || popularTokensData?.updatedAt || Date.now(),
+    total: searchResults?.total || tokens.length,
+    updatedAt: searchResults?.updatedAt || Date.now(),
   }
 } 

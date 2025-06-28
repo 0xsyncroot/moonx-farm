@@ -176,7 +176,7 @@ export class OrderService {
       throw new Error('Order not found');
     }
 
-    const executions = await this.orderModel.getOrderExecutions(orderId);
+    const executions = await this.orderModel.getOrderExecutions(order.id); // Use internal ID
 
     const result = { order, executions };
 
@@ -270,7 +270,7 @@ export class OrderService {
 
     // Create execution record
     const executionToCreate: Omit<OrderExecution, 'id'> = {
-      orderId,
+      orderId: order.id, // Use internal UUID ID
       executionIndex: executionData.executionIndex,
       inputAmount: executionData.inputAmount,
       outputAmount: executionData.outputAmount,

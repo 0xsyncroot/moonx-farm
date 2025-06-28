@@ -10,15 +10,15 @@ export const CreateOrderRequestSchema = z.object({
   type: OrderTypeSchema,
   fromToken: z.string().min(1, 'From token address is required'),
   toToken: z.string().min(1, 'To token address is required'),
-  fromChain: z.number().int().positive('From chain ID must be positive'),
-  toChain: z.number().int().positive('To chain ID must be positive'),
+  fromChain: z.number().int().min(1, 'From chain ID must be positive'),
+  toChain: z.number().int().min(1, 'To chain ID must be positive'),
   inputAmount: z.string().regex(/^\d+(\.\d+)?$/, 'Input amount must be a valid number'),
   slippage: z.number().min(0).max(100, 'Slippage must be between 0 and 100'),
   
   // Optional fields based on order type
   targetPrice: z.string().regex(/^\d+(\.\d+)?$/, 'Target price must be a valid number').optional(),
-  frequency: z.number().int().positive('Frequency must be positive (in hours)').optional(),
-  maxExecutions: z.number().int().positive('Max executions must be positive').optional(),
+  frequency: z.number().int().min(1, 'Frequency must be positive (in hours)').optional(),
+  maxExecutions: z.number().int().min(1, 'Max executions must be positive').optional(),
   expiresAt: z.string().datetime().optional(),
   
   // Optional metadata
@@ -63,10 +63,10 @@ export const OrderResponseSchema = z.object({
   toChain: z.number(),
   
   inputAmount: z.string(),
-  targetPrice: z.string().nullable(),
-  frequency: z.number().nullable(),
+  targetPrice: z.string().optional(),
+  frequency: z.number().optional(),
   executionCount: z.number(),
-  maxExecutions: z.number().nullable(),
+  maxExecutions: z.number().optional(),
   
   executedAmount: z.string(),
   receivedAmount: z.string(),
@@ -74,13 +74,13 @@ export const OrderResponseSchema = z.object({
   
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
-  expiresAt: z.string().datetime().nullable(),
-  lastExecutedAt: z.string().datetime().nullable(),
+  expiresAt: z.string().datetime().optional(),
+  lastExecutedAt: z.string().datetime().optional(),
   
-  transactionHash: z.string().nullable(),
-  contractAddress: z.string().nullable(),
+  transactionHash: z.string().optional(),
+  contractAddress: z.string().optional(),
   slippage: z.number(),
-  gasPrice: z.string().nullable(),
+  gasPrice: z.string().optional(),
   metadata: z.record(z.any())
 });
 
@@ -107,7 +107,7 @@ export const CreateOrderExecutionRequestSchema = z.object({
   outputAmount: z.string().regex(/^\d+(\.\d+)?$/, 'Output amount must be a valid number'),
   executionPrice: z.string().regex(/^\d+(\.\d+)?$/, 'Execution price must be a valid number'),
   transactionHash: z.string().min(1, 'Transaction hash is required'),
-  blockNumber: z.number().int().positive('Block number must be positive'),
+  blockNumber: z.number().int().min(1, 'Block number must be positive'),
   gasUsed: z.string().regex(/^\d+$/, 'Gas used must be a valid integer'),
   gasFee: z.string().regex(/^\d+(\.\d+)?$/, 'Gas fee must be a valid number'),
   metadata: z.record(z.any()).optional()

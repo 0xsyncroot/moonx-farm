@@ -35,12 +35,10 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_ip_address ON user_sessions(ip_addr
 
 -- Create composite indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active 
-    ON user_sessions(user_id, expires_at) 
-    WHERE expires_at > NOW();
+    ON user_sessions(user_id, expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_token_active 
-    ON user_sessions(session_token, expires_at) 
-    WHERE expires_at > NOW();
+    ON user_sessions(session_token, expires_at);
 
 -- Create trigger to automatically update updated_at
 CREATE TRIGGER update_user_sessions_updated_at 

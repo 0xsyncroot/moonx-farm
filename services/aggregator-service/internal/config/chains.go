@@ -28,7 +28,7 @@ func GetSupportedChains(environment string) map[int]*ChainConfig {
 			RpcURL:          "https://sepolia.base.org",
 			ExplorerURL:     "https://sepolia-explorer.base.org",
 			IsTestnet:       true,
-			IsActive:        true,
+			IsActive:        false,
 			CoingeckoID:     "",
 			DexScreenerSlug: "",
 		}
@@ -41,7 +41,7 @@ func GetSupportedChains(environment string) map[int]*ChainConfig {
 			RpcURL:          "https://data-seed-prebsc-1-s1.binance.org:8545",
 			ExplorerURL:     "https://testnet.bscscan.com",
 			IsTestnet:       true,
-			IsActive:        true,
+			IsActive:        false,
 			CoingeckoID:     "",
 			DexScreenerSlug: "",
 		}
@@ -216,4 +216,4 @@ func GetPopularTokens(chainID int) map[string]string {
 		return tokens
 	}
 	return make(map[string]string)
-} 
+}

@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'
 import { PrivyProvider } from '@/components/providers/privy-provider'
 import { QueryProvider } from '@/components/providers/query-provider'
+import { PrivyWalletDebug } from '@/components/debug/privy-wallet-debug'
 import { Toaster } from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 
@@ -72,7 +73,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
@@ -94,6 +95,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
                   },
                 }}
               />
+              {/* Debug component - only in development */}
+              {process.env.NODE_ENV === 'development' && <PrivyWalletDebug />}
             </QueryProvider>
           </PrivyProvider>
         </ThemeProvider>

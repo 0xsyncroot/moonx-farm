@@ -160,7 +160,7 @@ This service handles:
   });
 
   await server.register(rateLimit, {
-    max: 100,
+    max: 10000,
     timeWindow: '15 minutes',
     keyGenerator: (request) => {
       return request.ip;

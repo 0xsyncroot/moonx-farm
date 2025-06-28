@@ -1,33 +1,46 @@
 import Fastify from 'fastify';
 import { createCoreServiceConfig, getServerConfig } from '@moonx/configs';
+import { createLoggerForProfile } from '@moonx/common';
 import { DatabaseService } from './services/databaseService';
 import { CacheService } from './services/cacheService';
-import { PortfolioService } from './services/portfolioService';
-import { PnLService } from './services/pnlService';
-import { TradesService } from './services/tradesService';
 import { AutoSyncService } from './services/autoSyncService';
 import { AuthMiddleware } from './middleware/authMiddleware';
-import { SyncMiddleware } from './middleware/syncMiddleware';
-import { PortfolioController } from './controllers/portfolioController';
 import { orderRoutes } from './routes/orders';
+import { portfolioRoutes } from './routes/portfolio';
+
+const logger = createLoggerForProfile('core-service');
 
 const startServer = async () => {
   // Load configuration from @moonx/configs
   const config = createCoreServiceConfig();
   const serverConfig = getServerConfig('core-service');
   
-  // Initialize Fastify with config-based settings
+  // Initialize Fastify with proper logger configuration
   const fastify = Fastify({
-    logger: {
-      level: serverConfig.logLevel,
-      prettyPrint: serverConfig.environment === 'development'
+    logger: config.isDevelopment() ? {
+      level: config.get('LOG_LEVEL'),
+      transport: {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'HH:MM:ss Z',
+          ignore: 'pid,hostname',
+        },
+      },
+    } : {
+      level: config.get('LOG_LEVEL'),
+    },
+    ajv: {
+      customOptions: {
+        strict: false
+      }
     }
   });
 
   // Register plugins
   await fastify.register(import('@fastify/cors'), {
-    origin: true,
-    credentials: true
+    origin: serverConfig.cors.origin,
+    credentials: serverConfig.cors.credentials
   });
 
   await fastify.register(import('@fastify/helmet'), {
@@ -40,7 +53,7 @@ const startServer = async () => {
     keyGenerator: (request) => {
       const authHeader = request.headers.authorization;
       if (authHeader) {
-        // Use user ID from token for rate limiting (simplified)
+        // Use user ID from token for rate limiting
         return authHeader;
       }
       return request.ip;
@@ -48,7 +61,7 @@ const startServer = async () => {
   });
 
   // Register Swagger for development only
-  if (serverConfig.environment === 'development') {
+  if (config.isDevelopment()) {
     await fastify.register(import('@fastify/swagger'), {
       openapi: {
         openapi: '3.0.0',
@@ -59,7 +72,7 @@ const startServer = async () => {
         },
         servers: [
           {
-            url: `http://${serverConfig.host}:${serverConfig.port}`,
+            url: `http://${serverConfig.host}:${serverConfig.port}/api/v1`,
             description: 'Development server'
           }
         ]
@@ -75,7 +88,7 @@ const startServer = async () => {
     });
   }
 
-  // Initialize services
+  // Initialize infrastructure services
   const databaseService = new DatabaseService();
   const cacheService = new CacheService();
   const authMiddleware = new AuthMiddleware();
@@ -84,33 +97,22 @@ const startServer = async () => {
   await databaseService.connect();
   await cacheService.connect();
   
-  fastify.log.info('Connected to database and cache');
+  logger.info('Connected to database and cache');
 
-  // Decorate fastify with services for controller access
-  fastify.decorate('databaseManager', databaseService.getDatabaseManager());
-  fastify.decorate('redisManager', cacheService.getRedisManager());
-
-  // Initialize business services
+  // Initialize auto sync service (depends on portfolio service which depends on db/cache)
+  // We need to import and create PortfolioService for AutoSyncService
+  const { PortfolioService } = await import('./services/portfolioService');
   const portfolioService = new PortfolioService(databaseService, cacheService);
-  const pnlService = new PnLService(databaseService, cacheService);
-  const tradesService = new TradesService(databaseService, cacheService);
   
-  // Initialize auto sync service
-  const autoSyncService = new AutoSyncService(portfolioService, cacheService, databaseService);
-  const syncMiddleware = new SyncMiddleware(autoSyncService);
-
-  // Initialize controllers
-  const portfolioController = new PortfolioController(
-    portfolioService, 
-    pnlService, 
-    tradesService,
-    autoSyncService,
-    authMiddleware
+  const autoSyncService = new AutoSyncService(
+    portfolioService,
+    cacheService,
+    databaseService
   );
 
   // Start auto sync service
   await autoSyncService.start();
-  fastify.log.info('🔄 Auto Sync Service started');
+  logger.info('🔄 Auto Sync Service started');
 
   // Health check routes
   fastify.get('/health', async (request, reply) => {
@@ -118,76 +120,78 @@ const startServer = async () => {
     const cacheHealth = await cacheService.healthCheck();
     const syncStats = await autoSyncService.getSyncStats();
     
-    const status = dbHealth && cacheHealth ? 'healthy' : 'unhealthy';
+    const status = dbHealth.connected && cacheHealth ? 'healthy' : 'unhealthy';
     const statusCode = status === 'healthy' ? 200 : 503;
     
     return reply.code(statusCode).send({
       status,
       timestamp: new Date().toISOString(),
       services: {
-        database: dbHealth ? 'up' : 'down',
+        database: dbHealth.connected ? 'up' : 'down',
         cache: cacheHealth ? 'up' : 'down',
         autoSync: syncStats.isRunning ? 'running' : 'stopped'
       },
-      autoSync: syncStats
+      autoSync: syncStats,
+      responseTime: {
+        database: dbHealth.responseTime
+      }
     });
   });
 
-  // Portfolio Routes with auto sync
+  // API v1 Routes
   fastify.register(async function (fastify) {
-    // Add auth middleware to all routes in this context
-    fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
-    
-    // Add auto sync trigger middleware (background)
-    fastify.addHook('preHandler', syncMiddleware.autoTriggerSync.bind(syncMiddleware));
+    // Portfolio Routes with authentication
+    fastify.register(async function (fastify) {
+      // Add auth middleware to all routes in this context
+      fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
+      
+      // Register portfolio routes with shared services
+      await portfolioRoutes(fastify, {
+        databaseService,
+        cacheService,
+        portfolioService,
+        autoSyncService
+      });
+    });
 
-    // Portfolio Management (auto-synced)
-    fastify.get('/portfolio', portfolioController.getPortfolio.bind(portfolioController));
-    fastify.get('/portfolio/quick', portfolioController.getQuickPortfolio.bind(portfolioController));
-    fastify.post('/portfolio/refresh', portfolioController.refreshPortfolio.bind(portfolioController));
-    
-    // P&L and Analytics
-    fastify.get('/portfolio/pnl', portfolioController.getPnL.bind(portfolioController));
-    fastify.get('/portfolio/analytics', portfolioController.getAnalytics.bind(portfolioController));
-    fastify.get('/portfolio/history', portfolioController.getPortfolioHistory.bind(portfolioController));
-    
-    // Recent Trades (read-only)
-    fastify.get('/portfolio/trades', portfolioController.getRecentTrades.bind(portfolioController));
-    
-    // Sync Status (for monitoring)
-    fastify.get('/portfolio/sync-status', portfolioController.getSyncStatus.bind(portfolioController));
-  });
-
-  // Order Management Routes
-  fastify.register(async function (fastify) {
-    // Add auth middleware to all routes in this context
-    fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
-    
-    // Register order routes
-    await orderRoutes(fastify);
-  });
+    // Order Management Routes with authentication
+    fastify.register(async function (fastify) {
+      // Add auth middleware to all routes in this context
+      fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
+      
+      // Register order routes
+      await orderRoutes(fastify);
+    });
+  }, { prefix: '/api/v1' });
 
   // Error handling
   fastify.setErrorHandler((error, request, reply) => {
-    fastify.log.error(error);
+    logger.error('Request error', { 
+      error: error.message,
+      stack: error.stack,
+      url: request.url,
+      method: request.method 
+    });
     
     if (error.validation) {
       return reply.code(400).send({
         success: false,
         error: 'Validation error',
-        details: error.validation
+        details: error.validation,
+        timestamp: new Date().toISOString()
       });
     }
 
     return reply.code(500).send({
       success: false,
-      error: 'Internal server error'
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
     });
   });
 
   // Graceful shutdown
   const gracefulShutdown = async (signal: string) => {
-    fastify.log.info(`Received ${signal}, shutting down gracefully...`);
+    logger.info(`Received ${signal}, shutting down gracefully...`);
     
     try {
       // Stop auto sync service first
@@ -196,10 +200,10 @@ const startServer = async () => {
       await databaseService.disconnect();
       await cacheService.disconnect();
       await fastify.close();
-      fastify.log.info('Server shutdown completed');
+      logger.info('Server shutdown completed');
       process.exit(0);
     } catch (error) {
-      fastify.log.error('Error during shutdown:', error);
+      logger.error('Error during shutdown', { error: error instanceof Error ? error.message : String(error) });
       process.exit(1);
     }
   };
@@ -214,18 +218,21 @@ const startServer = async () => {
       host: serverConfig.host 
     });
     
-    fastify.log.info(`🚀 Core Service running on ${serverConfig.host}:${serverConfig.port}`);
-    fastify.log.info(`📊 Auto-sync portfolio management active`);
-    fastify.log.info(`📝 API Documentation: http://${serverConfig.host}:${serverConfig.port}/docs`);
-    fastify.log.info(`🔧 Environment: ${serverConfig.environment}`);
+    logger.info(`🚀 Core Service running on ${serverConfig.host}:${serverConfig.port}`);
+    logger.info(`📊 Auto-sync portfolio management active`);
+    // Swagger temporarily disabled
+    // if (config.isDevelopment()) {
+    //   logger.info(`📝 API Documentation: http://${serverConfig.host}:${serverConfig.port}/docs`);
+    // }
+    logger.info(`🔧 Environment: ${config.get('NODE_ENV')}`);
   } catch (err) {
-    fastify.log.error(err);
+    logger.error('Failed to start server', { error: err instanceof Error ? err.message : String(err) });
     process.exit(1);
   }
 };
 
 // Start the server
 startServer().catch((err) => {
-  console.error('Failed to start server:', err);
+  logger.error('Failed to start server', { error: err instanceof Error ? err.message : String(err) });
   process.exit(1);
 }); 

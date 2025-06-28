@@ -1,6 +1,7 @@
 "use client"
 
 import { PrivyProvider as PrivyProviderBase } from '@privy-io/react-auth'
+import { SmartWalletsProvider } from '@privy-io/react-auth/smart-wallets'
 import { WagmiProvider, createConfig, http } from 'wagmi'
 import { base, bsc, mainnet, polygon } from 'wagmi/chains'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -42,13 +43,25 @@ export function PrivyProvider({ children }: PrivyProviderProps) {
         mfa: {
           noPromptOnMfaRequired: false,
         },
+        // Smart wallet configuration
+        defaultChain: base, // Set Base as default chain
+        supportedChains: [mainnet, base, bsc, polygon],
       }}
     >
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          {children}
-        </QueryClientProvider>
-      </WagmiProvider>
+      <SmartWalletsProvider
+        config={{
+          // Optional: Configure paymaster context for gasless transactions
+          // paymasterContext: {
+          //   token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+          // },
+        }}
+      >
+        <WagmiProvider config={config}>
+          <QueryClientProvider client={queryClient}>
+            {children}
+          </QueryClientProvider>
+        </WagmiProvider>
+      </SmartWalletsProvider>
     </PrivyProviderBase>
   )
 } 

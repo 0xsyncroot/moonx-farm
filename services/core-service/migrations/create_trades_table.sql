@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS user_trades (
     block_number BIGINT NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
     
-    -- Trade classification
-    trade_type VARCHAR(20) NOT NULL DEFAULT 'swap' CHECK (trade_type IN ('swap', 'limit_order', 'dca', 'bridge')),
+    -- Trade classification  
+    type VARCHAR(20) NOT NULL DEFAULT 'swap' CHECK (type IN ('swap', 'limit_order', 'dca', 'bridge')),
     status VARCHAR(20) NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed')),
     
     -- Token information (stored as JSONB for flexibility)
@@ -36,30 +36,30 @@ CREATE TABLE IF NOT EXISTS user_trades (
     
     -- Audit fields
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    -- Indexes for performance
-    INDEX idx_user_trades_user_id (user_id),
-    INDEX idx_user_trades_wallet_address (wallet_address),
-    INDEX idx_user_trades_timestamp (timestamp),
-    INDEX idx_user_trades_chain_id (chain_id),
-    INDEX idx_user_trades_status (status),
-    INDEX idx_user_trades_trade_type (trade_type),
-    INDEX idx_user_trades_dex_name (dex_name),
-    INDEX idx_user_trades_aggregator (aggregator),
-    
-    -- Composite indexes for common queries
-    INDEX idx_user_trades_user_timestamp (user_id, timestamp DESC),
-    INDEX idx_user_trades_user_chain (user_id, chain_id),
-    INDEX idx_user_trades_user_status (user_id, status),
-    INDEX idx_user_trades_wallet_timestamp (wallet_address, timestamp DESC),
-    INDEX idx_user_trades_chain_timestamp (chain_id, timestamp DESC),
-    
-    -- GIN index for JSONB fields (for filtering by token data)
-    INDEX idx_user_trades_from_token_gin USING GIN (from_token),
-    INDEX idx_user_trades_to_token_gin USING GIN (to_token),
-    INDEX idx_user_trades_pnl_gin USING GIN (pnl)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Create indexes for user_trades table
+CREATE INDEX IF NOT EXISTS idx_user_trades_user_id ON user_trades(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_trades_wallet_address ON user_trades(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_user_trades_timestamp ON user_trades(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_user_trades_chain_id ON user_trades(chain_id);
+CREATE INDEX IF NOT EXISTS idx_user_trades_status ON user_trades(status);
+CREATE INDEX IF NOT EXISTS idx_user_trades_type ON user_trades(type);
+CREATE INDEX IF NOT EXISTS idx_user_trades_dex_name ON user_trades(dex_name);
+CREATE INDEX IF NOT EXISTS idx_user_trades_aggregator ON user_trades(aggregator);
+
+-- Composite indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_user_trades_user_timestamp ON user_trades(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_user_trades_user_chain ON user_trades(user_id, chain_id);
+CREATE INDEX IF NOT EXISTS idx_user_trades_user_status ON user_trades(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_user_trades_wallet_timestamp ON user_trades(wallet_address, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_user_trades_chain_timestamp ON user_trades(chain_id, timestamp DESC);
+
+-- GIN indexes for JSONB fields
+CREATE INDEX IF NOT EXISTS idx_user_trades_from_token_gin ON user_trades USING GIN (from_token);
+CREATE INDEX IF NOT EXISTS idx_user_trades_to_token_gin ON user_trades USING GIN (to_token);
+CREATE INDEX IF NOT EXISTS idx_user_trades_pnl_gin ON user_trades USING GIN (pnl);
 
 -- Create updated_at trigger function if not exists
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -119,7 +119,7 @@ GROUP BY user_id, wallet_address, chain_id;
 /*
 INSERT INTO user_trades (
     user_id, wallet_address, tx_hash, chain_id, block_number, timestamp,
-    trade_type, status, from_token, to_token, gas_fee_eth, gas_fee_usd,
+    type, status, from_token, to_token, gas_fee_eth, gas_fee_usd,
     protocol_fee_usd, slippage, price_impact, dex_name, router_address, aggregator
 ) VALUES (
     'test_user_123',

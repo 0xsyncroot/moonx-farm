@@ -1,66 +1,70 @@
 'use client'
 
-import { useState } from 'react'
-import { Star, TrendingUp, TrendingDown, Search } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Star, TrendingUp, TrendingDown, Search, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface TokenData {
+  address: string
   symbol: string
   name: string
-  price: number
-  change24h: number
-  volume24h: number
-  logoUri?: string
+  decimals: number
+  chainId: number
+  priceUSD?: number
+  change24h?: number
+  volume24h?: number
+  logoURI?: string
+  isNative: boolean
+  popular: boolean
 }
 
-const MOCK_TOKENS: TokenData[] = [
-  {
-    symbol: 'ETH',
-    name: 'Ethereum',
-    price: 3247.82,
-    change24h: 2.4,
-    volume24h: 12450000000,
-    logoUri: '/tokens/eth.png'
-  },
-  {
-    symbol: 'BTC',
-    name: 'Bitcoin',
-    price: 67234.56,
-    change24h: -1.2,
-    volume24h: 8760000000,
-    logoUri: '/tokens/btc.png'
-  },
-  {
-    symbol: 'USDC',
-    name: 'USD Coin',
-    price: 1.00,
-    change24h: 0.1,
-    volume24h: 5430000000,
-    logoUri: '/tokens/usdc.png'
-  },
-  {
-    symbol: 'USDT',
-    name: 'Tether USD',
-    price: 0.999,
-    change24h: -0.05,
-    volume24h: 15620000000,
-    logoUri: '/tokens/usdt.png'
-  },
-  {
-    symbol: 'BNB',
-    name: 'BNB',
-    price: 634.23,
-    change24h: 3.8,
-    volume24h: 2340000000,
-    logoUri: '/tokens/bnb.png'
+interface TokenListResponse {
+  tokens: TokenData[]
+  total: number
+  updatedAt: string
+  metadata: {
+    source: string
+    type: string
   }
-]
+}
 
 export function TokenList() {
   const [searchQuery, setSearchQuery] = useState('')
   const [favorites, setFavorites] = useState<string[]>(['ETH', 'BTC'])
+  const [tokens, setTokens] = useState<TokenData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredTokens = MOCK_TOKENS.filter(token =>
+  // Fetch popular tokens from API
+  useEffect(() => {
+    const fetchPopularTokens = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        
+        const aggregatorApiUrl = process.env.NEXT_PUBLIC_AGGREGATOR_API_URL || 'http://localhost:3003/api/v1'
+        const response = await fetch(`${aggregatorApiUrl}/tokens/popular`)
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        
+        const data: TokenListResponse = await response.json()
+        setTokens(data.tokens || [])
+      } catch (err) {
+        console.error('Failed to fetch popular tokens:', err)
+        setError('Failed to load tokens. Please try again.')
+        // Fallback to empty array
+        setTokens([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchPopularTokens()
+  }, [])
+
+  const filteredTokens = tokens.filter(token =>
     token.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
     token.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
@@ -73,7 +77,9 @@ export function TokenList() {
     )
   }
 
-  const formatVolume = (volume: number) => {
+  const formatVolume = (volume?: number) => {
+    if (!volume) return 'N/A'
+    
     if (volume >= 1e9) {
       return `$${(volume / 1e9).toFixed(2)}B`
     }
@@ -83,11 +89,64 @@ export function TokenList() {
     return `$${(volume / 1e3).toFixed(2)}K`
   }
 
+  const formatPrice = (price?: number) => {
+    if (!price || price === 0) return 'N/A'
+    
+    return price.toLocaleString(undefined, {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: price < 1 ? 4 : 2
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="trade-card h-[400px] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Top Tokens</h3>
+        </div>
+        
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex items-center space-x-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading tokens...</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="trade-card h-[400px] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Top Tokens</h3>
+        </div>
+        
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-muted-foreground">
+            <p className="text-sm">{error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-2 text-primary hover:underline text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="trade-card h-[400px] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Top Tokens</h3>
+        <span className="text-xs text-muted-foreground">
+          {tokens.length} tokens
+        </span>
       </div>
 
       {/* Search */}
@@ -104,72 +163,93 @@ export function TokenList() {
 
       {/* Token List */}
       <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar">
-        {filteredTokens.map((token) => {
-          const isPositive = token.change24h > 0
-          const isFavorite = favorites.includes(token.symbol)
+        {filteredTokens.length === 0 ? (
+          <div className="flex items-center justify-center h-32 text-muted-foreground">
+            <p className="text-sm">No tokens found</p>
+          </div>
+        ) : (
+          filteredTokens.map((token) => {
+            const isPositive = (token.change24h || 0) > 0
+            const isFavorite = favorites.includes(token.symbol)
+            const hasPrice = token.priceUSD && token.priceUSD > 0
 
-          return (
-            <div
-              key={token.symbol}
-              className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => toggleFavorite(token.symbol)}
-                  className={cn(
-                    "p-1 rounded-full transition-colors",
-                    isFavorite ? "text-warning" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Star className={cn("h-3 w-3", isFavorite && "fill-current")} />
-                </button>
-
-                {token.logoUri && (
-                  <img
-                    src={token.logoUri}
-                    alt={token.symbol}
-                    className="h-8 w-8 rounded-full"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
-                  />
-                )}
-
-                <div>
-                  <div className="font-medium">{token.symbol}</div>
-                  <div className="text-sm text-muted-foreground">{token.name}</div>
-                </div>
-              </div>
-
-              <div className="text-right space-y-1">
-                <div className="font-medium">
-                  ${token.price.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: token.price < 1 ? 4 : 2
-                  })}
-                </div>
-                
-                <div className="flex items-center justify-end space-x-1">
-                  <div className={cn(
-                    "flex items-center space-x-1 text-sm",
-                    isPositive ? "text-success" : "text-error"
-                  )}>
-                    {isPositive ? (
-                      <TrendingUp className="h-3 w-3" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3" />
+            return (
+              <div
+                key={`${token.address}-${token.chainId}`}
+                className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => toggleFavorite(token.symbol)}
+                    className={cn(
+                      "p-1 rounded-full transition-colors",
+                      isFavorite ? "text-warning" : "text-muted-foreground hover:text-foreground"
                     )}
-                    <span>{isPositive ? '+' : ''}{token.change24h.toFixed(2)}%</span>
+                  >
+                    <Star className={cn("h-3 w-3", isFavorite && "fill-current")} />
+                  </button>
+
+                  {token.logoURI && (
+                    <img
+                      src={token.logoURI}
+                      alt={token.symbol}
+                      className="h-8 w-8 rounded-full"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  )}
+
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium">{token.symbol}</span>
+                      {token.isNative && (
+                        <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                          Native
+                        </span>
+                      )}
+                      {token.popular && (
+                        <span className="text-xs bg-warning/20 text-warning px-1.5 py-0.5 rounded">
+                          Popular
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {token.name}
+                      <span className="ml-2 text-xs">Chain {token.chainId}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="text-xs text-muted-foreground">
-                  Vol: {formatVolume(token.volume24h)}
+                <div className="text-right space-y-1">
+                  <div className="font-medium">
+                    {formatPrice(token.priceUSD)}
+                  </div>
+                  
+                  {hasPrice && token.change24h !== undefined && (
+                    <div className="flex items-center justify-end space-x-1">
+                      <div className={cn(
+                        "flex items-center space-x-1 text-sm",
+                        isPositive ? "text-success" : "text-error"
+                      )}>
+                        {isPositive ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        <span>{isPositive ? '+' : ''}{token.change24h.toFixed(2)}%</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-muted-foreground">
+                    Vol: {formatVolume(token.volume24h)}
+                  </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })
+        )}
       </div>
     </div>
   )
