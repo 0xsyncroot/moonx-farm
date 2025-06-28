@@ -46,7 +46,7 @@ graph TB
     subgraph "Core Services"
         AUTH[Auth Service<br/>Privy + JWT]
         WALLET[Wallet Registry<br/>ZeroDev AA]
-        QUOTE[Quote Service<br/>Go/Rust]
+        QUOTE[Aggregator Service<br/>Go/Rust]
         SWAP[Swap Orchestrator<br/>Node.js]
         POS[Position Indexer<br/>Node.js]
         NOTIFY[Notify Service<br/>Socket.IO]
@@ -135,7 +135,7 @@ graph TB
 ├── API Gateway (3000)      # Single entry point
 ├── Auth Service (3001)     # Authentication & Authorization  
 ├── Wallet Registry (3002)  # AA Wallet management
-├── Quote Service (3003)    # Price quotes & routing
+├── Aggregator Service (3003)    # Price quotes & routing
 ├── Swap Orchestrator (3004) # Trade execution
 ├── Position Indexer (3005) # Portfolio tracking
 └── Notify Service (3006)   # Real-time notifications
@@ -256,8 +256,8 @@ graph LR
 graph TB
     USER[User Request<br/>ETH → USDC]
     
-    subgraph "Quote Service (Backend)"
-        QS[Quote Service]
+    subgraph "Aggregator Service (Backend)"
+QS[Aggregator Service]
         CACHE[Redis Cache]
     end
     

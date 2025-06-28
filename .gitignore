@@ -87,7 +87,6 @@ dist
 
 # Gatsby files
 .cache/
-public
 
 # Storybook build outputs
 .out
@@ -189,7 +188,6 @@ performance-reports/
 **/typechain-types/
 
 # Foundry
-lib/
 cache/
 out/
 broadcast/

@@ -22,7 +22,7 @@ const VALID_PROFILES: ConfigProfile[] = [
   'api-gateway',
   'auth-service', 
   'wallet-registry',
-  'quote-service',
+  'aggregator-service',
   'swap-orchestrator',
   'position-indexer',
   'notify-service',

@@ -35,7 +35,7 @@ MoonXFarm là một **multi-aggregator router** thế hệ mới, được thi�
 3. **Core Services**: 
    - Auth Service (Privy + JWT)
    - Wallet Registry (ZeroDev AA wallets)
-   - Quote Service (Aggregators integration)
+   - Aggregator Service (Aggregators integration)
    - Swap Orchestrator (UserOperation builder)
    - Position Indexer (P&L tracking)
    - Notify Service (Real-time notifications)
@@ -87,7 +87,7 @@ MoonXFarm là một **multi-aggregator router** thế hệ mới, được thi�
 - API Gateway setup
 
 ### Sprint 3: Trading Engine (6 người-tuần)
-- Quote Service với aggregators
+- Aggregator Service với aggregators
 - Swap Orchestrator
 - Price Crawler worker
 - WebSocket real-time
