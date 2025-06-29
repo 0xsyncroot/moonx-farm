@@ -262,12 +262,36 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
 - **Tiêu chí hoàn thành:** Worker có thể gọi fetcher, nhận dữ liệu mẫu chuẩn hóa từ nhiều nguồn, endpoint API quản lý qua config, sẵn sàng chuyển sang giai đoạn 5.
 
 ### Giai đoạn 5: Database Access & Upsert Logic
+
+#### Phân biệt pipeline chính và pipeline test
+
+- **Pipeline chính (production):**
+  - `src/worker/trending_profile_db.worker.ts`: Worker thực tế, fetch + chuẩn hóa + upsert vào DB + log job_logs. Dùng cho production.
+  - (Sẽ có pipeline tương tự cho top token: `src/worker/top_profile_db.worker.ts`)
+
+- **Pipeline test/mock:**
+  - `src/worker/trending_profile.worker.ts`: Chỉ fetch và chuẩn hóa dữ liệu, không ghi vào DB. Dùng để kiểm thử fetcher, chuẩn hóa dữ liệu, mock/test pipeline.
+  - (Sẽ có pipeline tương tự cho top token: `src/worker/top_profile.worker.ts`)
+
+-------
 - **Mục tiêu:** 
-  - Kết nối PostgreSQL qua Prisma/Knex.
+  - Kết nối PostgreSQL qua package DB chung của project (@moonx/infrastructure hoặc tương đương).
   - Cài đặt upsert cho bảng tokens, token_prices, token_audits.
 - **Đầu ra:** 
-  - Module DB, hàm upsert, migration schema.
-- **Tiêu chí hoàn thành:** Worker lưu dữ liệu mẫu vào DB.
+  - Module DB, hàm upsert, migration/schema chuẩn.
+- **Checklist chi tiết:**
+  - [ ] Sử dụng package DB chung để kết nối PostgreSQL (DATABASE_URL).
+  - [ ] Đảm bảo migration/schema cho các bảng: tokens, token_prices, token_audits.
+  - [ ] Viết hàm upsert cho từng bảng (tokens, token_prices, token_audits) theo logic: insert nếu chưa có, update nếu đã tồn tại (theo contract key hoặc unique constraint).
+  - [ ] Worker gọi fetcher → chuẩn hóa dữ liệu → gọi hàm upsert lưu vào DB.
+  - [ ] Log thao tác thành công/lỗi vào job_logs.
+  - [ ] Viết script test pipeline: fetch dữ liệu mẫu → upsert vào DB → kiểm tra dữ liệu.
+  - [ ] Đảm bảo worker lưu dữ liệu thành công, không trùng lặp, đúng logic.
+- **Tiêu chí hoàn thành:** 
+  - Đã kết nối DB thành công.
+  - Đã có migration/schema chuẩn.
+  - Đã có hàm upsert cho từng bảng.
+  - Worker lưu dữ liệu thành công, log thao tác vào job_logs.
 
 ### Giai đoạn 6: Xử lý logic từng loại Job
 - **Mục tiêu:** 
