@@ -1,13 +1,81 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { coreApi } from '@/lib/api-client'
+import { toast } from 'react-hot-toast'
+
+interface PortfolioData {
+  totalValue: number
+  totalChange: number
+  totalChangePercent: number
+  totalInvested: number
+  unrealizedPnL: number
+  realizedPnL: number
+}
+
 export function PortfolioOverview() {
-  const portfolioData = {
-    totalValue: 25680.45,
-    totalChange: 1234.56,
-    totalChangePercent: 5.2,
-    totalInvested: 24445.89,
-    unrealizedPnL: 1234.56,
-    realizedPnL: 890.23
+  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchPortfolioData() {
+      try {
+        setIsLoading(true)
+        
+        // Fetch portfolio and P&L data in parallel
+        const [portfolioResponse, pnlResponse] = await Promise.all([
+          coreApi.getQuickPortfolio(),
+          coreApi.getPortfolioPnL({ timeframe: '30d' })
+        ])
+
+        if (portfolioResponse.success && pnlResponse.success) {
+          const portfolio = portfolioResponse.data
+          const pnl = pnlResponse.data
+
+          setPortfolioData({
+            totalValue: portfolio.totalValueUSD || 0,
+            totalChange: pnl.netPnlUSD || 0,
+            totalChangePercent: pnl.portfolioChangePercent || 0,
+            totalInvested: (portfolio.totalValueUSD || 0) - (pnl.netPnlUSD || 0),
+            unrealizedPnL: pnl.unrealizedPnlUSD || 0,
+            realizedPnL: pnl.realizedPnlUSD || 0
+          })
+        } else {
+          throw new Error('Failed to fetch portfolio data')
+        }
+      } catch (error) {
+        console.error('Portfolio overview fetch error:', error)
+        toast.error('Failed to load portfolio data')
+        
+        // Fallback to empty data
+        setPortfolioData({
+          totalValue: 0,
+          totalChange: 0,
+          totalChangePercent: 0,
+          totalInvested: 0,
+          unrealizedPnL: 0,
+          realizedPnL: 0
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchPortfolioData()
+  }, [])
+
+  if (isLoading || !portfolioData) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-card/50 backdrop-blur-xl border border-border/50 rounded-lg p-6 animate-pulse">
+            <div className="h-4 bg-muted/20 rounded mb-2"></div>
+            <div className="h-8 bg-muted/20 rounded mb-1"></div>
+            <div className="h-3 bg-muted/20 rounded w-3/4"></div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (

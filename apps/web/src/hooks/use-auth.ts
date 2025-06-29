@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '@/lib/api-client'
 import { toast } from 'react-hot-toast'
 
@@ -30,7 +30,26 @@ export function useAuth() {
   } = usePrivy()
 
   const [isBackendAuthenticated, setIsBackendAuthenticated] = useState(false)
-  const [isInitialized, setIsInitialized] = useState(false)
+  
+  // Prevent multiple concurrent login attempts - Use sessionStorage for persistence
+  const loginAttemptRef = useRef(false)
+  const effectCallCountRef = useRef(0) // Debug counter
+  
+  // Helper functions for session storage
+  const getAttemptedUser = () => {
+    if (typeof window === 'undefined') return null
+    return sessionStorage.getItem('moonx_attempted_user')
+  }
+  
+  const setAttemptedUser = (userId: string) => {
+    if (typeof window === 'undefined') return
+    sessionStorage.setItem('moonx_attempted_user', userId)
+  }
+  
+  const clearAttemptedUser = () => {
+    if (typeof window === 'undefined') return
+    sessionStorage.removeItem('moonx_attempted_user')
+  }
 
   // Get current user from backend
   const { 
@@ -39,24 +58,47 @@ export function useAuth() {
     error: userError 
   } = useQuery({
     queryKey: ['currentUser'],
-    queryFn: authApi.getCurrentUser,
-    enabled: isBackendAuthenticated,
+    queryFn: () => {
+      return authApi.getCurrentUser()
+    },
+    enabled: (() => {
+      const enabled = isBackendAuthenticated && privyReady && typeof window !== 'undefined' && !!localStorage.getItem('accessToken')
+      return enabled
+    })(),
     retry: false,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 10 * 60 * 1000, // 10 minutes - longer cache
+    refetchOnWindowFocus: false, // Don't refetch on focus
+    refetchOnMount: false, // Don't refetch on mount if data exists
   })
 
   // Backend login mutation
   const backendLoginMutation = useMutation({
     mutationFn: authApi.login,
+    onMutate: () => {
+    },
     onSuccess: (response) => {
+      loginAttemptRef.current = false
+      
       if (response.success) {
-        setIsBackendAuthenticated(true)
-        queryClient.invalidateQueries({ queryKey: ['currentUser'] })
+        // Small delay to ensure tokens are set in ApiClient
+        setTimeout(() => {
+          setIsBackendAuthenticated(true)
+          // Additional delay to ensure tokens are fully set
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ['currentUser'] })
+          }, 50)
+        }, 100)
         toast.success('Successfully connected to MoonX!')
+      } else {
+        console.error('❌ Backend login failed:', response)
+        clearAttemptedUser() // Allow retry on failure
       }
     },
     onError: (error) => {
-      console.error('Backend login failed:', error)
+      loginAttemptRef.current = false
+      // Reset user attempt on error to allow retry
+      clearAttemptedUser()
+      console.error('❌ Backend login failed:', error)
       toast.error('Failed to connect to MoonX services')
     },
   })
@@ -64,41 +106,89 @@ export function useAuth() {
   // Backend logout mutation
   const backendLogoutMutation = useMutation({
     mutationFn: authApi.logout,
+    onMutate: () => {
+      // Clear authentication state immediately to prevent any more verify calls
+      setIsBackendAuthenticated(false)
+      // Reset login attempt flags to allow fresh login next time  
+      clearAttemptedUser()
+      loginAttemptRef.current = false
+    },
     onSuccess: () => {
+      queryClient.clear()
+    },
+    onError: (error) => {
+      console.error('❌ Backend logout failed:', error)
+      // Still clear state even if logout API fails
       setIsBackendAuthenticated(false)
       queryClient.clear()
     },
   })
 
-  // Handle Privy authentication changes
+  // Handle backend login when Privy authenticates - SIMPLIFIED SINGLE EFFECT
   useEffect(() => {
-    const handleAuth = async () => {
-      if (!privyReady) return
+    effectCallCountRef.current += 1
+    const attemptedUser = getAttemptedUser()
 
-      if (privyAuthenticated && privyUser) {
-        try {
-          // Get Privy access token
-          const privyToken = await getAccessToken()
-          if (privyToken) {
-            // Login to backend with Privy token
-            await backendLoginMutation.mutateAsync(privyToken)
-          }
-        } catch (error) {
-          console.error('Auth integration failed:', error)
-          toast.error('Authentication failed')
-        }
-      } else {
-        // User logged out from Privy
-        if (isBackendAuthenticated) {
-          await backendLogoutMutation.mutateAsync()
-        }
-      }
-
-      setIsInitialized(true)
+    // Early returns to prevent unnecessary execution
+    if (!privyReady) {
+      return
+    }
+    if (!privyAuthenticated || !privyUser) {
+      // Reset attempt flags if user logged out
+      clearAttemptedUser()
+      return
+    }
+    if (isBackendAuthenticated) {
+      return
+    }
+    if (attemptedUser === privyUser.id) {
+      return
+    }
+    if (loginAttemptRef.current || backendLoginMutation.isPending) {
+      return
     }
 
-    handleAuth()
-  }, [privyReady, privyAuthenticated, privyUser])
+    // Mark that we've attempted login for this user - BEFORE async call
+    setAttemptedUser(privyUser.id)
+
+    const attemptBackendLogin = async () => {
+      try {
+        loginAttemptRef.current = true
+        
+        const privyToken = await getAccessToken()
+        if (privyToken) {
+          await backendLoginMutation.mutateAsync(privyToken)
+        } else {
+          console.error('❌ No Privy token available')
+          loginAttemptRef.current = false
+          // Don't reset attempt for no token case - user-specific issue
+        }
+      } catch (error) {
+        console.error('❌ Backend login failed:', error)
+        loginAttemptRef.current = false
+        // Reset attempt flags on error to allow retry if user logs out and back in
+        clearAttemptedUser()
+      }
+    }
+
+    attemptBackendLogin()
+  }, [privyReady, privyAuthenticated, privyUser?.id]) // Simplified dependencies
+
+  // Handle backend logout when Privy logs out
+  useEffect(() => {
+    if (!privyReady) return
+    
+    // If Privy logged out, reset login attempt flags
+    if (!privyAuthenticated) {
+      clearAttemptedUser()
+      loginAttemptRef.current = false
+      
+      // If backend still authenticated, logout from backend
+      if (isBackendAuthenticated) {
+        backendLogoutMutation.mutate()
+      }
+    }
+  }, [privyReady, privyAuthenticated, isBackendAuthenticated])
 
   // Login function
   const login = async () => {
@@ -145,7 +235,6 @@ export function useAuth() {
 
   // Loading states
   const isLoading = !privyReady || 
-                   !isInitialized || 
                    backendLoginMutation.isPending || 
                    backendLogoutMutation.isPending ||
                    (isBackendAuthenticated && userLoading)
@@ -157,7 +246,6 @@ export function useAuth() {
     privyAuthenticated,
     hasWallet,
     isLoading,
-    isInitialized,
 
     // User data
     privyUser,
@@ -172,6 +260,6 @@ export function useAuth() {
     error: userError || backendLoginMutation.error || backendLogoutMutation.error,
 
     // Utility
-    ready: privyReady && isInitialized,
+    ready: privyReady,
   }
 } 

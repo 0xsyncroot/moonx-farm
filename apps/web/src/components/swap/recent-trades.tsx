@@ -1,80 +1,108 @@
 'use client'
 
+import { useQuery } from '@tanstack/react-query'
+import { coreApi } from '@/lib/api-client'
+import { useAuth } from '@/hooks/use-auth'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { formatCurrency, formatNumber } from '@/lib/utils'
 
 interface Trade {
   id: string
-  type: 'buy' | 'sell'
-  fromToken: string
-  toToken: string
-  amount: number
-  price: number
-  timestamp: Date
+  type: 'swap'
+  txHash: string
+  timestamp: string
+  fromToken: {
+    symbol: string
+    amount: string
+    valueUSD: number
+  }
+  toToken: {
+    symbol: string
+    amount: string
+    valueUSD: number
+  }
+  gasFeeUSD: number
+  dexName: string
 }
 
-// Mock data for demonstration
-const MOCK_TRADES: Trade[] = [
-  {
-    id: '1',
-    type: 'buy',
-    fromToken: 'ETH',
-    toToken: 'USDC',
-    amount: 2.5,
-    price: 2450.75,
-    timestamp: new Date(Date.now() - 2 * 60 * 1000),
-  },
-  {
-    id: '2',
-    type: 'sell',
-    fromToken: 'BNB',
-    toToken: 'USDT',
-    amount: 10.2,
-    price: 285.50,
-    timestamp: new Date(Date.now() - 5 * 60 * 1000),
-  },
-  {
-    id: '3',
-    type: 'buy',
-    fromToken: 'ETH',
-    toToken: 'WBTC',
-    amount: 1.8,
-    price: 0.038,
-    timestamp: new Date(Date.now() - 8 * 60 * 1000),
-  },
-]
-
 export function RecentTrades() {
-  const formatTimeAgo = (date: Date) => {
+  const { isAuthenticated } = useAuth()
+
+  // Fetch recent trades from Core Service
+  const { data: tradesData, isLoading, error } = useQuery({
+    queryKey: ['recentTrades'],
+    queryFn: () => coreApi.getRecentTrades({ limit: 10, days: 7 }),
+    enabled: isAuthenticated,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1
+  })
+
+  const trades = tradesData?.data?.trades || []
+
+  const formatTimeAgo = (timestamp: string) => {
+    const date = new Date(timestamp)
     const minutes = Math.floor((Date.now() - date.getTime()) / (1000 * 60))
     if (minutes < 1) return 'now'
     if (minutes === 1) return '1m ago'
-    return `${minutes}m ago`
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    return `${hours}h ago`
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center p-8 text-gray-400">
+        <p>Connect wallet to view recent trades</p>
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <LoadingSpinner />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center p-8 text-red-400">
+        <p>Failed to load recent trades</p>
+      </div>
+    )
+  }
+
+  if (trades.length === 0) {
+    return (
+      <div className="flex items-center justify-center p-8 text-gray-400">
+        <p>No recent trades found</p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-3">
-      {MOCK_TRADES.map((trade) => (
+      {trades.map((trade: Trade) => (
         <div
           key={trade.id}
           className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
         >
           <div className="flex items-center gap-3">
-            <div className={`w-2 h-2 rounded-full ${
-              trade.type === 'buy' ? 'bg-green-400' : 'bg-red-400'
-            }`} />
+            <div className="w-2 h-2 rounded-full bg-blue-400" />
             <div>
               <div className="text-sm font-medium text-white">
-                {trade.fromToken} → {trade.toToken}
+                {trade.fromToken.symbol} → {trade.toToken.symbol}
               </div>
               <div className="text-xs text-gray-400">
-                {formatNumber(trade.amount)} {trade.fromToken}
+                {formatNumber(parseFloat(trade.fromToken.amount))} {trade.fromToken.symbol}
               </div>
             </div>
           </div>
           
           <div className="text-right">
             <div className="text-sm font-medium text-white">
-              {formatCurrency(trade.price)}
+              {formatCurrency(trade.toToken.valueUSD)}
             </div>
             <div className="text-xs text-gray-400">
               {formatTimeAgo(trade.timestamp)}

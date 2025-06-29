@@ -5,6 +5,33 @@ import { TradesService } from '../services/tradesService';
 import { AutoSyncService } from '../services/autoSyncService';
 import { AuthenticatedRequest, AuthMiddleware } from '../middleware/authMiddleware';
 import { PortfolioSyncRequest, PortfolioFilters, PnLRequest } from '../types';
+import { ApiResponse } from '../types';
+import { createLoggerForAnyService } from '@moonx/common';
+
+const logger = createLoggerForAnyService('core-service');
+
+// Helper functions for standardized API responses
+function createSuccessResponse<T>(data: T, message?: string): ApiResponse<T> {
+  const response: ApiResponse<T> = {
+    success: true,
+    data,
+    timestamp: new Date().toISOString()
+  };
+  
+  if (message) {
+    response.message = message;
+  }
+  
+  return response;
+}
+
+function createErrorResponse(error: string): ApiResponse {
+  return {
+    success: false,
+    error,
+    timestamp: new Date().toISOString()
+  };
+}
 
 export class PortfolioController {
   constructor(
@@ -28,14 +55,11 @@ export class PortfolioController {
         // No portfolio data - trigger high priority sync and return loading state
         await this.autoSyncService.onUserAccess(userId, walletAddress);
         
-        return reply.code(202).send({
-          success: true,
-          data: {
-            portfolio: null,
-            status: 'syncing',
-            message: 'Portfolio is being synced. Please check back in a few moments.'
-          }
-        });
+        return reply.code(202).send(createSuccessResponse({
+          portfolio: null,
+          status: 'syncing',
+          message: 'Portfolio is being synced. Please check back in a few moments.'
+        }, 'Portfolio sync initiated'));
       }
 
       // Check if data is stale (> 15 minutes old)
@@ -49,20 +73,14 @@ export class PortfolioController {
         });
       }
 
-      return reply.send({
-        success: true,
-        data: { 
-          portfolio,
-          syncStatus: diffMinutes > 15 ? 'refreshing' : 'current',
-          lastSynced: portfolio.lastSynced
-        }
-      });
+      return reply.send(createSuccessResponse({ 
+        portfolio,
+        syncStatus: diffMinutes > 15 ? 'refreshing' : 'current',
+        lastSynced: portfolio.lastSynced
+      }, `Portfolio retrieved with ${portfolio.holdings?.length || 0} holdings`));
     } catch (error) {
-      console.error('Get portfolio error:', error);
-      return reply.code(500).send({
-        success: false,
-        error: 'Failed to get portfolio'
-      });
+      logger.error('Get portfolio error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.code(500).send(createErrorResponse('Failed to get portfolio'));
     }
   }
 
@@ -82,66 +100,51 @@ export class PortfolioController {
         });
       }
       
-      return reply.send({
-        success: true,
-        data: {
-          ...quickData,
-          status: quickData.totalValueUSD > 0 ? 'ready' : 'syncing'
-        }
-      });
+      return reply.send(createSuccessResponse({
+        ...quickData,
+        status: quickData.totalValueUSD > 0 ? 'ready' : 'syncing'
+      }, `Quick portfolio overview: $${quickData.totalValueUSD.toFixed(2)}`));
     } catch (error) {
-      console.error('Get quick portfolio error:', error);
-      return reply.code(500).send({
-        success: false,
-        error: 'Failed to get quick portfolio'
-      });
+      logger.error('Get quick portfolio error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.code(500).send(createErrorResponse('Failed to get quick portfolio'));
     }
   }
 
   // POST /portfolio/refresh - Force refresh user portfolio
   async refreshPortfolio(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const userId = request.user?.id;
-      const walletAddress = request.user?.walletAddress;
+      const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
+      const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
 
       // Force high priority sync
       await this.autoSyncService.triggerUserSync(userId, walletAddress, 'high');
 
-      return reply.send({
-        success: true,
-        data: {
-          message: 'Portfolio refresh initiated. Check back in a few moments for updated data.',
-          status: 'refreshing'
-        }
-      });
+      return reply.send(createSuccessResponse({
+        message: 'Portfolio refresh initiated. Check back in a few moments for updated data.',
+        status: 'refreshing'
+      }, 'Portfolio refresh initiated'));
     } catch (error) {
-      console.error('Portfolio refresh error:', error);
-      return reply.status(500).send({
-        success: false,
-        error: 'Failed to refresh portfolio'
-      });
+      logger.error('Portfolio refresh error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.status(500).send(createErrorResponse('Failed to refresh portfolio'));
     }
   }
 
   // GET /portfolio/pnl - Get portfolio P&L analysis
   async getPnL(request: FastifyRequest<{ Querystring: PnLRequest }>, reply: FastifyReply) {
     try {
-      const userId = request.user?.id;
+      const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
+      const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      
       const pnlData = await this.pnlService.calculatePnL(userId, {
         timeframe: request.query.timeframe || '24h',
-        walletAddress: request.query.walletAddress
+        walletAddress: request.query.walletAddress || walletAddress
       });
 
-      return reply.send({
-        success: true,
-        data: pnlData
-      });
+      return reply.send(createSuccessResponse(pnlData, 
+        `P&L calculated for ${request.query.timeframe || '24h'} timeframe`));
     } catch (error) {
-      console.error('P&L calculation error:', error);
-      return reply.status(500).send({
-        success: false,
-        error: 'Failed to calculate P&L'
-      });
+      logger.error('P&L calculation error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.status(500).send(createErrorResponse('Failed to calculate P&L'));
     }
   }
 
@@ -220,24 +223,18 @@ export class PortfolioController {
           }));
       }
 
-      return reply.send({
-        success: true,
-        data: {
-          pnl: pnlSummary,
-          analytics: analyticsData,
-          summary: {
-            totalPortfolioValue: portfolio?.totalValueUSD || 0,
-            totalTokens: portfolio?.holdings.length || 0,
-            lastUpdated: portfolio?.lastSynced || null
-          }
+      return reply.send(createSuccessResponse({
+        pnl: pnlSummary,
+        analytics: analyticsData,
+        summary: {
+          totalPortfolioValue: portfolio?.totalValueUSD || 0,
+          totalTokens: portfolio?.holdings.length || 0,
+          lastUpdated: portfolio?.lastSynced || null
         }
-      });
+      }, `Analytics generated with ${breakdown} breakdown`));
     } catch (error) {
-      console.error('Get analytics error:', error);
-      return reply.code(500).send({
-        success: false,
-        error: 'Failed to get analytics'
-      });
+      logger.error('Get analytics error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.code(500).send(createErrorResponse('Failed to get analytics'));
     }
   }
 
@@ -252,26 +249,19 @@ export class PortfolioController {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const { timeframe = '30d', interval = 'day' } = request.query;
       
-      // This would fetch historical portfolio snapshots from database
-      // For now, return mock data structure
+      // TODO: Implement historical portfolio data retrieval
+      // This would fetch from portfolio_snapshots table or similar
       const historyData = {
         timeframe,
         interval,
-        data: [
-          // { timestamp: Date, totalValueUSD: number, change24h: number }
-        ]
+        data: []
       };
       
-      return reply.send({
-        success: true,
-        data: { history: historyData }
-      });
+      return reply.send(createSuccessResponse({ history: historyData }, 
+        'Portfolio history feature will be available soon'));
     } catch (error) {
-      console.error('Get portfolio history error:', error);
-      return reply.code(500).send({
-        success: false,
-        error: 'Failed to get portfolio history'
-      });
+      logger.error('Get portfolio history error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.code(500).send(createErrorResponse('Failed to get portfolio history'));
     }
   }
 
@@ -286,34 +276,38 @@ export class PortfolioController {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       
-      const filters = {
+      // Build filters object conditionally to avoid undefined values with exactOptionalPropertyTypes
+      const filters: { limit: number; days: number; chainIds?: number[] } = {
         limit: request.query.limit || 20,
-        days: request.query.days || 30,
-        chainIds: request.query.chainIds ? 
-          request.query.chainIds.split(',').map(id => parseInt(id.trim())) : 
-          undefined
+        days: request.query.days || 30
       };
+
+      // Only add chainIds if it exists and is valid
+      if (request.query.chainIds) {
+        const chainIds = request.query.chainIds
+          .split(',')
+          .map(id => parseInt(id.trim()))
+          .filter(id => !isNaN(id));
+        
+        if (chainIds.length > 0) {
+          filters.chainIds = chainIds;
+        }
+      }
       
       const trades = await this.tradesService.getRecentTrades(userId, filters);
       
-      return reply.send({
-        success: true,
-        data: { 
-          trades,
-          count: trades.length,
-          filters: {
-            limit: filters.limit,
-            days: filters.days,
-            chainIds: filters.chainIds
-          }
+      return reply.send(createSuccessResponse({ 
+        trades,
+        count: trades.length,
+        filters: {
+          limit: filters.limit,
+          days: filters.days,
+          chainIds: filters.chainIds
         }
-      });
+      }, `Retrieved ${trades.length} recent trades`));
     } catch (error) {
-      console.error('Get recent trades error:', error);
-      return reply.code(500).send({
-        success: false,
-        error: 'Failed to get recent trades'
-      });
+      logger.error('Get recent trades error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.code(500).send(createErrorResponse('Failed to get recent trades'));
     }
   }
 
@@ -322,16 +316,11 @@ export class PortfolioController {
     try {
       const stats = await this.autoSyncService.getSyncStats();
       
-      return reply.send({
-        success: true,
-        data: { syncStats: stats }
-      });
+      return reply.send(createSuccessResponse({ syncStats: stats }, 
+        'Sync statistics retrieved successfully'));
     } catch (error) {
-      console.error('Get sync status error:', error);
-      return reply.code(500).send({
-        success: false,
-        error: 'Failed to get sync status'
-      });
+      logger.error('Get sync status error', { error: error instanceof Error ? error.message : String(error) });
+      return reply.code(500).send(createErrorResponse('Failed to get sync status'));
     }
   }
 } 

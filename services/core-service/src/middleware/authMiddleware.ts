@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import axios from 'axios';
-import { createCoreServiceConfig } from '@moonx/configs';
+import { createCoreServiceConfig, getServiceUrls } from '@moonx/configs';
 
 interface AuthenticatedRequest extends FastifyRequest {
   user?: {
@@ -16,7 +16,10 @@ export class AuthMiddleware {
 
   constructor() {
     const config = createCoreServiceConfig();
-    this.authServiceUrl = config.services.authService.url;
+    
+    // Get service URLs using the utility function
+    const serviceUrls = getServiceUrls('core-service');
+    this.authServiceUrl = serviceUrls.authService;
   }
 
   async authenticate(request: AuthenticatedRequest, reply: FastifyReply): Promise<void> {
@@ -33,7 +36,7 @@ export class AuthMiddleware {
       const token = authorization.replace('Bearer ', '');
 
       // Verify token with auth service
-      const response = await axios.post(`${this.authServiceUrl}/auth/verify`, 
+      const response = await axios.post(`${this.authServiceUrl}/api/v1/auth/verify`, 
         { token },
         {
           headers: { 'Content-Type': 'application/json' },

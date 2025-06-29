@@ -212,9 +212,8 @@ export class DatabaseManager implements QueryBuilder {
       logger.error('Database pool error', { error: err.message });
     });
 
-    // Graceful shutdown
-    process.on('SIGINT', () => this.disconnect());
-    process.on('SIGTERM', () => this.disconnect());
+    // Note: Signal handlers should be managed at application level, not infrastructure level
+    // Application should call disconnect() during graceful shutdown
   }
 
   /**

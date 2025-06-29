@@ -44,4 +44,8 @@ export class SyncMiddleware {
     try {
       await this.autoSyncService.onUserTrade(userId, walletAddress);
     } catch (error) {
+      console.error('Trade sync trigger failed:', error);
+    }
+  }
+}
  

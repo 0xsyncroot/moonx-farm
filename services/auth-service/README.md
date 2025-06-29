@@ -268,22 +268,549 @@ Response:
 
 ## 📚 API Documentation
 
-### Authentication Endpoints
+### Base URL
+```
+http://localhost:3001
+```
 
-- `POST /api/v1/auth/login` - Login với Privy token
-- `POST /api/v1/auth/refresh` - Refresh access token  
-- `POST /api/v1/auth/logout` - Logout current session
-- `GET /api/v1/auth/me` - Get current user info
+### Authentication
+Most endpoints require JWT authentication. Include the access token in the Authorization header:
+```
+Authorization: Bearer <access_token>
+```
 
-### Session Management
+---
 
-- `GET /api/v1/session/list` - List user sessions
-- `DELETE /api/v1/session/revoke/:id` - Revoke specific session
-- `DELETE /api/v1/session/revoke-others` - Revoke all other sessions
+## 🔐 Authentication Endpoints (`/api/v1/auth`)
 
-### User Management
+### POST `/api/v1/auth/login`
+Authenticate user using Privy token and return JWT tokens.
 
-- `GET /api/v1/user/profile` - Get user profile
-- `PATCH /api/v1/user/profile` - Update user profile
-- `GET /api/v1/user/stats` - Get user statistics
-- `POST /api/v1/user/deactivate` - Deactivate account
+**Request:**
+```json
+{
+  "privyToken": "string" // Privy access token
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "string",
+      "privyId": "string", 
+      "walletAddress": "string",
+      "email": "string|null",
+      "isActive": true,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "lastLoginAt": "2024-01-01T00:00:00.000Z"
+    },
+    "tokens": {
+      "accessToken": "string",
+      "refreshToken": "string", 
+      "expiresAt": "2024-01-01T00:00:00.000Z",
+      "expiresIn": 900, // seconds
+      "tokenType": "Bearer"
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `400`: Invalid request (missing privyToken)
+- `401`: Invalid or expired Privy token
+- `429`: Too many login attempts (rate limited)
+- `500`: Internal server error
+
+---
+
+### POST `/api/v1/auth/refresh`
+Refresh access token using refresh token.
+
+**Request:**
+```json
+{
+  "refreshToken": "string"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "string",
+      "privyId": "string",
+      "walletAddress": "string", 
+      "email": "string|null",
+      "isActive": true,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "lastLoginAt": "2024-01-01T00:00:00.000Z"
+    },
+    "tokens": {
+      "accessToken": "string",
+      "refreshToken": "string",
+      "expiresAt": "2024-01-01T00:00:00.000Z", 
+      "expiresIn": 900,
+      "tokenType": "Bearer"
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `400`: Invalid request (missing refreshToken)
+- `401`: Invalid or expired refresh token
+- `500`: Internal server error
+
+---
+
+### POST `/api/v1/auth/logout`
+**Authentication Required**
+
+Logout current session and invalidate tokens.
+
+**Request:** No body required
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Logged out successfully"
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized (invalid or missing token)
+- `500`: Internal server error
+
+---
+
+### GET `/api/v1/auth/verify`
+**Authentication Required**
+
+Verify token validity and get current user info.
+
+**Request:** No body required
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "string",
+      "privyId": "string",
+      "walletAddress": "string",
+      "email": "string|null", 
+      "isActive": true,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "lastLoginAt": "2024-01-01T00:00:00.000Z"
+    },
+    "valid": true
+  }
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized (invalid token or user deactivated)
+- `500`: Internal server error
+
+---
+
+## 📋 Session Management Endpoints (`/api/v1/session`)
+
+### GET `/api/v1/session/list`
+**Authentication Required**
+
+Get paginated list of user sessions.
+
+**Query Parameters:**
+- `limit` (optional): Number of sessions per page (1-100, default: 10)
+- `offset` (optional): Number of sessions to skip (default: 0)
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "sessions": [
+      {
+        "id": "string",
+        "sessionToken": "abc12345...", // Masked for security
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z", 
+        "expiresAt": "2024-01-01T00:00:00.000Z",
+        "ipAddress": "192.168.1.1",
+        "userAgent": "Mozilla/5.0...",
+        "isActive": true
+      }
+    ],
+    "pagination": {
+      "total": 5,
+      "limit": 10,
+      "offset": 0, 
+      "hasMore": false
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `429`: Rate limited (too many requests)
+- `500`: Internal server error
+
+---
+
+### DELETE `/api/v1/session/revoke/:sessionId`
+**Authentication Required**
+
+Revoke a specific session.
+
+**Path Parameters:**
+- `sessionId`: Session ID to revoke
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Session revoked successfully"
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `404`: Session not found
+- `429`: Rate limited
+- `500`: Internal server error
+
+---
+
+### POST `/api/v1/session/revoke-others`
+**Authentication Required**
+
+Revoke all other sessions except current one.
+
+**Request:** No body required
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "3 other sessions revoked successfully",
+  "data": {
+    "revokedCount": 3
+  }
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `429`: Rate limited (strict limit)
+- `500`: Internal server error
+
+---
+
+### GET `/api/v1/session/current`
+**Authentication Required**
+
+Get current session information.
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "session": {
+      "id": "string",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "expiresAt": "2024-01-01T00:00:00.000Z",
+      "ipAddress": "192.168.1.1",
+      "userAgent": "Mozilla/5.0...",
+      "isActive": true
+    },
+    "token": {
+      "issuedAt": "2024-01-01T00:00:00.000Z",
+      "expiresAt": "2024-01-01T00:00:00.000Z", 
+      "tokenId": "abc12345..." // Masked
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `404`: Session not found
+- `500`: Internal server error
+
+---
+
+## 👤 User Management Endpoints (`/api/v1/user`)
+
+### GET `/api/v1/user/profile`
+**Authentication Required**
+
+Get user profile information.
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "string",
+      "email": "string|null",
+      "hasWallet": true,
+      "hasSocialAccount": true,
+      "primarySocialProvider": "google", // google|tiktok|telegram|x|farcaster
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "lastLoginAt": "2024-01-01T00:00:00.000Z",
+      "isActive": true
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `404`: User not found
+- `429`: Rate limited
+- `500`: Internal server error
+
+---
+
+### PUT `/api/v1/user/profile`
+**Authentication Required**
+
+Update user profile (email only).
+
+**Request:**
+```json
+{
+  "email": "string|null" // Valid email or null
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Profile updated successfully",
+  "data": {
+    "user": {
+      "id": "string",
+      "email": "new-email@example.com",
+      "hasWallet": true,
+      "hasSocialAccount": true,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "lastLoginAt": "2024-01-01T00:00:00.000Z",
+      "isActive": true
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `400`: Invalid email format or no fields to update
+- `401`: Unauthorized
+- `429`: Rate limited
+- `500`: Internal server error
+
+---
+
+### GET `/api/v1/user/stats`
+**Authentication Required**
+
+Get user account statistics.
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "stats": {
+      "activeSessions": 3,
+      "accountAge": 45, // days since account creation
+      "lastLogin": "2024-01-01T00:00:00.000Z",
+      "isActive": true
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `404`: User not found
+- `429`: Rate limited
+- `500`: Internal server error
+
+---
+
+### POST `/api/v1/user/deactivate`
+**Authentication Required**
+
+Deactivate user account (soft delete).
+
+**Request:** No body required
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Account deactivated successfully"
+}
+```
+
+**Error Responses:**
+- `401`: Unauthorized
+- `429`: Rate limited (very strict - once per day)
+- `500`: Internal server error
+
+---
+
+## 🏥 Health Monitoring
+
+### GET `/health`
+Service health check (no authentication required).
+
+**Success Response (200):**
+```json
+{
+  "status": "ok", // ok|degraded
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "service": "auth-service",
+  "version": "1.0.0",
+  "services": {
+    "database": "healthy", // healthy|unhealthy
+    "redis": "healthy",
+    "jwt": "healthy"
+  },
+  "poolStats": {
+    "totalCount": 10,
+    "idleCount": 8,
+    "waitingCount": 0
+  }
+}
+```
+
+---
+
+## 🔧 Integration Examples
+
+### JavaScript/TypeScript Example
+
+```javascript
+// Login
+const loginResponse = await fetch('http://localhost:3001/api/v1/auth/login', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    privyToken: 'your-privy-token'
+  })
+});
+
+const loginData = await loginResponse.json();
+const { accessToken, refreshToken } = loginData.data.tokens;
+
+// Store tokens securely
+localStorage.setItem('accessToken', accessToken);
+localStorage.setItem('refreshToken', refreshToken);
+
+// Authenticated requests
+const profileResponse = await fetch('http://localhost:3001/api/v1/user/profile', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  }
+});
+
+// Token refresh
+const refreshResponse = await fetch('http://localhost:3001/api/v1/auth/refresh', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    refreshToken: refreshToken
+  })
+});
+```
+
+### Python Example
+
+```python
+import requests
+
+# Login
+login_response = requests.post('http://localhost:3001/api/v1/auth/login', json={
+    'privyToken': 'your-privy-token'
+})
+
+login_data = login_response.json()
+access_token = login_data['data']['tokens']['accessToken']
+
+# Authenticated request
+headers = {'Authorization': f'Bearer {access_token}'}
+profile_response = requests.get('http://localhost:3001/api/v1/user/profile', headers=headers)
+```
+
+---
+
+## ⚠️ Rate Limiting
+
+All endpoints have rate limiting to prevent abuse:
+
+- **Login**: 5 attempts per 15 minutes per IP
+- **Session List**: 10 requests per minute per user
+- **Session Revoke**: 20 requests per 5 minutes per user  
+- **Session Revoke Others**: 5 requests per hour per user
+- **Profile Access**: 30 requests per minute per user
+- **Profile Updates**: 5 requests per 5 minutes per user
+- **User Stats**: 10 requests per 5 minutes per user
+- **Account Deactivation**: 1 request per day per user
+
+Rate limit exceeded responses return HTTP 429 with retry information.
+
+---
+
+## 🔐 Security Notes
+
+1. **Token Storage**: Store JWT tokens securely (httpOnly cookies recommended for web apps)
+2. **Token Expiry**: Access tokens expire in 15 minutes, refresh tokens in 7 days
+3. **Session Management**: Each login creates a new session; logout invalidates tokens
+4. **Rate Limiting**: Aggressive rate limiting on sensitive operations
+5. **Data Exposure**: API responses never expose sensitive internal data
+6. **Audit Logging**: All authentication events are logged for security monitoring
+
+---
+
+## 🚨 Error Handling
+
+All endpoints return consistent error format:
+
+```json
+{
+  "success": false,
+  "message": "Error description",
+  "retryAfter": 60 // Present for rate limiting errors (seconds)
+}
+```
+
+Common HTTP status codes:
+- `200`: Success
+- `400`: Bad Request (invalid input)
+- `401`: Unauthorized (authentication required/failed)
+- `404`: Not Found
+- `429`: Rate Limited
+- `500`: Internal Server Error

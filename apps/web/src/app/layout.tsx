@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'
 import { PrivyProvider } from '@/components/providers/privy-provider'
 import { QueryProvider } from '@/components/providers/query-provider'
+// import { PrivyWalletDebug } from '@/components/debug/privy-wallet-debug'
 import { Toaster } from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +18,11 @@ export const metadata: Metadata = {
   description: 'Trade across chains with gasless transactions, limit orders, and intelligent routing.',
   keywords: ['DEX', 'DeFi', 'Cross-chain', 'Trading', 'Gasless', 'Account Abstraction'],
   authors: [{ name: 'MoonXFarm Team' }],
+  icons: {
+    icon: '/icons/favicon.ico',
+    shortcut: '/icons/favicon.ico',
+    apple: '/icons/logo.png',
+  },
   openGraph: {
     title: 'MoonXFarm - Cross-Chain DEX Aggregator',
     description: 'Trade across chains with gasless transactions, limit orders, and intelligent routing.',
@@ -24,7 +30,7 @@ export const metadata: Metadata = {
     siteName: 'MoonXFarm',
     images: [
       {
-        url: '/og-image.png',
+        url: '/icons/logo.png',
         width: 1200,
         height: 630,
         alt: 'MoonXFarm DEX',
@@ -37,7 +43,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'MoonXFarm - Cross-Chain DEX Aggregator',
     description: 'Trade across chains with gasless transactions, limit orders, and intelligent routing.',
-    images: ['/og-image.png'],
+    images: ['/icons/logo.png'],
   },
   robots: {
     index: true,
@@ -72,7 +78,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
@@ -94,6 +100,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
                   },
                 }}
               />
+              {/* Debug component - only in development */}
+              {/* {process.env.NODE_ENV === 'development' && <PrivyWalletDebug />} */}
             </QueryProvider>
           </PrivyProvider>
         </ThemeProvider>

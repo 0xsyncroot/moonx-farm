@@ -18,9 +18,11 @@ type AggregatorService struct {
 	LiFiService        *LiFiService
 	OneInchService     *OneInchService
 	RelayService       *RelayService
-	DexScreenerService *DexScreenerService
 	CacheService       *CacheService
-	ExternalAPI        *ExternalAPIService
+	ExternalAPIService *ExternalAPIService
+	CoinGeckoService   *CoinGeckoService
+	OnchainService     *OnchainService
+	MarketDataService  *MarketDataService
 
 	// Performance and reliability optimizations
 	providerMetrics map[string]*ProviderMetrics
@@ -42,17 +44,22 @@ func NewAggregatorService(
 	lifiService *LiFiService,
 	oneInchService *OneInchService,
 	relayService *RelayService,
-	dexScreenerService *DexScreenerService,
 	cacheService *CacheService,
-	externalAPI *ExternalAPIService,
+	externalAPIService *ExternalAPIService,
 ) *AggregatorService {
+	coinGeckoService := NewCoinGeckoService(cacheService)
+	onchainService := NewOnchainService(cacheService, "production")
+	marketDataService := NewMarketDataService(cacheService)
+
 	return &AggregatorService{
 		LiFiService:        lifiService,
 		OneInchService:     oneInchService,
 		RelayService:       relayService,
-		DexScreenerService: dexScreenerService,
 		CacheService:       cacheService,
-		ExternalAPI:        externalAPI,
+		ExternalAPIService: externalAPIService,
+		CoinGeckoService:   coinGeckoService,
+		OnchainService:     onchainService,
+		MarketDataService:  marketDataService,
 		providerMetrics:    make(map[string]*ProviderMetrics),
 		circuitBreakers:    make(map[string]*CircuitBreaker),
 
@@ -422,7 +429,7 @@ func (a *AggregatorService) GetTokenPrice(ctx context.Context, token string, cha
 	results := make(chan result, 2)
 
 	// Get ordered providers for price fetching
-	priceProviders := []string{models.ProviderLiFi, models.ProviderDexScreener}
+	priceProviders := []string{models.ProviderLiFi}
 	orderedProviders := a.getOrderedProviders(priceProviders)
 
 	// Launch concurrent requests
@@ -435,8 +442,6 @@ func (a *AggregatorService) GetTokenPrice(ctx context.Context, token string, cha
 			switch provider {
 			case models.ProviderLiFi:
 				price, err = a.LiFiService.GetTokenPrice(ctx, token, chainID)
-			case models.ProviderDexScreener:
-				price, err = a.DexScreenerService.GetTokenPrice(ctx, token, chainID)
 			}
 
 			duration := time.Since(start)

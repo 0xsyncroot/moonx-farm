@@ -1,5 +1,4 @@
-import { DatabaseManager } from '@moonx/infrastructure';
-import { getDatabaseConfig } from '@moonx/configs';
+import { DatabaseManager, createDatabaseConfig } from '@moonx/infrastructure';
 
 export class DatabaseService {
   private db: DatabaseManager;
@@ -8,23 +7,21 @@ export class DatabaseService {
   private maxConnectionAttempts: number = 3;
 
   constructor() {
-    // Get database configuration from @moonx/configs
-    const dbConfig = getDatabaseConfig('core-service');
+    // Get database configuration from @moonx/infrastructure (same as Auth Service)
+    const dbConfig = createDatabaseConfig();
     
     // Configure connection pool for Core Service
     const config = {
       ...dbConfig,
-      pool: {
-        min: 2,
-        max: 20,
-        idleTimeoutMillis: dbConfig.idleTimeoutMs || 30000,
-        connectionTimeoutMillis: dbConfig.connectionTimeoutMs || 10000,
-        maxUses: 7500
-      }
+      // Override specific settings for Core Service
+      maxConnections: 20,
+      minConnections: 2,
+      applicationName: 'moonx-core-service',
     };
 
     this.db = new DatabaseManager(config);
-    console.log('✅ DatabaseService initialized for Core Service with config-based settings');
+    console.log('✅ DatabaseService initialized for Core Service with infrastructure config');
+    console.log('🔧 Database SSL config:', { ssl: config.ssl });
   }
 
   /**

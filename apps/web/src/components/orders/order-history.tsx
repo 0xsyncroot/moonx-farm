@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { coreApi } from '@/lib/api-client'
+import { toast } from 'react-hot-toast'
 
 interface Order {
   id: string
@@ -15,36 +17,52 @@ interface Order {
   txHash?: string
 }
 
-const mockOrders: Order[] = [
-  {
-    id: '1',
-    type: 'limit',
-    status: 'completed',
-    tokenFrom: 'USDT',
-    tokenTo: 'ETH',
-    amountFrom: 1000,
-    amountTo: 0.5,
-    price: 2000,
-    timestamp: Date.now() - 86400000,
-    txHash: '0x1234...5678'
-  },
-  {
-    id: '2',
-    type: 'dca',
-    status: 'pending',
-    tokenFrom: 'USDC',
-    tokenTo: 'BTC',
-    amountFrom: 500,
-    amountTo: 0.01,
-    price: 50000,
-    timestamp: Date.now() - 43200000,
-  }
-]
-
 export function OrderHistory() {
-  const [orders] = useState<Order[]>(mockOrders)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  useEffect(() => {
+    async function fetchOrders() {
+      try {
+        setIsLoading(true)
+        const response = await coreApi.getOrders({ 
+          limit: 50,
+          offset: 0,
+          ...(statusFilter !== 'all' && { status: statusFilter.toUpperCase() })
+        })
+        
+        if (response.success) {
+          // Transform Core Service order data to match our interface
+          const transformedOrders = response.data.orders.map((order: any) => ({
+            id: order.orderId,
+            type: order.type.toLowerCase(),
+            status: order.status.toLowerCase(),
+            tokenFrom: order.fromToken,
+            tokenTo: order.toToken,
+            amountFrom: parseFloat(order.fromAmount),
+            amountTo: parseFloat(order.toAmount || '0'),
+            price: parseFloat(order.targetPrice || '0'),
+            timestamp: new Date(order.createdAt).getTime(),
+            txHash: order.executionCount > 0 ? `0x${order.orderId.slice(-8)}...` : undefined
+          }))
+          
+          setOrders(transformedOrders)
+        } else {
+          throw new Error('Failed to fetch orders')
+        }
+      } catch (error) {
+        console.error('Order history fetch error:', error)
+        toast.error('Failed to load order history')
+        setOrders([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchOrders()
+  }, [statusFilter])
 
   const getStatusColor = (status: Order['status']) => {
     switch (status) {
@@ -100,8 +118,36 @@ export function OrderHistory() {
         </select>
       </div>
 
-      <div className="space-y-4">
-        {orders.map((order) => (
+      {isLoading ? (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="bg-muted/20 border border-border/50 rounded-lg p-4 animate-pulse">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="h-4 bg-muted/40 rounded w-16 mb-1"></div>
+                  <div className="h-6 bg-muted/40 rounded w-32"></div>
+                </div>
+                <div className="h-6 bg-muted/40 rounded w-20"></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mb-3">
+                <div className="h-4 bg-muted/40 rounded w-24"></div>
+                <div className="h-4 bg-muted/40 rounded w-20"></div>
+              </div>
+              <div className="h-4 bg-muted/40 rounded w-32"></div>
+            </div>
+          ))}
+        </div>
+      ) : orders.length === 0 ? (
+        <div className="text-center py-8">
+          <div className="text-4xl mb-2">📋</div>
+          <div className="text-muted-foreground">No orders found</div>
+          <div className="text-sm text-muted-foreground mt-1">
+            Your order history will appear here
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {orders.map((order) => (
           <div key={order.id} className="bg-muted/20 border border-border/50 rounded-lg p-4">
             <div className="flex items-start justify-between mb-3">
               <div>
@@ -129,7 +175,8 @@ export function OrderHistory() {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
     </div>
   )
 } 

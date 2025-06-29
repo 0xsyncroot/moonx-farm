@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { privyContractSwapExecutor, prepareSwapFromQuote } from '@/lib/contracts'
@@ -15,7 +15,7 @@ export interface SwapState {
   approvalHash?: string
   swapHash?: string
   error?: string
-  step: 'idle' | 'approving' | 'swapping' | 'success' | 'error'
+  step: 'idle' | 'approving' | 'swapping' | 'success' | 'error' | 'cancelled'
 }
 
 export function useSwap() {
@@ -26,113 +26,155 @@ export function useSwap() {
     step: 'idle'
   })
 
+  // Single execution lock
+  const isExecutingRef = useRef(false)
+  const lastCallTimeRef = useRef(0)
+  
+  // Callback for external cleanup (like global locks)
+  const onSwapCompleteRef = useRef<(() => void) | null>(null)
+
+  // Helper function to detect user cancellation
+  const isUserCancellation = useCallback((errorMessage: string): boolean => {
+    const cancellationKeywords = [
+      'user rejected',
+      'user denied', 
+      'user cancelled',
+      'transaction cancelled',
+      'cancelled by user',
+      'USER_CANCELLED_APPROVAL',
+      'Transaction cancelled by user'
+    ]
+    
+    const lowerErrorMessage = errorMessage.toLowerCase()
+    return cancellationKeywords.some(keyword => 
+      lowerErrorMessage.includes(keyword.toLowerCase())
+    )
+  }, [])
+
+  // Mutation with NO RETRY to prevent multiple attempts
   const swapMutation = useMutation({
     mutationFn: async (quote: Quote) => {
-      if (!smartWalletClient) {
-        throw new Error('Smart wallet not available')
-      }
+      const now = Date.now()
       
-      if (!smartWalletClient.account?.address) {
-        throw new Error('Smart wallet not connected')
+      // Protection: Prevent calls too close together
+      if (now - lastCallTimeRef.current < 1000) {
+        throw new Error('Please wait before trying again')
       }
 
-      // Prepare swap parameters from quote
-      const swapParams = prepareSwapFromQuote(quote, smartWalletClient.account.address)
-      
-      setSwapState({
-        isSwapping: true,
-        step: 'approving'
-      })
+      // Protection: Already executing check
+      if (isExecutingRef.current) {
+        throw new Error('Swap already in progress')
+      }
+
+      // Set execution state
+      isExecutingRef.current = true
+      lastCallTimeRef.current = now
 
       try {
-        // Execute the swap through diamond contract using Privy smart wallet
-        const swapHash = await privyContractSwapExecutor.executeSwap(
-          smartWalletClient,
-          swapParams
-        )
-        
-        setSwapState({
-          isSwapping: true,
-          swapHash,
-          step: 'swapping'
-        })
+        if (!smartWalletClient?.account?.address) {
+          throw new Error('Smart wallet not connected')
+        }
 
-        // For Privy smart wallets, we don't need to manually wait for receipt
-        // The transaction is considered successful when hash is returned
-        setSwapState({
-          isSwapping: false,
-          swapHash,
-          step: 'success'
-        })
+        // Prepare swap parameters
+        const swapParams = prepareSwapFromQuote(quote, smartWalletClient.account.address)
         
-        toast.success('Swap completed successfully!', {
-          description: `Transaction: ${swapHash}`,
-          action: {
-            label: 'View',
-            onClick: () => {
-              const explorerUrl = getExplorerUrl(swapParams.chainId, swapHash)
-              window.open(explorerUrl, '_blank')
-            }
-          }
-        })
-
-        return swapHash
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Swap failed'
-        
-        setSwapState({
-          isSwapping: false,
-          error: errorMessage,
-          step: 'error'
-        })
-
-        toast.error('Swap failed', {
-          description: errorMessage
-        })
-        
-        throw error
+        // Execute swap
+        const result = await privyContractSwapExecutor.executeSwap(smartWalletClient, swapParams)
+        return result
+      } finally {
+        // Always cleanup
+        isExecutingRef.current = false
       }
     },
-    onSuccess: (hash) => {
-      console.log('Swap successful:', hash)
+    // DISABLE RETRY - This is critical to prevent multiple attempts
+    retry: false,
+    onMutate: () => {
+      setSwapState(prev => ({
+        ...prev,
+        isSwapping: true,
+        step: 'approving',
+        error: undefined
+      }))
     },
-    onError: (error) => {
-      console.error('Swap failed:', error)
+    onSuccess: (hash: string) => {
+      setSwapState({
+        isSwapping: false,
+        swapHash: hash,
+        step: 'success'
+      })
+      toast.success('Swap completed successfully!', {
+        description: `Transaction: ${hash.slice(0, 10)}...${hash.slice(-8)}`
+      })
+      
+      // Notify external cleanup
+      if (onSwapCompleteRef.current) {
+        onSwapCompleteRef.current()
+      }
+    },
+    onError: (error: Error) => {
+      // Check if it's a user cancellation
+      if (isUserCancellation(error.message)) {
+        setSwapState({
+          isSwapping: false,
+          step: 'cancelled',
+          error: undefined
+        })
+      } else {
+        // Handle other errors
+        setSwapState({
+          isSwapping: false,
+          step: 'error',
+          error: error.message
+        })
+        toast.error('Swap failed', {
+          description: error.message
+        })
+      }
+      
+      // Notify external cleanup for both cancel and error
+      if (onSwapCompleteRef.current) {
+        onSwapCompleteRef.current()
+      }
     }
   })
 
-  const executeSwap = (quote: Quote) => {
-    return swapMutation.mutateAsync(quote)
-  }
+  // Execute swap function
+  const executeSwap = useCallback(async (quote: Quote) => {
+    // Guard: Prevent if already executing
+    if (isExecutingRef.current || swapState.isSwapping) {
+      return
+    }
 
-  const resetSwapState = () => {
-    setSwapState({
-      isSwapping: false,
-      step: 'idle'
-    })
-  }
+    // Execute the mutation
+    swapMutation.mutate(quote)
+  }, [swapMutation, swapState.isSwapping])
+
+  // Set cleanup callback
+  const setOnSwapComplete = useCallback((callback: (() => void) | null) => {
+    onSwapCompleteRef.current = callback
+  }, [])
+
+  // Reset swap state
+  const resetSwapState = useCallback(() => {
+    // Only reset if not currently swapping
+    if (!isExecutingRef.current && !swapMutation.isPending) {
+      setSwapState({
+        isSwapping: false,
+        step: 'idle'
+      })
+    }
+  }, [swapMutation.isPending])
+
+  // Computed values - single source of truth
+  const isSwapping = swapState.isSwapping || isExecutingRef.current || swapMutation.isPending
+  const canSwap = !isSwapping && swapState.step !== 'approving' && swapState.step !== 'swapping'
 
   return {
-    // State
-    swapState,
-    isSwapping: swapState.isSwapping || swapMutation.isPending,
-    
-    // Actions
     executeSwap,
+    swapState,
     resetSwapState,
-    
-    // Computed
-    canSwap: !!smartWalletClient?.account?.address && !swapState.isSwapping,
+    canSwap,
+    isSwapping,
+    setOnSwapComplete
   }
-}
-
-// Helper function to get explorer URL
-function getExplorerUrl(chainId: number, hash: string): string {
-  const explorers: Record<number, string> = {
-    1: 'https://etherscan.io/tx/',
-    8453: 'https://basescan.org/tx/',
-    56: 'https://bscscan.com/tx/',
-  }
-  
-  return (explorers[chainId] || 'https://etherscan.io/tx/') + hash
 } 

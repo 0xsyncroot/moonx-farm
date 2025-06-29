@@ -43,7 +43,7 @@ export interface Order {
 
 export interface OrderExecution {
   id: string;
-  orderId: string;
+  orderId: string; // Reference to orders.id (UUID)
   executionIndex: number;
   
   inputAmount: string;

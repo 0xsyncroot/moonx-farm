@@ -266,6 +266,7 @@ export const getServerConfig = (profile: ConfigProfile) => {
     'swap-orchestrator': 'SWAP_ORCHESTRATOR_PORT',
     'position-indexer': 'POSITION_INDEXER_PORT',
     'notify-service': 'NOTIFY_SERVICE_PORT',
+    'core-service': 'CORE_SERVICE_PORT',
   };
   
   const hostMap: Record<string, string> = {
@@ -276,6 +277,7 @@ export const getServerConfig = (profile: ConfigProfile) => {
     'swap-orchestrator': 'SWAP_ORCHESTRATOR_HOST',
     'position-indexer': 'POSITION_INDEXER_HOST',
     'notify-service': 'NOTIFY_SERVICE_HOST',
+    'core-service': 'CORE_SERVICE_HOST',
   };
   
   const portKey = portMap[profile as string];

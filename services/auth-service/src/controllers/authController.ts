@@ -49,10 +49,12 @@ interface AuthResponse {
 // Safe user interface - không expose sensitive data
 interface SafeUser {
   id: string;
+  privyId: string;
   walletAddress: string;
   email?: string | undefined;
   isActive: boolean;
   createdAt: Date;
+  updatedAt: Date;
   lastLoginAt?: Date | undefined;
 }
 
@@ -62,6 +64,7 @@ interface SafeTokenPair {
   refreshToken: string;
   expiresAt: Date;
   expiresIn: number; // seconds until expiration
+  tokenType: string;
 }
 
 export async function authRoutes(fastify: FastifyInstance) {
@@ -302,10 +305,12 @@ export async function authRoutes(fastify: FastifyInstance) {
       // Prepare safe response
       const safeUser: SafeUser = {
         id: user.id,
+        privyId: user.privy_user_id,
         walletAddress: user.wallet_address,
         email: user.email,
         isActive: user.is_active,
         createdAt: user.created_at,
+        updatedAt: user.updated_at,
         lastLoginAt: user.last_login_at,
       };
 
@@ -314,10 +319,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt,
         expiresIn: Math.floor((tokens.expiresAt.getTime() - Date.now()) / 1000),
+        tokenType: 'Bearer',
       };
 
       const response: AuthResponse = {
         success: true,
+        message: 'Login successful',
         data: {
           user: safeUser,
           tokens: safeTokens,
@@ -529,10 +536,12 @@ export async function authRoutes(fastify: FastifyInstance) {
       // Prepare safe response
       const safeUser: SafeUser = {
         id: user.id,
+        privyId: user.privy_user_id,
         walletAddress: user.wallet_address,
         email: user.email,
         isActive: user.is_active,
         createdAt: user.created_at,
+        updatedAt: user.updated_at,
         lastLoginAt: user.last_login_at,
       };
 
@@ -541,6 +550,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         refreshToken: newTokenPair.refreshToken, // Use new refresh token
         expiresAt: newTokenPair.expiresAt,
         expiresIn: Math.floor((newTokenPair.expiresAt.getTime() - Date.now()) / 1000),
+        tokenType: 'Bearer',
       };
 
       const response: AuthResponse = {
@@ -745,10 +755,12 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       const safeUser: SafeUser = {
         id: user.id,
+        privyId: user.privy_user_id,
         walletAddress: user.wallet_address,
         email: user.email,
         isActive: user.is_active,
         createdAt: user.created_at,
+        updatedAt: user.updated_at,
         lastLoginAt: user.last_login_at,
       };
 

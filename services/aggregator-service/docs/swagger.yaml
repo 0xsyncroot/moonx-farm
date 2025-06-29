@@ -1,6 +1,16 @@
 basePath: /api/v1
 definitions:
-  github_com_moonx-farm_quote-service_internal_models.GasEstimate:
+  handlers.ErrorResponse:
+    properties:
+      code:
+        type: integer
+      details: {}
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  models.GasEstimate:
     properties:
       gasFee:
         type: number
@@ -11,7 +21,7 @@ definitions:
       gasPrice:
         type: number
     type: object
-  github_com_moonx-farm_quote-service_internal_models.HealthResponse:
+  models.HealthResponse:
     properties:
       checks:
         additionalProperties:
@@ -27,7 +37,7 @@ definitions:
       version:
         type: string
     type: object
-  github_com_moonx-farm_quote-service_internal_models.Quote:
+  models.Quote:
     properties:
       callData:
         type: string
@@ -38,9 +48,9 @@ definitions:
       fromAmount:
         type: number
       fromToken:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Token'
+        $ref: '#/definitions/models.Token'
       gasEstimate:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.GasEstimate'
+        $ref: '#/definitions/models.GasEstimate'
       id:
         type: string
       metadata:
@@ -53,7 +63,7 @@ definitions:
       provider:
         type: string
       route:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Route'
+        $ref: '#/definitions/models.Route'
       slippageTolerance:
         type: number
       to:
@@ -63,31 +73,31 @@ definitions:
       toAmountMin:
         type: number
       toToken:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Token'
+        $ref: '#/definitions/models.Token'
       value:
         type: string
     type: object
-  github_com_moonx-farm_quote-service_internal_models.Route:
+  models.Route:
     properties:
       gasEstimate:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.GasEstimate'
+        $ref: '#/definitions/models.GasEstimate'
       steps:
         items:
-          $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.RouteStep'
+          $ref: '#/definitions/models.RouteStep'
         type: array
       totalFee:
         type: number
     type: object
-  github_com_moonx-farm_quote-service_internal_models.RouteStep:
+  models.RouteStep:
     properties:
       fee:
         type: number
       fromAmount:
         type: number
       fromToken:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Token'
+        $ref: '#/definitions/models.Token'
       gasEstimate:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.GasEstimate'
+        $ref: '#/definitions/models.GasEstimate'
       poolAddress:
         type: string
       priceImpact:
@@ -97,11 +107,11 @@ definitions:
       toAmount:
         type: number
       toToken:
-        $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Token'
+        $ref: '#/definitions/models.Token'
       type:
         type: string
     type: object
-  github_com_moonx-farm_quote-service_internal_models.Token:
+  models.Token:
     properties:
       address:
         type: string
@@ -144,7 +154,7 @@ definitions:
       volume24h:
         type: number
     type: object
-  github_com_moonx-farm_quote-service_internal_models.TokenListResponse:
+  models.TokenListResponse:
     properties:
       limit:
         type: integer
@@ -155,21 +165,11 @@ definitions:
         type: integer
       tokens:
         items:
-          $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Token'
+          $ref: '#/definitions/models.Token'
         type: array
       total:
         type: integer
       updatedAt:
-        type: string
-    type: object
-  internal_handlers.ErrorResponse:
-    properties:
-      code:
-        type: integer
-      details: {}
-      error:
-        type: string
-      message:
         type: string
     type: object
 host: localhost:3003
@@ -177,13 +177,13 @@ info:
   contact:
     email: support@moonxfarm.com
     name: MoonXFarm Team
-  description: Quote service for MoonXFarm DEX - Aggregates prices and routes from
-    multiple DEX sources
+  description: Aggregator service for MoonXFarm DEX - Aggregates prices and routes
+    from multiple DEX sources
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
   termsOfService: http://swagger.io/terms/
-  title: MoonXFarm Quote Service API
+  title: MoonXFarm Aggregator Service API
   version: "1.0"
 paths:
   /health:
@@ -197,7 +197,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.HealthResponse'
+            $ref: '#/definitions/models.HealthResponse'
       summary: Health check
       tags:
       - health
@@ -247,15 +247,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.Quote'
+            $ref: '#/definitions/models.Quote'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
+            $ref: '#/definitions/handlers.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
+            $ref: '#/definitions/handlers.ErrorResponse'
       summary: Get best quote
       tags:
       - quotes
@@ -270,20 +270,40 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.HealthResponse'
+            $ref: '#/definitions/models.HealthResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.HealthResponse'
+            $ref: '#/definitions/models.HealthResponse'
       summary: Readiness check
       tags:
       - health
+  /tokens/popular:
+    get:
+      consumes:
+      - application/json
+      description: Get popular tokens for cross-chain swap with real-time prices from
+        Binance
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.TokenListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get popular tokens
+      tags:
+      - tokens
   /tokens/search:
     get:
       consumes:
       - application/json
       description: Search tokens by name, symbol, or address with intelligent chain-based
-        prioritization
+        prioritization and concurrent processing
       parameters:
       - description: Search query (name, symbol, or address)
         in: query
@@ -304,15 +324,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_moonx-farm_quote-service_internal_models.TokenListResponse'
+            $ref: '#/definitions/models.TokenListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
+            $ref: '#/definitions/handlers.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/internal_handlers.ErrorResponse'
+            $ref: '#/definitions/handlers.ErrorResponse'
       summary: Search tokens
       tags:
       - tokens

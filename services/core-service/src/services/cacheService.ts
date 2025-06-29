@@ -1,5 +1,4 @@
-import { RedisManager } from '@moonx/infrastructure';
-import { getRedisConfig } from '@moonx/configs';
+import { RedisManager, createRedisConfig } from '@moonx/infrastructure';
 
 export class CacheService {
   private redis: RedisManager;
@@ -7,26 +6,20 @@ export class CacheService {
   private isConnected: boolean = false;
 
   constructor() {
-    // Get Redis configuration from @moonx/configs
-    const redisConfig = getRedisConfig('core-service');
+    // Get Redis configuration from @moonx/infrastructure (same as Auth Service)
+    const redisConfig = createRedisConfig();
     
-    // Use config-based Redis settings
+    // Use infrastructure Redis config directly
     const config = {
-      host: redisConfig.host,
-      port: redisConfig.port,
-      db: redisConfig.db,
-      ...(redisConfig.password && { password: redisConfig.password }),
-      keyPrefix: redisConfig.keyPrefix,
-      connectTimeout: redisConfig.connectTimeout,
-      commandTimeout: redisConfig.commandTimeout,
-      lazyConnect: redisConfig.lazyConnect,
-      maxRetriesPerRequest: redisConfig.maxRetriesPerRequest
+      ...redisConfig,
+      keyPrefix: 'moonx:core:',  // Core Service specific prefix
     };
     
     this.redis = new RedisManager(config);
     this.defaultTTL = 300; // 5 minutes default
     
-    console.log('✅ CacheService initialized with config-based Redis settings');
+    console.log('✅ CacheService initialized with infrastructure Redis config');
+    console.log('🔧 Redis config:', { host: config.host, port: config.port, db: config.db });
   }
 
   /**
