@@ -235,12 +235,31 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
 
 ### Giai đoạn 4: Data Fetcher & API Integration
 - **Mục tiêu:** 
-  - Cài đặt các hàm fetch dữ liệu từ Binance, DexScreener, các nguồn CEX/DEX.
-  - Chuẩn hóa dữ liệu đầu ra.
+  - Cài đặt các hàm fetch dữ liệu từ Binance, DexScreener, GeckoTerminal, GoPlus Labs, các nguồn CEX/DEX.
+  - Chuẩn hóa dữ liệu đầu ra theo interface thống nhất.
+  - Đảm bảo worker có thể gọi fetcher, nhận dữ liệu mẫu (mock).
+  - Tách biệt logic từng nguồn, dễ mở rộng, dễ test.
 - **Đầu ra:** 
-  - Module fetcher, mock API call, trả về dữ liệu mẫu.
-  - Định nghĩa interface dữ liệu chuẩn.
-- **Tiêu chí hoàn thành:** Worker có thể gọi fetcher, nhận dữ liệu mẫu.
+  - Module fetcher cho từng nguồn: coingecko, dexscreener, geckoterminal, goplus, binance.
+  - Mock API call, trả về dữ liệu mẫu cho test pipeline.
+  - Định nghĩa interface/types chuẩn hóa: TokenProfile, MarketInfo, AuditInfo, FetcherResult, ...
+  - Worker gọi fetcher, nhận dữ liệu mẫu chuẩn hóa.
+- **Checklist chi tiết:**
+  - [ ] Định nghĩa các interface/types chuẩn hóa dữ liệu.
+  - [ ] Tạo module fetcher cho từng nguồn, trả về đúng interface.
+  - [ ] Áp dụng pattern chuẩn hóa từ code mẫu (mapping contracts, socials, markets, mainPool, audit).
+  - [ ] Ưu tiên Dexscreener, fallback GeckoTerminal/Coingecko nếu không có dữ liệu.
+  - [ ] Luôn kèm audit GoPlus Labs nếu là trending token.
+  - [ ] Mock dữ liệu mẫu cho test.
+  - [ ] Worker gọi fetcher thành công, nhận dữ liệu mẫu.
+- **Lưu ý triển khai:**
+  - Tất cả endpoint API (Coingecko, Dexscreener, GeckoTerminal, GoPlus Labs, Binance, ...) phải được cấu hình riêng qua file config, không hardcode trong code, để dễ dàng thay đổi khi cần.
+  - Sử dụng package @moonx/configs để quản lý endpoint, key, timeout, retry, ... cho từng nguồn.
+  - Đảm bảo interface mở rộng, dễ bổ sung nguồn mới.
+  - Có thể mock dữ liệu để test pipeline end-to-end trước khi tích hợp thật.
+  - Đảm bảo logging, error boundary, dễ debug.
+  - Giai đoạn này là nền tảng cho toàn bộ pipeline, cần review kỹ logic chuẩn hóa và cấu hình endpoint.
+- **Tiêu chí hoàn thành:** Worker có thể gọi fetcher, nhận dữ liệu mẫu chuẩn hóa từ nhiều nguồn, endpoint API quản lý qua config, sẵn sàng chuyển sang giai đoạn 5.
 
 ### Giai đoạn 5: Database Access & Upsert Logic
 - **Mục tiêu:** 
