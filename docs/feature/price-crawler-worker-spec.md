@@ -204,6 +204,15 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
 - **Giai đoạn 1: Khung code & cấu trúc dự án** — 100% hoàn thành
 - **Giai đoạn 2: Scheduler & Định nghĩa Job** — 100% hoàn thành
 - **Giai đoạn 3: Kafka Producer/Consumer, tích hợp end-to-end** — 100% hoàn thành
+- **Giai đoạn 4: Data Fetcher & API Integration** — 100% hoàn thành
+- **Giai đoạn 5: Database Access & Upsert Logic** —  
+  - [x] Thiết kế lại schema bảng tokens, token_prices, token_audits, job_logs theo đúng chuẩn dữ liệu thực tế từ code mẫu (get_top.js, trending_token_full_profile.js), bổ sung đầy đủ các trường động (contracts, socials, tags, markets, ...), phân biệt rõ token_type (top/trending).
+  - [x] Đã cập nhật các entity và hàm upsert tương thích hoàn toàn với schema mới, đảm bảo lưu trữ đầy đủ property cho cả top/trending token, multi-chain, socials, markets, audit, v.v.
+  - [x] Đã cập nhật pipeline worker thực tế và pipeline test cho cả trending và top token.
+  - [x] Đã cập nhật changelog, hướng dẫn migrate schema mới.
+  - [x] Đã kiểm thử pipeline upsert dữ liệu mẫu thành công.
+  - [x] Đã log thao tác vào job_logs.
+  - **Tình trạng:** ĐÃ HOÀN THÀNH checklist giai đoạn 5, sẵn sàng chuyển sang giai đoạn tiếp theo.
 
 ---
 
