@@ -57,12 +57,27 @@ pnpm install
 ```
 
 ### 2. Environment Configuration
+Create a `.env.local` file in the `apps/web` directory:
+
 ```bash
-cp .env.example .env.local
+# Create local environment file
+touch .env.local
 ```
 
 Configure your environment variables:
 ```env
+# Testnet Mode (default to testnet for development)
+NEXT_PUBLIC_DEFAULT_TESTNET_MODE=true
+
+# RPC Configuration
+NEXT_PUBLIC_BASE_RPC=https://mainnet.base.org
+NEXT_PUBLIC_BASE_SEPOLIA_RPC=https://sepolia.base.org  
+NEXT_PUBLIC_BSC_RPC=https://bsc-dataseed1.binance.org
+NEXT_PUBLIC_BSC_TESTNET_RPC=https://data-seed-prebsc-1-s1.binance.org:8545
+
+# Enable testnets in UI
+NEXT_PUBLIC_ENABLE_TESTNETS=true
+
 # Privy Configuration
 NEXT_PUBLIC_PRIVY_APP_ID=your-privy-app-id
 PRIVY_APP_SECRET=your-privy-app-secret
@@ -70,11 +85,9 @@ PRIVY_APP_SECRET=your-privy-app-secret
 # API URLs
 NEXT_PUBLIC_AUTH_API_URL=http://localhost:3001/api/v1
 NEXT_PUBLIC_AGGREGATOR_API_URL=http://localhost:3003/api/v1
-
-# Blockchain Configuration  
-NEXT_PUBLIC_DEFAULT_CHAIN_ID=1
-NEXT_PUBLIC_SUPPORTED_CHAINS=1,8453,56
 ```
+
+**Note**: By default, the app starts in testnet mode. You can toggle between mainnet/testnet using the button in the header, or change the default by setting `NEXT_PUBLIC_DEFAULT_TESTNET_MODE=false`.
 
 ### 3. Start Development Server
 ```bash

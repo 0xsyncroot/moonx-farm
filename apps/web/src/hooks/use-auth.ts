@@ -59,18 +59,10 @@ export function useAuth() {
   } = useQuery({
     queryKey: ['currentUser'],
     queryFn: () => {
-      console.log('🤖 Query: getCurrentUser function called')
       return authApi.getCurrentUser()
     },
     enabled: (() => {
       const enabled = isBackendAuthenticated && privyReady && typeof window !== 'undefined' && !!localStorage.getItem('accessToken')
-      console.log('🔍 Query enabled check:', {
-        isBackendAuthenticated,
-        privyReady,
-        isClient: typeof window !== 'undefined',
-        hasStoredToken: typeof window !== 'undefined' ? !!localStorage.getItem('accessToken') : false,
-        enabled
-      })
       return enabled
     })(),
     retry: false,
@@ -83,23 +75,13 @@ export function useAuth() {
   const backendLoginMutation = useMutation({
     mutationFn: authApi.login,
     onMutate: () => {
-      console.log('🚀 Backend login mutation started')
     },
     onSuccess: (response) => {
       loginAttemptRef.current = false
-      console.log('📋 Backend login response received:', {
-        success: response.success,
-        hasData: !!response.data,
-        dataKeys: response.data ? Object.keys(response.data) : [],
-        hasAccessToken: !!(response.data?.accessToken),
-        message: response.message
-      })
       
       if (response.success) {
-        console.log('✅ Backend login successful - setting authenticated state')
         // Small delay to ensure tokens are set in ApiClient
         setTimeout(() => {
-          console.log('🎯 Setting backend authenticated state and invalidating queries')
           setIsBackendAuthenticated(true)
           // Additional delay to ensure tokens are fully set
           setTimeout(() => {
@@ -132,7 +114,6 @@ export function useAuth() {
       loginAttemptRef.current = false
     },
     onSuccess: () => {
-      console.log('✅ Backend logout successful')
       queryClient.clear()
     },
     onError: (error) => {
@@ -147,50 +128,32 @@ export function useAuth() {
   useEffect(() => {
     effectCallCountRef.current += 1
     const attemptedUser = getAttemptedUser()
-    
-    console.log(`🔄 [CALL #${effectCallCountRef.current}] Backend login useEffect triggered:`, {
-      privyReady,
-      privyAuthenticated,
-      hasPrivyUser: !!privyUser,
-      privyUserId: privyUser?.id,
-      isBackendAuthenticated,
-      attemptedUser,
-      loginInProgress: loginAttemptRef.current,
-      mutationPending: backendLoginMutation.isPending
-    })
 
     // Early returns to prevent unnecessary execution
     if (!privyReady) {
-      console.log('⏭️ Skipping: Privy not ready')
       return
     }
     if (!privyAuthenticated || !privyUser) {
-      console.log('⏭️ Skipping: Not authenticated or no user')
       // Reset attempt flags if user logged out
       clearAttemptedUser()
       return
     }
     if (isBackendAuthenticated) {
-      console.log('⏭️ Skipping: Already backend authenticated')
       return
     }
     if (attemptedUser === privyUser.id) {
-      console.log('⏭️ [GUARD SUCCESS] Skipping: Already attempted login for this user:', privyUser.id)
       return
     }
     if (loginAttemptRef.current || backendLoginMutation.isPending) {
-      console.log('⏭️ Skipping: Login currently in progress')
       return
     }
 
     // Mark that we've attempted login for this user - BEFORE async call
     setAttemptedUser(privyUser.id)
-    console.log('🎯 Proceeding with backend login attempt for user:', privyUser.id)
 
     const attemptBackendLogin = async () => {
       try {
         loginAttemptRef.current = true
-        console.log('🔐 [SINGLE ATTEMPT] Backend login for user:', privyUser.id)
         
         const privyToken = await getAccessToken()
         if (privyToken) {
@@ -222,7 +185,6 @@ export function useAuth() {
       
       // If backend still authenticated, logout from backend
       if (isBackendAuthenticated) {
-        console.log('🚪 Privy logged out, logging out from backend...')
         backendLogoutMutation.mutate()
       }
     }

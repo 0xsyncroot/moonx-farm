@@ -18,32 +18,68 @@ import { X, Search, Star, TrendingUp, Zap, ArrowUpRight, Filter, CheckCircle, Al
 import { useTokens, Token } from '@/hooks/use-tokens'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { formatCurrency, formatNumber, cn } from '@/lib/utils'
+import { useTestnetMode } from '@/components/ui/testnet-toggle'
+import { ChainIcon } from '@/components/ui/chain-icon'
 
-// Chain configurations with real logos
+// Chain configurations with real SVG icons
 const CHAIN_CONFIG = {
+  // Mainnet chains
   1: { 
-    name: 'Ethereum', 
-    logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg',
+    name: 'Ethereum',
     color: 'bg-blue-500',
-    icon: '⟠'
+    icon: `<svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="16" fill="#627EEA"/>
+      <path d="M16.498 4v8.87l7.497 3.35-7.497-12.22z" fill="#C1CCF7" fill-opacity=".602"/>
+      <path d="M16.498 4L9 16.22l7.498-3.35V4z" fill="#fff"/>
+      <path d="M16.498 21.968v6.027L24 17.616l-7.502 4.352z" fill="#C1CCF7" fill-opacity=".602"/>
+      <path d="M16.498 27.995v-6.028L9 17.616l7.498 10.38z" fill="#fff"/>
+      <path d="M16.498 20.573l7.497-4.353-7.497-3.348v7.701z" fill="#8197EE" fill-opacity=".2"/>
+      <path d="M9 16.22l7.498 4.353v-7.701L9 16.22z" fill="#8197EE" fill-opacity=".602"/>
+    </svg>`
   },
   8453: { 
-    name: 'Base', 
-    logo: 'https://cryptologos.cc/logos/coinbase-coin-logo.svg',
+    name: 'Base',
     color: 'bg-blue-600',
-    icon: '🔵'
+    icon: `<svg width="24" height="24" viewBox="0 0 111 111" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="111" height="111" rx="55.5" fill="#0052FF"/>
+      <path fill-rule="evenodd" clip-rule="evenodd" d="M54.921 110.034C85.359 110.034 110.034 85.402 110.034 55.017C110.034 24.6319 85.359 0 54.921 0C26.0432 0 2.35281 21.3467 0.239014 48.8484H36.8705C38.8239 39.4891 46.8109 32.6523 56.3681 32.6523C67.2944 32.6523 76.1429 41.5008 76.1429 52.4271C76.1429 63.3534 67.2944 72.2019 56.3681 72.2019C46.8109 72.2019 38.8239 65.3651 36.8705 55.9058H0.239014C2.35281 83.4075 26.0432 104.754 54.921 110.034Z" fill="white"/>
+    </svg>`
   },
   56: { 
-    name: 'BSC', 
-    logo: 'https://cryptologos.cc/logos/bnb-bnb-logo.svg',
+    name: 'BSC',
     color: 'bg-yellow-500',
-    icon: '🟡'
+    icon: `<svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="16" fill="#F0B90B"/>
+      <path d="M12.116 14.404L16 10.52l3.886 3.886 2.26-2.26L16 6l-6.144 6.144 2.26 2.26zM6 16l2.26-2.26L10.52 16l-2.26 2.26L6 16zm6.116 1.596L16 21.48l3.886-3.886 2.26 2.26L16 26l-6.144-6.144 2.26-2.26zm9.764-5.856L24.14 16l-2.26 2.26L19.62 16l2.26-2.26z" fill="white"/>
+      <path d="M16 14.52L13.596 16.924 16 19.328l2.404-2.404L16 14.52z" fill="white"/>
+    </svg>`
   },
   137: { 
-    name: 'Polygon', 
-    logo: 'https://cryptologos.cc/logos/polygon-matic-logo.svg',
+    name: 'Polygon',
     color: 'bg-purple-500',
-    icon: '🟣'
+    icon: `<svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="16" fill="#8247E5"/>
+      <path d="M21.092 12.693c-.369-.215-.848-.215-1.217 0l-2.804 1.619-1.878 1.086-2.804 1.619c-.369.215-.848.215-1.217 0l-2.804-1.619c-.369-.215-.369-.645 0-.86l2.804-1.619c.369-.215.848-.215 1.217 0l2.804 1.619c.369.215.369.645 0 .86l-1.878 1.086 1.878 1.086c.369.215.369.645 0 .86l-2.804 1.619c-.369.215-.848.215-1.217 0l-2.804-1.619c-.369-.215-.369-.645 0-.86l2.804-1.619 1.878-1.086-1.878-1.086c-.369-.215-.369-.645 0-.86l2.804-1.619c.369-.215.848-.215 1.217 0l2.804 1.619c.369.215.369.645 0 .86z" fill="white"/>
+    </svg>`
+  },
+  
+  // Testnet chains
+  84532: { 
+    name: 'Base Sepolia',
+    color: 'bg-orange-500',
+    icon: `<svg width="24" height="24" viewBox="0 0 111 111" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="111" height="111" rx="55.5" fill="#0052FF"/>
+      <path fill-rule="evenodd" clip-rule="evenodd" d="M54.921 110.034C85.359 110.034 110.034 85.402 110.034 55.017C110.034 24.6319 85.359 0 54.921 0C26.0432 0 2.35281 21.3467 0.239014 48.8484H36.8705C38.8239 39.4891 46.8109 32.6523 56.3681 32.6523C67.2944 32.6523 76.1429 41.5008 76.1429 52.4271C76.1429 63.3534 67.2944 72.2019 56.3681 72.2019C46.8109 72.2019 38.8239 65.3651 36.8705 55.9058H0.239014C2.35281 83.4075 26.0432 104.754 54.921 110.034Z" fill="white"/>
+    </svg>`
+  },
+  97: { 
+    name: 'BSC Testnet',
+    color: 'bg-orange-400',
+    icon: `<svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="16" fill="#F0B90B"/>
+      <path d="M12.116 14.404L16 10.52l3.886 3.886 2.26-2.26L16 6l-6.144 6.144 2.26 2.26zM6 16l2.26-2.26L10.52 16l-2.26 2.26L6 16zm6.116 1.596L16 21.48l3.886-3.886 2.26 2.26L16 26l-6.144-6.144 2.26-2.26zm9.764-5.856L24.14 16l-2.26 2.26L19.62 16l2.26-2.26z" fill="white"/>
+      <path d="M16 14.52L13.596 16.924 16 19.328l2.404-2.404L16 14.52z" fill="white"/>
+    </svg>`
   },
 }
 
@@ -55,8 +91,9 @@ interface TokenSelectorProps {
   title?: string
 }
 
-// Emergency fallback - only essential tokens per chain
+// Emergency fallback - only essential tokens per chain with logos
 const EMERGENCY_FALLBACK: Record<number, Token[]> = {
+  // Mainnet chains
   8453: [ // Base
     {
       address: '0x0000000000000000000000000000000000000000',
@@ -67,6 +104,7 @@ const EMERGENCY_FALLBACK: Record<number, Token[]> = {
       isNative: true,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
     },
     {
       address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -76,6 +114,7 @@ const EMERGENCY_FALLBACK: Record<number, Token[]> = {
       chainId: 8453,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png',
     },
   ],
   56: [ // BSC
@@ -88,6 +127,7 @@ const EMERGENCY_FALLBACK: Record<number, Token[]> = {
       isNative: true,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
     },
     {
       address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
@@ -97,6 +137,58 @@ const EMERGENCY_FALLBACK: Record<number, Token[]> = {
       chainId: 56,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png',
+    },
+  ],
+  1: [ // Ethereum
+    {
+      address: '0x0000000000000000000000000000000000000000',
+      symbol: 'ETH',
+      name: 'Ethereum',
+      decimals: 18,
+      chainId: 1,
+      isNative: true,
+      verified: true,
+      popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+    },
+    {
+      address: '0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e',
+      symbol: 'USDC',
+      name: 'USD Coin',
+      decimals: 6,
+      chainId: 1,
+      verified: true,
+      popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png',
+    },
+  ],
+  
+  // Testnet chains
+  84532: [ // Base Sepolia
+    {
+      address: '0x0000000000000000000000000000000000000000',
+      symbol: 'ETH',
+      name: 'Ethereum',
+      decimals: 18,
+      chainId: 84532,
+      isNative: true,
+      verified: true,
+      popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+    },
+  ],
+  97: [ // BSC Testnet
+    {
+      address: '0x0000000000000000000000000000000000000000',
+      symbol: 'BNB',
+      name: 'BNB',
+      decimals: 18,
+      chainId: 97,
+      isNative: true,
+      verified: true,
+      popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
     },
   ],
 }
@@ -116,6 +208,8 @@ export function TokenSelector({
   const [apiLoading, setApiLoading] = useState(false)
   const [apiError, setApiError] = useState<Error | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  
+  const isTestnet = useTestnetMode()
 
   const {
     tokens: searchTokens,
@@ -129,9 +223,12 @@ export function TokenSelector({
     loadPopularTokens,
   } = useTokens()
 
-  // Load popular tokens when modal opens
+  // Load popular tokens when modal opens - FIXED for performance
   const loadTokensOnOpen = useCallback(async () => {
-    if (!isOpen || searchHasQuery || apiTokens.length > 0) return
+    // Prevent multiple loads - check all conditions upfront
+    if (!isOpen || searchHasQuery || apiTokens.length > 0 || apiLoading) {
+      return
+    }
     
     setApiLoading(true)
     setApiError(null)
@@ -140,88 +237,80 @@ export function TokenSelector({
       const result = await loadPopularTokens()
       if (result?.tokens) {
         setApiTokens(result.tokens)
-        console.log('🎯 [Modal Open] Loaded tokens:', result.tokens.length)
       }
     } catch (error) {
-      console.error('❌ [Modal Open] Load failed:', error)
+      console.error('❌ [Modal] Load failed:', error)
       setApiError(error instanceof Error ? error : new Error('Failed to load tokens'))
     } finally {
       setApiLoading(false)
     }
-  }, [isOpen, searchHasQuery, apiTokens.length, loadPopularTokens])
+  }, [isOpen, searchHasQuery, apiTokens.length, apiLoading, loadPopularTokens])
 
-  // Trigger load when modal opens
+  // Trigger load when modal opens - OPTIMIZED to prevent re-triggers
   useEffect(() => {
-    loadTokensOnOpen()
-  }, [loadTokensOnOpen])
+    if (!isOpen) return
+    
+    // Only load if we don't have tokens and not currently loading
+    if (apiTokens.length === 0 && !apiLoading && !searchHasQuery) {
+      loadTokensOnOpen()
+    }
+  }, [isOpen, apiTokens.length, apiLoading, searchHasQuery]) // Removed loadTokensOnOpen to prevent loops
 
-  // Auto-focus search when opened
+  // Auto-focus search when opened - OPTIMIZED
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
-      setTimeout(() => searchInputRef.current?.focus(), 100)
+      // Use requestAnimationFrame for better performance
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus()
+      })
     }
   }, [isOpen])
 
-  // Load favorites from localStorage
+  // Load favorites from localStorage - CACHED
   useEffect(() => {
     const savedFavorites = localStorage.getItem('tokenFavorites')
     if (savedFavorites) {
       try {
-        setFavorites(new Set(JSON.parse(savedFavorites)))
+        const parsed = JSON.parse(savedFavorites)
+        setFavorites(new Set(parsed))
       } catch (error) {
         console.error('Failed to parse favorites:', error)
+        // Clear invalid data
+        localStorage.removeItem('tokenFavorites')
       }
     }
-  }, [])
+  }, []) // Only run once
 
-  // Simple token source logic
+  // Helper to check if chain is testnet
+  const isTestnetChain = (chainId: number) => {
+    return [84532, 97].includes(chainId) // Base Sepolia, BSC Testnet
+  }
+
+  // OPTIMIZED token source logic - memoized with stable dependencies
   const availableTokens = useMemo(() => {
+    let tokens: Token[] = []
+    
     // Search mode: use search results or empty
     if (searchHasQuery) {
-      return searchTokens.length > 0 ? searchTokens : []
-    }
-    
-    // Non-search mode: use API tokens or fallback
-    if (apiTokens.length > 0) {
-      return apiTokens
-    }
-    
-    // Fallback from all chains
-    const fallbackTokens = Object.values(EMERGENCY_FALLBACK).flat()
-    return fallbackTokens
-  }, [searchHasQuery, searchTokens, apiTokens])
-
-  // Group tokens by chain for better organization
-  const tokensByChain = useMemo(() => {
-    const grouped: Record<number, Token[]> = {}
-    
-    availableTokens.forEach(token => {
-      if (!grouped[token.chainId]) {
-        grouped[token.chainId] = []
+      tokens = searchTokens.length > 0 ? searchTokens : []
+    } else {
+      // Non-search mode: use API tokens or fallback
+      if (apiTokens.length > 0) {
+        tokens = apiTokens
+      } else {
+        // Fallback from all chains
+        tokens = Object.values(EMERGENCY_FALLBACK).flat()
       }
-      grouped[token.chainId].push(token)
+    }
+    
+    // Filter tokens based on testnet mode
+    return tokens.filter(token => {
+      const tokenIsTestnet = isTestnetChain(token.chainId)
+      return isTestnet ? tokenIsTestnet : !tokenIsTestnet
     })
-    
-    // Sort chains by priority: Base, Ethereum, BSC, Polygon, Others
-    const chainPriority = [8453, 1, 56, 137]
-    const sortedChains = Object.keys(grouped)
-      .map(Number)
-      .sort((a, b) => {
-        const aPriority = chainPriority.indexOf(a)
-        const bPriority = chainPriority.indexOf(b)
-        if (aPriority === -1 && bPriority === -1) return a - b
-        if (aPriority === -1) return 1
-        if (bPriority === -1) return -1
-        return aPriority - bPriority
-      })
-    
-    return sortedChains.reduce((acc, chainId) => {
-      acc[chainId] = grouped[chainId]
-      return acc
-    }, {} as Record<number, Token[]>)
-  }, [availableTokens])
+  }, [searchHasQuery, searchTokens, apiTokens, isTestnet])
 
-  // Smart filtering with enhanced search and chain sorting
+  // OPTIMIZED smart filtering - reduced complexity
   const filteredTokens = useMemo(() => {
     let tokens: Token[] = []
     
@@ -247,38 +336,33 @@ export function TokenSelector({
         
         return symbolMatch || nameMatch || addressMatch
       }).sort((a, b) => {
-        // Prioritize exact matches
+        // Simplified sorting for better performance
         const aExact = a.symbol.toLowerCase() === query
         const bExact = b.symbol.toLowerCase() === query
         if (aExact && !bExact) return -1
         if (!aExact && bExact) return 1
-        
-        // Then popular tokens
-        if (a.popular && !b.popular) return -1
-        if (!a.popular && b.popular) return 1
-        
         return 0
       })
     }
 
-    // Always sort by chain priority, then by symbol
-    const chainPriority = [8453, 1, 56, 137] // Base, Ethereum, BSC, Polygon
+    // Simplified chain sorting based on testnet mode
+    const chainPriority = isTestnet 
+      ? [84532, 97] // Base Sepolia, BSC Testnet
+      : [8453, 1, 56, 137] // Base, Ethereum, BSC, Polygon
+    
     return tokens.sort((a, b) => {
-      // First by chain priority
       const aPriority = chainPriority.indexOf(a.chainId)
       const bPriority = chainPriority.indexOf(b.chainId)
       
       if (aPriority !== bPriority) {
-        if (aPriority === -1 && bPriority === -1) return a.chainId - b.chainId
         if (aPriority === -1) return 1
         if (bPriority === -1) return -1
         return aPriority - bPriority
       }
       
-      // Then by symbol within same chain
       return a.symbol.localeCompare(b.symbol)
     })
-  }, [availableTokens, searchQuery, activeTab, popularTokens, hookFavoriteTokens, favorites])
+  }, [availableTokens, searchQuery, activeTab, popularTokens, hookFavoriteTokens, favorites, isTestnet])
 
   // Local favorite management
   const handleToggleFavorite = (tokenAddress: string) => {
@@ -496,10 +580,12 @@ export function TokenSelector({
               <span>
                 {filteredTokens.length} {filteredTokens.length === 1 ? 'token' : 'tokens'}
               </span>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span>{isLoading ? 'Loading...' : 'Live prices from Binance'}</span>
-              </div>
+              {isLoading && (
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                  <span>Loading...</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -571,19 +657,8 @@ function TokenRow({
         
         {/* Chain Badge - Small bottom-right corner */}
         {chainInfo && (
-          <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shadow-sm">
-            {chainInfo.logo ? (
-              <img 
-                src={chainInfo.logo} 
-                alt={chainInfo.name}
-                className="w-2.5 h-2.5 rounded-full"
-                onError={(e) => {
-                  e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iNSIgY3k9IjUiIHI9IjUiIGZpbGw9IiNGM0Y0RjYiLz4KPHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHRleHQgeD0iNSIgeT0iNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSI2IiBmaWxsPSIjNjM3MjhGIj4/PC90ZXh0Pgo8L3N2Zz4='
-                }}
-              />
-            ) : (
-              <span className="text-xs">{chainInfo.icon}</span>
-            )}
+          <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shadow-sm">
+            <ChainIcon icon={chainInfo.icon} size="xs" />
           </div>
         )}
         

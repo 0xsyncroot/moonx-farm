@@ -18,33 +18,31 @@ type ChainConfig struct {
 func GetSupportedChains(environment string) map[int]*ChainConfig {
 	chains := make(map[int]*ChainConfig)
 
-	if environment == "development" || environment == "test" {
-		// Development/Test - Include testnets
-		chains[84532] = &ChainConfig{
-			ID:              84532,
-			Name:            "Base Sepolia",
-			ShortName:       "base-sepolia",
-			NativeCurrency:  "ETH",
-			RpcURL:          "https://sepolia.base.org",
-			ExplorerURL:     "https://sepolia-explorer.base.org",
-			IsTestnet:       true,
-			IsActive:        false,
-			CoingeckoID:     "",
-			DexScreenerSlug: "",
-		}
+	// Development/Test - Include testnets
+	chains[84532] = &ChainConfig{
+		ID:              84532,
+		Name:            "Base Sepolia",
+		ShortName:       "base-sepolia",
+		NativeCurrency:  "ETH",
+		RpcURL:          "https://sepolia.base.org",
+		ExplorerURL:     "https://sepolia-explorer.base.org",
+		IsTestnet:       true,
+		IsActive:        true,
+		CoingeckoID:     "",
+		DexScreenerSlug: "",
+	}
 
-		chains[97] = &ChainConfig{
-			ID:              97,
-			Name:            "BSC Testnet",
-			ShortName:       "bsc-testnet",
-			NativeCurrency:  "BNB",
-			RpcURL:          "https://data-seed-prebsc-1-s1.binance.org:8545",
-			ExplorerURL:     "https://testnet.bscscan.com",
-			IsTestnet:       true,
-			IsActive:        false,
-			CoingeckoID:     "",
-			DexScreenerSlug: "",
-		}
+	chains[97] = &ChainConfig{
+		ID:              97,
+		Name:            "BSC Testnet",
+		ShortName:       "bsc-testnet",
+		NativeCurrency:  "BNB",
+		RpcURL:          "https://data-seed-prebsc-1-s1.binance.org:8545",
+		ExplorerURL:     "https://testnet.bscscan.com",
+		IsTestnet:       true,
+		IsActive:        true,
+		CoingeckoID:     "",
+		DexScreenerSlug: "",
 	}
 
 	// Production chains (always available)

@@ -32,15 +32,39 @@ export interface QuoteRequest {
   slippage?: number
 }
 
+export interface QuoteResponse {
+  crossChain: boolean
+  quotes: Quote[]
+  quotesCount: number
+  metadata: {
+    aggregationTime: number
+    performanceOptimized: boolean
+    providers: string[]
+    sortTime: number
+    strategy: string
+    totalTimeMs: number
+  }
+  request: {
+    amount: string
+    fromChainId: number
+    fromToken: string
+    slippage: string
+    toChainId: number
+    toToken: string
+  }
+  responseTime: number
+  timestamp: number
+}
+
 export interface Quote {
   id: string
   provider: string
-  fromAmount: number
-  toAmount: number
-  toAmountMin: number
-  price: number
-  priceImpact: number
-  slippageTolerance: number
+  fromAmount: string
+  toAmount: string
+  toAmountMin: string
+  price: string
+  priceImpact: string
+  slippageTolerance: string
   callData: string
   to: string
   value: string
@@ -131,7 +155,6 @@ class ApiClient {
     // Add auth header if token exists and auth required
     if (requireAuth && this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`
-      console.log('🔑 Adding auth header for:', url)
     } else if (requireAuth && !this.accessToken) {
       console.warn('⚠️ Auth required but no token available for:', url)
     }
@@ -211,7 +234,6 @@ class ApiClient {
   // ============ AUTH SERVICE METHODS ============
 
   public async login(privyToken: string): Promise<any> {
-    console.log('📡 API Client: Starting login request...')
     const response = await this.request<ApiResponse>(
       `${this.authBaseUrl}/auth/login`,
       {
@@ -221,7 +243,6 @@ class ApiClient {
     )
 
     if (response.success && response.data) {
-      console.log('✅ API Client: Login successful, setting tokens...')
       this.setTokens(response.data.accessToken, response.data.refreshToken)
       toast.success('Login successful!')
     } else {
@@ -247,12 +268,10 @@ class ApiClient {
   }
 
   public async getCurrentUser(): Promise<any> {
-    console.log('🔍 API Client: getCurrentUser called, checking token state...')
     
     // Ensure token is loaded from localStorage if not in memory
     if (!this.accessToken && typeof window !== 'undefined') {
       const storedToken = localStorage.getItem('accessToken')
-      console.log('💾 Loading token from localStorage:', storedToken ? `${storedToken.substring(0, 20)}...` : 'null')
       this.accessToken = storedToken
     }
     
@@ -260,9 +279,6 @@ class ApiClient {
       console.warn('⚠️ API Client: getCurrentUser called without access token')
       throw new Error('No access token available')
     }
-    
-    console.log('📡 API Client: Verifying token...', this.accessToken.substring(0, 20) + '...')
-    console.log('🎯 Making verify request to:', `${this.authBaseUrl}/auth/verify`)
     
     return this.request<ApiResponse>(
       `${this.authBaseUrl}/auth/verify`,
@@ -315,7 +331,7 @@ class ApiClient {
     return response.json()
   }
 
-  public async getQuote(params: QuoteRequest): Promise<Quote> {
+  public async getQuote(params: QuoteRequest): Promise<QuoteResponse> {
     const searchParams = new URLSearchParams()
     searchParams.append('fromChainId', params.fromChainId.toString())
     searchParams.append('toChainId', params.toChainId.toString())

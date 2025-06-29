@@ -5,37 +5,47 @@ import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { Moon, Sun, Menu, X, Copy, ExternalLink, ChevronDown, Wallet, LogOut, Settings, User2, Zap } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { usePrivy } from '@privy-io/react-auth'
+import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useAuth } from '@/hooks/use-auth'
+import { useAccount, useChainId, useSwitchChain } from 'wagmi'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { formatAddress, cn } from '@/lib/utils'
 import { toast } from 'react-hot-toast'
 
+import { 
+  getChainConfig, 
+  DEFAULT_CHAIN
+} from '@/config/chains'
+import { TestnetToggle } from '@/components/ui/testnet-toggle'
+import { ChainIcon } from '@/components/ui/chain-icon'
+
 const navigation = [
-  { name: 'Swap', href: '/' },
+  { name: 'Swap', href: '/swap' },
   { name: 'Orders', href: '/orders' },
   { name: 'Portfolio', href: '/portfolio' },
   { name: 'Alerts', href: '/alerts' },
 ]
-
-const CHAIN_INFO = {
-  1: { name: 'Ethereum', icon: '⟠', color: 'bg-blue-500', explorer: 'https://etherscan.io' },
-  8453: { name: 'Base', icon: '🔵', color: 'bg-blue-600', explorer: 'https://basescan.org' },
-  56: { name: 'BSC', icon: '🟡', color: 'bg-yellow-500', explorer: 'https://bscscan.com' },
-}
 
 export function Header() {
   const router = useRouter()
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const { user, login, logout } = usePrivy()
+  const { wallets } = useWallets()
   const { client: smartWalletClient } = useSmartWallets()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [walletMenuOpen, setWalletMenuOpen] = useState(false)
   const walletMenuRef = useRef<HTMLDivElement>(null)
 
   const { walletInfo } = useAuth()
+  const { address: wagmiAddress } = useAccount()
+  const wagmiChainId = useChainId()
+  const { switchChain } = useSwitchChain()
+
+  // Get embedded wallet (EOA) từ Privy
+  const embeddedWallet = wallets.find(w => w.walletClientType === 'privy')
+
 
   // Close wallet menu when clicking outside
   useEffect(() => {
@@ -49,21 +59,41 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const walletAddress = smartWalletClient?.account?.address
-  const chainId = walletInfo?.chainId || 1
-  const chainInfo = CHAIN_INFO[chainId as keyof typeof CHAIN_INFO]
+  // Auto-switch to Base if connected but on wrong chain
+  useEffect(() => {
+    if (smartWalletClient?.account?.address && wagmiChainId && wagmiChainId !== 8453) {
+      switchChain?.({ chainId: 8453 })
+    }
+  }, [smartWalletClient?.account?.address, wagmiChainId, switchChain])
+
+  const walletAddress = smartWalletClient?.account?.address || wagmiAddress
+  
+  // Get chainId from multiple sources with priority order
+  const detectedChainId = wagmiChainId || smartWalletClient?.chain?.id || walletInfo?.chainId
+  const finalChainId = Number(detectedChainId) || DEFAULT_CHAIN.id
+  
+  // Get chain config from centralized config
+  const chainConfig = getChainConfig(finalChainId)
+  const chainInfo = chainConfig || {
+    name: `Chain ${finalChainId}`,
+    icon: '🔗',
+    color: 'bg-gray-500',
+    explorer: '#'
+  }
 
   const copyAddress = async () => {
-    if (walletAddress) {
-      await navigator.clipboard.writeText(walletAddress)
-      toast.success('Address copied!')
+    const addressToCopy = smartWalletClient?.account?.address
+    if (addressToCopy) {
+      await navigator.clipboard.writeText(addressToCopy)
+      toast.success('Smart wallet address copied!')
       setWalletMenuOpen(false)
     }
   }
 
   const openInExplorer = () => {
-    if (walletAddress && chainInfo) {
-      window.open(`${chainInfo.explorer}/address/${walletAddress}`, '_blank')
+    const addressToOpen = smartWalletClient?.account?.address
+    if (addressToOpen && chainInfo.explorer !== '#') {
+      window.open(`${chainInfo.explorer}/address/${addressToOpen}`, '_blank')
       setWalletMenuOpen(false)
     }
   }
@@ -85,11 +115,13 @@ export function Header() {
           <div className="flex h-16 items-center justify-between">
             {/* Logo */}
             <div className="flex items-center">
-              <Link href="/" className="flex items-center space-x-3">
+              <Link href="/swap" className="flex items-center space-x-3">
                 <div className="relative">
-                  <div className="w-9 h-9 bg-gradient-to-br from-[#ff7842] to-[#ff4d00] rounded-xl flex items-center justify-center shadow-lg">
-                    <span className="text-white font-bold text-lg">M</span>
-                  </div>
+                  <img 
+                    src="/icons/logo.png" 
+                    alt="MoonXFarm Logo" 
+                    className="w-9 h-9 rounded-xl shadow-lg object-contain"
+                  />
                   <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-900"></div>
                 </div>
                 <div className="hidden sm:block">
@@ -109,7 +141,7 @@ export function Header() {
                   onClick={() => handleNavigation(item.href)}
                   className={cn(
                     "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
-                    pathname === item.href 
+                    (pathname === item.href || (item.href === '/swap' && (pathname === '/' || pathname === '/swap')))
                       ? 'text-white bg-white/10 border border-white/20' 
                       : 'text-gray-300 hover:text-white hover:bg-white/5'
                   )}
@@ -121,6 +153,9 @@ export function Header() {
 
             {/* Right Side */}
             <div className="flex items-center space-x-3">
+              {/* Testnet Toggle */}
+              <TestnetToggle />
+
               {/* Theme Toggle */}
               <button
                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -158,9 +193,15 @@ export function Header() {
                              border border-white/10 hover:border-white/20 rounded-lg transition-all duration-200"
                   >
                     {/* Chain Indicator */}
-                    <div className="flex items-center gap-2">
-                      <div className={cn("w-2 h-2 rounded-full", chainInfo?.color || 'bg-gray-500')} />
-                      <span className="text-xs text-gray-400 hidden sm:block">{chainInfo?.name || 'Unknown'}</span>
+                    <div className="flex items-center gap-1.5">
+                      {chainConfig?.icon ? (
+                        <div className="w-3 h-3 flex items-center justify-center">
+                          <ChainIcon icon={chainConfig.icon} size="xs" />
+                        </div>
+                      ) : (
+                        <div className={cn("w-2 h-2 rounded-full", chainInfo.color)} />
+                      )}
+                      <span className="text-xs text-gray-400 hidden sm:block leading-none">{chainInfo.name}</span>
                     </div>
 
                     {/* AA Wallet Badge */}
@@ -193,13 +234,13 @@ export function Header() {
                                   rounded-xl shadow-2xl py-2 z-50">
                       {/* Wallet Info Header */}
                       <div className="px-4 py-3 border-b border-white/10">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-gradient-to-br from-[#ff7842] to-[#ff4d00] rounded-full 
-                                          flex items-center justify-center">
-                              <User2 className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
+                                                  <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-gradient-to-br from-[#ff7842] to-[#ff4d00] rounded-full 
+                                            flex items-center justify-center">
+                                <User2 className="w-4 h-4 text-white" />
+                              </div>
+                              <div>
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium text-white">Smart Wallet</span>
                                 <div className="flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-purple-500/20 to-blue-500/20 
@@ -219,9 +260,15 @@ export function Header() {
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-gray-400">Network</span>
-                            <div className="flex items-center gap-2">
-                              <div className={cn("w-2 h-2 rounded-full", chainInfo?.color || 'bg-gray-500')} />
-                              <span className="text-xs text-white">{chainInfo?.name || 'Unknown'}</span>
+                            <div className="flex items-center gap-1.5">
+                              {chainConfig?.icon ? (
+                                <div className="w-3 h-3 flex items-center justify-center">
+                                  <ChainIcon icon={chainConfig.icon} size="xs" />
+                                </div>
+                              ) : (
+                                <div className={cn("w-2 h-2 rounded-full", chainInfo.color)} />
+                              )}
+                              <span className="text-xs text-white leading-none">{chainInfo.name}</span>
                             </div>
                           </div>
                           
@@ -246,6 +293,55 @@ export function Header() {
                                 <ExternalLink className="w-3 h-3 text-gray-400" />
                               </button>
                             </div>
+                          </div>
+                        </div>
+
+                        {/* Wallet Addresses */}
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                          <div className="space-y-2">
+                            {/* Smart Wallet Address */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-gray-400">Smart Wallet</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-white font-mono">
+                                  {formatAddress(smartWalletClient?.account?.address || '', 6)}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    if (smartWalletClient?.account?.address) {
+                                      navigator.clipboard.writeText(smartWalletClient.account.address)
+                                      toast.success('Smart wallet address copied!')
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-white/10 rounded transition-colors"
+                                  title="Copy smart wallet address"
+                                >
+                                  <Copy className="w-3 h-3 text-gray-400" />
+                                </button>
+                              </div>
+                            </div>
+                            
+                            {/* EOA Address (embedded wallet từ Privy) */}
+                            {embeddedWallet?.address && embeddedWallet.address !== smartWalletClient?.account?.address && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-400">EOA Wallet</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-white font-mono">
+                                    {formatAddress(embeddedWallet.address, 6)}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(embeddedWallet.address)
+                                      toast.success('EOA address copied!')
+                                    }}
+                                    className="p-1 hover:bg-white/10 rounded transition-colors"
+                                    title="Copy EOA address"
+                                  >
+                                    <Copy className="w-3 h-3 text-gray-400" />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -275,8 +371,8 @@ export function Header() {
                         
                         <button
                           onClick={() => {
+                            handleNavigation('/wallet-settings')
                             setWalletMenuOpen(false)
-                            // TODO: Open wallet settings
                           }}
                           className="flex items-center w-full px-4 py-2 text-sm text-white hover:bg-white/5 transition-colors"
                         >
@@ -351,8 +447,29 @@ export function Header() {
                             <span className="text-xs text-purple-300">AA</span>
                           </div>
                         </div>
-                        <div className="text-xs text-gray-400">
-                          {formatAddress(walletAddress)} • {chainInfo?.name}
+                        <div className="text-xs text-gray-400 space-y-1">
+                          <div className="flex items-center gap-1">
+                            <span>Smart: {formatAddress(smartWalletClient?.account?.address || walletAddress)}</span>
+                            <span>•</span>
+                            {chainConfig?.icon ? (
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 flex items-center justify-center">
+                                  <ChainIcon icon={chainConfig.icon} size="xs" />
+                                </div>
+                                <span>{chainInfo.name}</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <div className={cn("w-2 h-2 rounded-full", chainInfo.color)} />
+                                <span>{chainInfo.name}</span>
+                              </div>
+                            )}
+                          </div>
+                          {embeddedWallet?.address && embeddedWallet.address !== smartWalletClient?.account?.address && (
+                            <div className="flex items-center gap-1">
+                              <span>EOA: {formatAddress(embeddedWallet.address)}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -40,6 +40,7 @@ const CRITICAL_TOKENS_FALLBACK: Record<number, Token[]> = {
       isNative: true,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
     },
     {
       address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -49,6 +50,7 @@ const CRITICAL_TOKENS_FALLBACK: Record<number, Token[]> = {
       chainId: 8453,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png',
     },
   ],
   56: [ // BSC
@@ -61,6 +63,7 @@ const CRITICAL_TOKENS_FALLBACK: Record<number, Token[]> = {
       isNative: true,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
     },
     {
       address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
@@ -70,6 +73,30 @@ const CRITICAL_TOKENS_FALLBACK: Record<number, Token[]> = {
       chainId: 56,
       verified: true,
       popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png',
+    },
+  ],
+  1: [ // Ethereum
+    {
+      address: '0x0000000000000000000000000000000000000000',
+      symbol: 'ETH',
+      name: 'Ethereum',
+      decimals: 18,
+      chainId: 1,
+      isNative: true,
+      verified: true,
+      popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+    },
+    {
+      address: '0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e',
+      symbol: 'USDC',
+      name: 'USD Coin',
+      decimals: 6,
+      chainId: 1,
+      verified: true,
+      popular: true,
+      logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a91E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png',
     },
   ],
 }
@@ -111,19 +138,12 @@ export function useTokens(selectedChainId?: number) {
         return { tokens: [], total: 0 }
       }
       
-      console.log('🔍 [Cross-Chain] Searching tokens across all chains:', debouncedQuery.trim())
       // Don't pass chainId to search across all supported chains
       const result = await aggregatorApi.searchTokens({
         q: debouncedQuery.trim(),
         // chainId: undefined, // Search all chains
         limit: 50,
       })
-      
-             console.log('✅ [Cross-Chain] Search results:', {
-         query: debouncedQuery.trim(),
-         totalResults: result?.tokens?.length || 0,
-         chainsFound: Array.from(new Set(result?.tokens?.map(t => t.chainId) || [])),
-       })
       
       return result
     },
@@ -143,7 +163,6 @@ export function useTokens(selectedChainId?: number) {
     } else {
       // Use fallback tokens when not searching
       tokensArray = Object.values(CRITICAL_TOKENS_FALLBACK).flat()
-      console.log('🎯 Using fallback tokens from all chains:', tokensArray.length)
     }
 
     // Sort tokens by priority
@@ -246,12 +265,7 @@ export function useTokens(selectedChainId?: number) {
   // Add function to manually load popular tokens
   const loadPopularTokens = async (): Promise<TokenListResponse | null> => {
     try {
-      console.log('🪙 [Manual] Loading popular tokens from all chains')
       const result = await aggregatorApi.getPopularTokens()
-      console.log('✅ [Manual] Popular tokens loaded:', {
-        totalTokens: result?.tokens?.length || 0,
-        chainsFound: Array.from(new Set(result?.tokens?.map(t => t.chainId) || [])),
-      })
       return result
     } catch (error) {
       console.error('❌ [Manual] Popular tokens load failed:', error)

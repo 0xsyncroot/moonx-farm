@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { aggregatorApi } from '@/lib/api-client'
+import { aggregatorApi, QuoteResponse, Quote } from '@/lib/api-client'
 import { useAuth } from './use-auth'
+import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useDebounce } from './use-debounce'
+import { parseTokenAmount, formatTokenAmount } from '@/lib/utils'
 import { Token } from './use-tokens'
 
 interface QuoteRequest {
@@ -14,44 +16,9 @@ interface QuoteRequest {
   slippage?: number
 }
 
-interface Quote {
-  id: string
-  provider: string
-  fromAmount: number
-  toAmount: number
-  toAmountMin: number
-  price: number
-  priceImpact: number
-  slippageTolerance: number
-  gasEstimate: {
-    gasLimit: number
-    gasPrice: number
-    gasFee: number
-    gasFeeUSD: number
-  }
-  route: {
-    steps: Array<{
-      type: string
-      protocol: string
-      fromToken: Token
-      toToken: Token
-      fromAmount: number
-      toAmount: number
-      fee: number
-      priceImpact: number
-    }>
-    totalFee: number
-    gasEstimate: any
-  }
-  callData: string
-  to: string
-  value: string
-  createdAt: string
-  expiresAt: string
-}
-
 export function useQuote() {
   const { walletInfo } = useAuth()
+  const { client: smartWalletClient } = useSmartWallets()
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>({
     fromToken: null,
     toToken: null,
@@ -59,7 +26,10 @@ export function useQuote() {
     slippage: 1.0,
   })
 
-  const debouncedAmount = useDebounce(quoteRequest.amount, 500)
+  const debouncedAmount = useDebounce(quoteRequest.amount, 800) // Increased to prevent excessive API calls
+
+  // Get Smart Wallet address (AA wallet) instead of EOA
+  const smartWalletAddress = smartWalletClient?.account?.address
 
   // Build quote query key
   const queryKey = [
@@ -70,7 +40,7 @@ export function useQuote() {
     quoteRequest.toToken?.chainId,
     debouncedAmount,
     quoteRequest.slippage,
-    walletInfo?.address,
+    smartWalletAddress, // ✅ SỬA: Dùng Smart Wallet address
   ]
 
   // Check if quote request is valid
@@ -79,67 +49,91 @@ export function useQuote() {
     quoteRequest.toToken &&
     debouncedAmount &&
     parseFloat(debouncedAmount) > 0 &&
-    quoteRequest.fromToken.address !== quoteRequest.toToken.address
+    quoteRequest.fromToken.address !== quoteRequest.toToken.address &&
+    smartWalletAddress // ✅ SỬA: Yêu cầu Smart Wallet address
 
-  // Get quote from aggregator service
+  // Get quotes from aggregator service
   const {
-    data: quote,
+    data: quoteResponse,
     isLoading,
     error,
     refetch,
   } = useQuery({
-    queryKey: ['quote', quoteRequest.fromToken?.address, quoteRequest.toToken?.address, debouncedAmount, quoteRequest.fromToken?.chainId, quoteRequest.toToken?.chainId, quoteRequest.slippage],
+    queryKey: ['quote', quoteRequest.fromToken?.address, quoteRequest.toToken?.address, debouncedAmount, quoteRequest.fromToken?.chainId, quoteRequest.toToken?.chainId, quoteRequest.slippage, smartWalletAddress],
     queryFn: async () => {
       if (!quoteRequest.fromToken || !quoteRequest.toToken || !debouncedAmount || debouncedAmount === '0') {
         return null;
       }
 
-      return aggregatorApi.getQuote({
+      // Parse amount according to fromToken decimals for API
+      const parsedAmount = parseTokenAmount(debouncedAmount, quoteRequest.fromToken.decimals)
+
+      const response = await aggregatorApi.getQuote({
         fromChainId: quoteRequest.fromToken.chainId || 1,
         toChainId: quoteRequest.toToken.chainId || 1,
         fromToken: quoteRequest.fromToken.address,
         toToken: quoteRequest.toToken.address,
-        amount: debouncedAmount,
+        amount: parsedAmount,
         slippage: quoteRequest.slippage,
+        userAddress: smartWalletAddress, // ✅ SỬA: Truyền Smart Wallet address
       });
+      
+      return response
     },
     enabled: !!(
       quoteRequest.fromToken &&
       quoteRequest.toToken &&
       debouncedAmount &&
-      debouncedAmount !== '0'
+      debouncedAmount !== '0' &&
+      smartWalletAddress // ✅ SỬA: Chỉ gọi API khi có Smart Wallet address
     ),
-    staleTime: 15000, // 15 seconds
-    refetchInterval: 30000, // Auto refresh every 30 seconds
+    staleTime: 25000, // 25 seconds
+    refetchInterval: false, // ❌ DISABLE auto-refresh - manual only
     refetchOnWindowFocus: false,
   })
 
-  // Auto-refresh quote every 15 seconds
-  useEffect(() => {
-    if (!isValidRequest) return
+  // Select best quote (lowest gas fee + highest output)
+  const bestQuote = useMemo(() => {
+    if (!quoteResponse?.quotes || quoteResponse.quotes.length === 0) return null
+    
+    // Sort by best value (highest toAmount, lowest gas fee)
+    const sortedQuotes = [...quoteResponse.quotes].sort((a, b) => {
+      const aOutput = parseFloat(a.toAmount)
+      const bOutput = parseFloat(b.toAmount)
+      const aGasFee = parseFloat(a.gasEstimate?.gasFeeUSD?.toString() || '0')
+      const bGasFee = parseFloat(b.gasEstimate?.gasFeeUSD?.toString() || '0')
+      
+      // Calculate net value (output - gas fee)
+      const aNetValue = aOutput - (aGasFee * 1e18) // Convert USD to token units roughly
+      const bNetValue = bOutput - (bGasFee * 1e18)
+      
+      return bNetValue - aNetValue // Higher net value first
+    })
+    
+    return sortedQuotes[0]
+  }, [quoteResponse])
 
-    const interval = setInterval(() => {
-      refetch()
-    }, 15000)
+  // All available quotes for comparison
+  const allQuotes = quoteResponse?.quotes || []
 
-    return () => clearInterval(interval)
-  }, [isValidRequest, refetch])
+  // ❌ REMOVED: Manual auto-refresh interval that was duplicating refetchInterval
+  // Only refresh when quote expires (handled by countdown in SwapInterface)
 
   // Update quote request
   const updateQuoteRequest = useCallback((updates: Partial<QuoteRequest>) => {
     setQuoteRequest(prev => ({ ...prev, ...updates }))
   }, [])
 
-  // Set tokens
+  // Set tokens WITHOUT auto-amount to prevent excessive API calls
   const setFromToken = useCallback((token: Token | null) => {
-    updateQuoteRequest({ fromToken: token })
-  }, [updateQuoteRequest])
+    setQuoteRequest(prev => ({ ...prev, fromToken: token }))
+  }, [])
 
   const setToToken = useCallback((token: Token | null) => {
-    updateQuoteRequest({ toToken: token })
-  }, [updateQuoteRequest])
+    setQuoteRequest(prev => ({ ...prev, toToken: token }))
+  }, [])
 
-  // Set amount
+  // Set amount - clear default when user inputs manually
   const setAmount = useCallback((amount: string) => {
     updateQuoteRequest({ amount })
   }, [updateQuoteRequest])
@@ -151,13 +145,18 @@ export function useQuote() {
 
   // Swap tokens
   const swapTokens = useCallback(() => {
+    const bestQuoteToAmount = bestQuote?.toAmount
+    const formattedAmount = bestQuoteToAmount && quoteRequest.toToken
+      ? formatTokenAmount(bestQuoteToAmount, quoteRequest.toToken.decimals)
+      : ''
+    
     setQuoteRequest(prev => ({
       ...prev,
       fromToken: prev.toToken,
       toToken: prev.fromToken,
-      amount: quote?.toAmount.toString() || '',
+      amount: formattedAmount,
     }))
-  }, [quote])
+  }, [bestQuote, quoteRequest.toToken])
 
   // Calculate price impact color
   const getPriceImpactColor = (impact: number) => {
@@ -177,18 +176,21 @@ export function useQuote() {
 
   // Format exchange rate
   const getExchangeRate = () => {
-    if (!quote || !quoteRequest.fromToken || !quoteRequest.toToken) return null
+    if (!bestQuote || !quoteRequest.fromToken || !quoteRequest.toToken) return null
     
-    const rate = quote.toAmount / quote.fromAmount
+    const fromAmount = formatTokenAmount(bestQuote.fromAmount, quoteRequest.fromToken.decimals)
+    const toAmount = formatTokenAmount(bestQuote.toAmount, quoteRequest.toToken.decimals)
+    const rate = parseFloat(toAmount) / parseFloat(fromAmount)
+    
     return `1 ${quoteRequest.fromToken.symbol} = ${rate.toFixed(6)} ${quoteRequest.toToken.symbol}`
   }
 
   // Check if quote is expired
-  const isExpired = quote ? new Date(quote.expiresAt) < new Date() : false
+  const isExpired = bestQuote ? new Date(bestQuote.expiresAt) < new Date() : false
 
   // Calculate time until expiry
-  const timeUntilExpiry = quote ? 
-    Math.max(0, new Date(quote.expiresAt).getTime() - Date.now()) : 0
+  const timeUntilExpiry = bestQuote ? 
+    Math.max(0, new Date(bestQuote.expiresAt).getTime() - Date.now()) : 0
 
   return {
     // State
@@ -198,13 +200,15 @@ export function useQuote() {
     slippage: quoteRequest.slippage,
 
     // Quote data
-    quote,
+    quote: bestQuote,
+    allQuotes,
+    quoteResponse,
     isLoading,
     error,
     isValidRequest,
     isExpired,
     timeUntilExpiry,
-    lastUpdated: quote?.createdAt ? new Date(quote.createdAt).getTime() : null,
+    lastUpdated: bestQuote?.createdAt ? new Date(bestQuote.createdAt).getTime() : null,
 
     // Actions
     setFromToken,
@@ -216,8 +220,8 @@ export function useQuote() {
 
     // Computed values
     exchangeRate: getExchangeRate(),
-    priceImpactColor: quote ? getPriceImpactColor(quote.priceImpact) : null,
-    priceImpactSeverity: quote ? getPriceImpactSeverity(quote.priceImpact) : null,
+    priceImpactColor: bestQuote ? getPriceImpactColor(parseFloat(bestQuote.priceImpact)) : null,
+    priceImpactSeverity: bestQuote ? getPriceImpactSeverity(parseFloat(bestQuote.priceImpact)) : null,
 
     // Utilities
     getPriceImpactColor,

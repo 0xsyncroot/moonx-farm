@@ -1,57 +1,21 @@
 'use client'
 
 /**
- * QuoteComparison - Jupiter-inspired multiple quotes comparison
+ * QuoteComparison - Professional route comparison with optimized styling
  * 
  * Features:
- * - Visual route comparison with clear metrics
- * - Best quote highlighting
- * - Provider info with logos
- * - Time estimates and fee breakdown
- * - Smart recommendations
- * - Mobile-optimized design
+ * - Responsive design with proper breakpoints
+ * - Fixed styling conflicts and overlaps
+ * - Optimized dark/light mode support
+ * - Clean layout with proper spacing
+ * - Mobile-first approach
  */
 
 import { useState, useMemo } from 'react'
-import { ChevronDown, ChevronUp, Clock, Zap, Shield, Info, TrendingUp, AlertTriangle, ExternalLink } from 'lucide-react'
-import { formatCurrency, formatNumber, cn } from '@/lib/utils'
+import { ChevronDown, ChevronUp, Clock, Zap, Shield, TrendingUp, AlertTriangle, ExternalLink, Star, ArrowRight, CheckCircle, Target } from 'lucide-react'
+import { formatCurrency, formatNumber, formatTokenAmount, cn } from '@/lib/utils'
 import { Token } from '@/hooks/use-tokens'
-
-interface Quote {
-  id: string
-  provider: string
-  fromAmount: number
-  toAmount: number
-  toAmountMin: number
-  price: number
-  priceImpact: number
-  slippageTolerance: number
-  gasEstimate: {
-    gasLimit: number
-    gasPrice: number
-    gasFee: number
-    gasFeeUSD: number
-  }
-  route: {
-    steps: Array<{
-      type: string
-      protocol: string
-      fromToken: Token
-      toToken: Token
-      fromAmount: number
-      toAmount: number
-      fee: number
-      priceImpact: number
-    }>
-    totalFee: number
-    gasEstimate: any
-  }
-  callData: string
-  to: string
-  value: string
-  createdAt: string
-  expiresAt: string
-}
+import { Quote } from '@/lib/api-client'
 
 interface QuoteComparisonProps {
   quotes: Quote[]
@@ -61,38 +25,47 @@ interface QuoteComparisonProps {
   toToken: Token | null
   isLoading?: boolean
   error?: Error | null
+  onClose?: () => void
 }
 
-// Provider configurations
+// Simplified provider configurations
 const PROVIDER_CONFIG = {
-  lifi: {
-    name: 'LiFi',
-    description: 'Cross-chain bridge aggregator',
-    logo: '🌉',
+  lifi: { 
+    name: 'LiFi', 
+    logo: '🌉', 
     color: 'from-purple-500 to-pink-500',
-    badge: 'Bridge',
+    description: 'Cross-chain bridge'
   },
-  '1inch': {
-    name: '1inch',
-    description: 'DEX aggregator',
-    logo: '🦄',
+  '1inch': { 
+    name: '1inch', 
+    logo: '🦄', 
     color: 'from-blue-500 to-cyan-500',
-    badge: 'DEX',
+    description: 'DEX aggregator'
   },
-  relay: {
-    name: 'Relay',
-    description: 'Cross-chain protocol',
-    logo: '⚡',
+  relay: { 
+    name: 'Relay', 
+    logo: '⚡', 
     color: 'from-yellow-500 to-orange-500',
-    badge: 'Fast',
+    description: 'Fast swaps'
   },
-  jupiter: {
-    name: 'Jupiter',
-    description: 'Solana swap aggregator',
-    logo: '🪐',
+  jupiter: { 
+    name: 'Jupiter', 
+    logo: '🪐', 
     color: 'from-green-500 to-emerald-500',
-    badge: 'Popular',
+    description: 'Solana DEX'
   },
+  uniswap: {
+    name: 'Uniswap',
+    logo: '🦄',
+    color: 'from-pink-500 to-purple-500',
+    description: 'Leading DEX'
+  },
+  default: {
+    name: 'DEX',
+    logo: '⚡',
+    color: 'from-gray-500 to-gray-600',
+    description: 'Exchange'
+  }
 }
 
 export function QuoteComparison({
@@ -102,29 +75,27 @@ export function QuoteComparison({
   fromToken,
   toToken,
   isLoading = false,
-  error = null
+  error = null,
+  onClose
 }: QuoteComparisonProps) {
   const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set())
-  const [showAllQuotes, setShowAllQuotes] = useState(false)
 
-  // Sort quotes by best value (highest output amount)
+  // Sort quotes by best value
   const sortedQuotes = useMemo(() => {
     return [...quotes].sort((a, b) => {
-      // Primary: highest output amount
-      if (b.toAmount !== a.toAmount) {
-        return b.toAmount - a.toAmount
-      }
-      // Secondary: lowest price impact
-      if (a.priceImpact !== b.priceImpact) {
-        return a.priceImpact - b.priceImpact
-      }
-      // Tertiary: lowest gas cost
+      const aAmount = parseFloat(formatTokenAmount(a.toAmount, toToken?.decimals || 18))
+      const bAmount = parseFloat(formatTokenAmount(b.toAmount, toToken?.decimals || 18))
+      if (bAmount !== aAmount) return bAmount - aAmount
+      
+      const aImpact = parseFloat(a.priceImpact)
+      const bImpact = parseFloat(b.priceImpact)
+      if (aImpact !== bImpact) return aImpact - bImpact
+      
       return a.gasEstimate.gasFeeUSD - b.gasEstimate.gasFeeUSD
     })
-  }, [quotes])
+  }, [quotes, toToken])
 
   const bestQuote = sortedQuotes[0]
-  const visibleQuotes = showAllQuotes ? sortedQuotes : sortedQuotes.slice(0, 3)
 
   const toggleQuoteExpanded = (quoteId: string) => {
     const newExpanded = new Set(expandedQuotes)
@@ -137,44 +108,22 @@ export function QuoteComparison({
   }
 
   const getProviderConfig = (provider: string) => {
-    return PROVIDER_CONFIG[provider as keyof typeof PROVIDER_CONFIG] || {
-      name: provider,
-      description: 'DEX Aggregator',
-      logo: '⚡',
-      color: 'from-gray-500 to-gray-600',
-      badge: 'DEX',
-    }
-  }
-
-  const getQuoteBadges = (quote: Quote) => {
-    const badges = []
-    
-    if (quote === bestQuote) {
-      badges.push({ text: 'Best Price', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', icon: TrendingUp })
-    }
-    
-    if (quote.gasEstimate.gasFeeUSD < 0.5) {
-      badges.push({ text: 'Low Gas', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', icon: Zap })
-    }
-    
-    if (quote.priceImpact < 0.1) {
-      badges.push({ text: 'No Impact', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400', icon: Shield })
-    }
-    
-    return badges
+    return PROVIDER_CONFIG[provider as keyof typeof PROVIDER_CONFIG] || PROVIDER_CONFIG.default
   }
 
   const isCrossChain = fromToken && toToken && fromToken.chainId !== toToken.chainId
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
-          <AlertTriangle className="w-5 h-5" />
-          <div>
-            <h3 className="font-semibold">Failed to get quotes</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {error.message || 'Please try again or adjust your swap parameters'}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="flex items-start gap-3 text-red-600 dark:text-red-400">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm sm:text-base">Failed to get quotes</h3>
+            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {error.message || 'Please check your connection and try again'}
             </p>
           </div>
         </div>
@@ -184,16 +133,24 @@ export function QuoteComparison({
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-        <div className="animate-pulse space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="animate-pulse space-y-3 sm:space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 sm:h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+              <div className="h-2 sm:h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+            </div>
+            <div className="w-16 sm:w-20 h-4 sm:h-6 bg-gray-200 dark:bg-gray-700 rounded" />
+          </div>
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="flex items-center gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-200 dark:bg-gray-700 rounded-lg" />
               <div className="flex-1 space-y-2">
-                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
-                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                <div className="h-2 sm:h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
+                <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
               </div>
-              <div className="w-20 h-8 bg-gray-200 dark:bg-gray-700 rounded" />
+              <div className="w-12 sm:w-16 h-3 sm:h-4 bg-gray-200 dark:bg-gray-700 rounded" />
             </div>
           ))}
         </div>
@@ -203,136 +160,161 @@ export function QuoteComparison({
 
   if (quotes.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center">
-        <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-          <TrendingUp className="w-8 h-8 text-gray-400" />
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 sm:p-8 text-center">
+        <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+          <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No quotes available</h3>
-        <p className="text-gray-500 dark:text-gray-400 text-sm">
-          Adjust your swap parameters or try different tokens
+        <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-2">No routes available</h3>
+        <p className="text-gray-500 dark:text-gray-400 text-sm max-w-sm mx-auto">
+          No liquidity found for this trading pair. Try different tokens or amounts.
         </p>
       </div>
     )
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Routes</h3>
-            <div className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                {quotes.length} found
-              </span>
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-lg font-bold text-gray-900 dark:text-white truncate">Compare Routes</h3>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                {quotes.length} route{quotes.length !== 1 ? 's' : ''} found
+              </p>
             </div>
           </div>
+          
           {isCrossChain && (
-            <div className="flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded-full">
-              <Zap className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-              <span className="text-xs font-medium text-purple-600 dark:text-purple-400">Cross-Chain</span>
+            <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-full border border-purple-200 dark:border-purple-700 flex-shrink-0">
+              <Zap className="w-3 h-3 sm:w-4 sm:h-4 text-purple-600 dark:text-purple-400" />
+              <span className="text-xs sm:text-sm font-medium text-purple-700 dark:text-purple-300">Cross-Chain</span>
             </div>
           )}
         </div>
       </div>
 
       {/* Quote List */}
-      <div className="divide-y divide-gray-200 dark:divide-gray-700">
-        {visibleQuotes.map((quote, index) => {
+      <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-80 sm:max-h-96 overflow-y-auto">
+        {sortedQuotes.map((quote, index) => {
           const isSelected = selectedQuote?.id === quote.id
           const isExpanded = expandedQuotes.has(quote.id)
           const isBest = quote === bestQuote
           const config = getProviderConfig(quote.provider)
-          const badges = getQuoteBadges(quote)
+          const toAmountFormatted = toToken ? 
+            parseFloat(formatTokenAmount(quote.toAmount, toToken.decimals)).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
+            parseFloat(quote.toAmount || '0').toLocaleString('en-US', { maximumFractionDigits: 6 })
+                      const savings = index > 0 && toToken ? 
+              ((parseFloat(formatTokenAmount(bestQuote.toAmount, toToken.decimals)) - parseFloat(formatTokenAmount(quote.toAmount, toToken.decimals))) / parseFloat(formatTokenAmount(quote.toAmount, toToken.decimals)) * 100) : 0
           
           return (
             <div
               key={quote.id}
               className={cn(
-                "transition-all duration-200",
-                isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                "transition-all duration-200 cursor-pointer",
+                isSelected 
+                  ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-l-blue-500' 
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
               )}
+              onClick={() => {
+                onSelectQuote(quote)
+                onClose?.()
+              }}
             >
-              {/* Quote Row */}
-              <div
-                className="flex items-center gap-4 px-6 py-4 cursor-pointer"
-                onClick={() => onSelectQuote(quote)}
-              >
+              {/* Main Quote Row */}
+              <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-4">
                 {/* Provider Info */}
-                <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
                   <div className={cn(
-                    "w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-gradient-to-br",
+                    "w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center text-sm sm:text-base font-bold shadow-sm bg-gradient-to-br flex-shrink-0",
                     config.color
                   )}>
                     {config.logo}
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-semibold text-gray-900 dark:text-white">{config.name}</h4>
-                      <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded-full">
-                        {config.badge}
-                      </span>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-bold text-gray-900 dark:text-white text-sm sm:text-base truncate">{config.name}</h4>
+                      
+                      {/* Best Badge */}
                       {isBest && (
-                        <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs rounded-full font-medium">
-                          Recommended
-                        </span>
+                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-green-500 text-white rounded-full flex-shrink-0">
+                          <Star className="w-2.5 h-2.5" />
+                          <span className="text-xs font-bold">Best</span>
+                        </div>
+                      )}
+                      
+                      {/* Selected Badge */}
+                      {isSelected && (
+                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-blue-500 text-white rounded-full flex-shrink-0">
+                          <CheckCircle className="w-2.5 h-2.5" />
+                          <span className="text-xs font-bold">Selected</span>
+                        </div>
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                        {config.description}
-                      </p>
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                      <span className="truncate">{config.description}</span>
                       {quote.route.steps.length > 1 && (
-                        <span className="text-xs text-purple-600 dark:text-purple-400">
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <Target className="w-3 h-3" />
                           {quote.route.steps.length} steps
                         </span>
                       )}
                     </div>
-
-                    {/* Badges */}
-                    {badges.length > 0 && (
-                      <div className="flex gap-1 mt-2">
-                        {badges.map((badge, i) => (
-                          <div key={i} className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full text-xs", badge.color)}>
-                            <badge.icon className="w-3 h-3" />
-                            {badge.text}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                {/* Quote Details */}
-                <div className="text-right space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg font-bold text-gray-900 dark:text-white">
-                      {formatNumber(quote.toAmount)} {toToken?.symbol}
+                {/* Quote Performance */}
+                <div className="text-right space-y-1 flex-shrink-0">
+                  <div className="flex items-center justify-end gap-1 sm:gap-2">
+                    <span className={cn(
+                      "font-bold text-gray-900 dark:text-white",
+                      // Dynamic text size based on length - consistent with swap interface
+                      toAmountFormatted.length > 12 ? "text-xs sm:text-sm" :
+                      toAmountFormatted.length > 8 ? "text-sm sm:text-base" :
+                      "text-sm sm:text-lg"
+                    )}>
+                      {toAmountFormatted}
                     </span>
-                    {isSelected && (
-                      <div className="w-2 h-2 bg-blue-500 rounded-full" />
-                    )}
+                    <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 flex-shrink-0">
+                      {toToken?.symbol}
+                    </span>
                   </div>
                   
-                  <div className="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
-                    <span>~{formatCurrency(quote.gasEstimate.gasFeeUSD)}</span>
-                    <span className={cn(
-                      quote.priceImpact < 1 ? 'text-green-600 dark:text-green-400' :
-                      quote.priceImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
-                      'text-red-600 dark:text-red-400'
-                    )}>
-                      {quote.priceImpact.toFixed(2)}%
+                  <div className="flex items-center justify-end gap-2 text-xs sm:text-sm">
+                    <span className="text-gray-500 dark:text-gray-400 truncate">
+                      {quote.gasEstimate?.gasFeeUSD ? 
+                        formatCurrency(typeof quote.gasEstimate.gasFeeUSD === 'number' ? 
+                          quote.gasEstimate.gasFeeUSD : 
+                          parseFloat(String(quote.gasEstimate.gasFeeUSD))
+                        ) : 
+                        '$0.00'
+                      }
                     </span>
-                    {isCrossChain && (
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        2-5min
-                      </span>
-                    )}
+                    <span className={cn(
+                      "font-medium flex-shrink-0",
+                      (() => {
+                        const impact = parseFloat(quote.priceImpact || '0')
+                        return impact < 1 ? 'text-green-600 dark:text-green-400' :
+                               impact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
+                               'text-red-600 dark:text-red-400'
+                      })()
+                    )}>
+                      {parseFloat(quote.priceImpact || '0').toFixed(1)}%
+                    </span>
                   </div>
+                  
+                  {/* Savings Badge */}
+                  {index > 0 && savings > 0 && (
+                    <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full text-xs font-medium">
+                      -{savings.toFixed(1)}%
+                    </div>
+                  )}
                 </div>
 
                 {/* Expand Button */}
@@ -341,7 +323,8 @@ export function QuoteComparison({
                     e.stopPropagation()
                     toggleQuoteExpanded(quote.id)
                   }}
-                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg transition-colors"
+                  className="p-1.5 sm:p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+                  title={isExpanded ? 'Hide details' : 'Show details'}
                 >
                   {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
@@ -349,53 +332,259 @@ export function QuoteComparison({
 
               {/* Expanded Details */}
               {isExpanded && (
-                <div className="px-6 pb-4 border-t border-gray-100 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30">
-                  <div className="pt-4 space-y-4">
-                    {/* Route Steps */}
+                <div className="px-4 sm:px-6 pb-3 sm:pb-4 border-t border-gray-100 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30">
+                  <div className="pt-3 sm:pt-4 space-y-3 sm:space-y-4">
+                                        {/* Route Steps */}
                     <div>
-                      <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Route</h5>
+                      <h5 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white mb-2 sm:mb-3 flex items-center gap-2">
+                        <ArrowRight className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500" />
+                        Route Details ({quote.route.steps?.length || 0} steps)
+                      </h5>
                       <div className="space-y-2">
-                        {quote.route.steps.map((step, i) => (
-                          <div key={i} className="flex items-center gap-3 text-sm">
-                            <div className="w-6 h-6 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center text-xs font-bold">
-                              {i + 1}
+                        {quote.route.steps?.map((step, i) => (
+                          <div key={i} className="p-3 sm:p-4 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                            {/* Step Header */}
+                            <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                                {i + 1}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-gray-900 dark:text-white text-sm">
+                                    {step.type || 'swap'}
+                                  </span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">via</span>
+                                  <span className="font-medium text-purple-600 dark:text-purple-400 text-sm">
+                                    {step.protocol || 'Unknown'}
+                                  </span>
+                                </div>
+                                {step.poolAddress && (
+                                  <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                    Pool: {step.poolAddress.slice(0, 6)}...{step.poolAddress.slice(-4)}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <span className="text-gray-600 dark:text-gray-300">
-                              {formatNumber(step.fromAmount)} {step.fromToken.symbol}
-                            </span>
-                            <span className="text-gray-400">→</span>
-                            <span className="text-gray-600 dark:text-gray-300">
-                              {formatNumber(step.toAmount)} {step.toToken.symbol}
-                            </span>
-                            <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 rounded">
-                              {step.protocol}
-                            </span>
+
+                            {/* Step Details Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-xs sm:text-sm">
+                              {/* From Token */}
+                              <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <div className="flex items-center gap-2 flex-1">
+                                  {step.fromToken?.logoURI && (
+                                    <img 
+                                      src={step.fromToken.logoURI} 
+                                      alt={step.fromToken.symbol}
+                                      className="w-4 h-4 rounded-full"
+                                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                                    />
+                                  )}
+                                  <div>
+                                    <div className="font-medium text-gray-900 dark:text-white">
+                                      {step.fromToken && step.fromAmount ? 
+                                        parseFloat(formatTokenAmount(String(step.fromAmount), step.fromToken.decimals || 18)).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
+                                        '0'
+                                      } {step.fromToken?.symbol || 'Unknown'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      From
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* To Token */}
+                              <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <div className="flex items-center gap-2 flex-1">
+                                  {step.toToken?.logoURI && (
+                                    <img 
+                                      src={step.toToken.logoURI} 
+                                      alt={step.toToken.symbol}
+                                      className="w-4 h-4 rounded-full"
+                                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                                    />
+                                  )}
+                                  <div>
+                                    <div className="font-medium text-gray-900 dark:text-white">
+                                      {step.toToken && step.toAmount ? 
+                                        parseFloat(formatTokenAmount(String(step.toAmount), step.toToken.decimals || 18)).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
+                                        '0'
+                                      } {step.toToken?.symbol || 'Unknown'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      To
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Step Metrics */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                              {/* Step Fee */}
+                              <div className="text-center">
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Fee</div>
+                                <div className="font-medium text-gray-900 dark:text-white text-xs">
+                                  {(() => {
+                                    if (!step.fee || !step.fromToken) {
+                                      return '0.00%'
+                                    }
+                                    
+                                    const feeValue = typeof step.fee === 'number' ? 
+                                      step.fee : 
+                                      parseFloat(String(step.fee))
+                                    
+                                    if (isNaN(feeValue)) {
+                                      return '0.00%'
+                                    }
+                                    
+                                    // Check if fee is in wei format (very large number) or percentage
+                                    if (feeValue > 100) {
+                                      // Fee is in wei format, need to format with token decimals
+                                      const feeAmountFormatted = parseFloat(formatTokenAmount(String(feeValue), step.fromToken.decimals || 18))
+                                      return `${feeAmountFormatted.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${step.fromToken.symbol}`
+                                    } else {
+                                      // Fee is percentage, calculate actual amount
+                                      if (step.fromAmount && feeValue > 0) {
+                                        const fromAmountFormatted = parseFloat(formatTokenAmount(String(step.fromAmount), step.fromToken.decimals || 18))
+                                        const feeAmount = fromAmountFormatted * (feeValue / 100)
+                                        if (!isNaN(feeAmount) && feeAmount > 0) {
+                                          return `${feeAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${step.fromToken.symbol}`
+                                        }
+                                      }
+                                      return `${feeValue.toFixed(4)}%`
+                                    }
+                                  })()}
+                                </div>
+                              </div>
+
+                              {/* Step Price Impact */}
+                              <div className="text-center">
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Impact</div>
+                                <div className={cn(
+                                  "font-medium text-xs",
+                                  (() => {
+                                    const impact = step.priceImpact ? 
+                                      (typeof step.priceImpact === 'number' ? step.priceImpact : parseFloat(String(step.priceImpact))) : 0
+                                    return impact < 1 ? 'text-green-600 dark:text-green-400' :
+                                           impact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
+                                           'text-red-600 dark:text-red-400'
+                                  })()
+                                )}>
+                                  {step.priceImpact ? 
+                                    (typeof step.priceImpact === 'number' ? step.priceImpact.toFixed(2) : parseFloat(String(step.priceImpact)).toFixed(2)) + '%' :
+                                    '0.00%'
+                                  }
+                                </div>
+                              </div>
+
+                              {/* Step Gas */}
+                              {step.gasEstimate && (
+                                <div className="text-center">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gas</div>
+                                  <div className="font-medium text-gray-900 dark:text-white text-xs">
+                                    {step.gasEstimate.gasFeeUSD ? 
+                                      formatCurrency(typeof step.gasEstimate.gasFeeUSD === 'number' ? 
+                                        step.gasEstimate.gasFeeUSD : 
+                                        parseFloat(String(step.gasEstimate.gasFeeUSD))
+                                      ) : 
+                                      '$0.00'
+                                    }
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Step Type */}
+                              <div className="text-center">
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Type</div>
+                                <div className="font-medium text-blue-600 dark:text-blue-400 text-xs capitalize">
+                                  {step.type || 'swap'}
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
                     </div>
 
-                    {/* Gas & Fees */}
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Gas Fee</span>
-                        <p className="font-medium text-gray-900 dark:text-white">
+                    {/* Performance Metrics */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                      <div className="text-center p-2 sm:p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <div className="flex items-center justify-center gap-1 mb-1 sm:mb-2">
+                          <Zap className="w-3 h-3 sm:w-4 sm:h-4 text-orange-500" />
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Gas</span>
+                        </div>
+                        <p className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white">
                           {formatCurrency(quote.gasEstimate.gasFeeUSD)}
                         </p>
                       </div>
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Protocol Fee</span>
-                        <p className="font-medium text-gray-900 dark:text-white">
-                          {quote.route.totalFee.toFixed(4)}%
+                      
+                      <div className="text-center p-2 sm:p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <div className="flex items-center justify-center gap-1 mb-1 sm:mb-2">
+                          <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500" />
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Fee</span>
+                        </div>
+                        <p className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white">
+                          {(() => {
+                            if (!quote.route.totalFee || !fromToken) {
+                              return '0.00%'
+                            }
+                            
+                            const feeValue = typeof quote.route.totalFee === 'number' ? 
+                              quote.route.totalFee : 
+                              parseFloat(String(quote.route.totalFee))
+                            
+                            // Check if fee is in wei format (very large number) or percentage
+                            if (feeValue > 100) {
+                              // Fee is in wei format, need to format with token decimals
+                              const feeAmountFormatted = parseFloat(formatTokenAmount(String(feeValue), fromToken.decimals))
+                              return `${feeAmountFormatted.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${fromToken.symbol}`
+                            } else {
+                              // Fee is percentage, calculate actual amount
+                              if (quote.fromAmount && feeValue > 0) {
+                                const fromAmountFormatted = parseFloat(formatTokenAmount(quote.fromAmount, fromToken.decimals))
+                                const feeAmount = fromAmountFormatted * (feeValue / 100)
+                                return `${feeAmount.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${fromToken.symbol}`
+                              }
+                              return `${feeValue.toFixed(2)}%`
+                            }
+                          })()}
+                        </p>
+                      </div>
+                      
+                      <div className="text-center p-2 sm:p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <div className="flex items-center justify-center gap-1 mb-1 sm:mb-2">
+                          <Shield className="w-3 h-3 sm:w-4 sm:h-4 text-green-500" />
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Impact</span>
+                        </div>
+                        <p className={cn(
+                          "font-bold text-xs sm:text-sm",
+                          parseFloat(quote.priceImpact) < 1 ? 'text-green-600 dark:text-green-400' :
+                          parseFloat(quote.priceImpact) < 3 ? 'text-yellow-600 dark:text-yellow-400' :
+                          'text-red-600 dark:text-red-400'
+                        )}>
+                          {parseFloat(quote.priceImpact).toFixed(1)}%
+                        </p>
+                      </div>
+                      
+                      <div className="text-center p-2 sm:p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <div className="flex items-center justify-center gap-1 mb-1 sm:mb-2">
+                          <Clock className="w-3 h-3 sm:w-4 sm:h-4 text-purple-500" />
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Time</span>
+                        </div>
+                        <p className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white">
+                          {isCrossChain ? '2-5m' : '~30s'}
                         </p>
                       </div>
                     </div>
 
-                    {/* View on Explorer */}
-                    <button className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                      <ExternalLink className="w-4 h-4" />
-                      View route details
-                    </button>
+                    {/* High Impact Warning */}
+                    {parseFloat(quote.priceImpact) > 5 && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-lg text-xs sm:text-sm">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                        <span>High price impact - consider smaller amounts</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -404,27 +593,18 @@ export function QuoteComparison({
         })}
       </div>
 
-      {/* Show More Button */}
-      {sortedQuotes.length > 3 && (
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setShowAllQuotes(!showAllQuotes)}
-            className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-          >
-            {showAllQuotes ? (
-              <>
-                Show less
-                <ChevronUp className="w-4 h-4" />
-              </>
-            ) : (
-              <>
-                Show {sortedQuotes.length - 3} more routes
-                <ChevronDown className="w-4 h-4" />
-              </>
-            )}
-          </button>
+      {/* Footer */}
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+        <div className="flex items-center justify-between text-xs sm:text-sm">
+          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+            <Shield className="w-3 h-3 sm:w-4 sm:h-4 text-green-500" />
+            <span>Routes verified and sorted by output</span>
+          </div>
+          <div className="text-gray-500 dark:text-gray-400">
+            Updated {new Date().toLocaleTimeString()}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 } 

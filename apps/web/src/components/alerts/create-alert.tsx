@@ -54,9 +54,6 @@ export function CreateAlert() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     
-    // TODO: Implement alert creation
-    console.log('Creating alert:', form)
-    
     // Reset form and close
     setForm({
       type: 'price',
