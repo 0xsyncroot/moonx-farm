@@ -59,12 +59,9 @@ services:
   # Core Service
   # =============================================================================
   core-service:
-    image: moonx/core-service:latest
+    image: hiepht/moonx-farm:core-service-latest
     container_name: moonx-core-service
     restart: unless-stopped
-    build:
-      context: ../../
-      dockerfile: services/core-service/Dockerfile
     environment:
       # Service configuration
       NODE_ENV: production

@@ -172,6 +172,20 @@ const docTemplate = `{
                     "tokens"
                 ],
                 "summary": "Get popular tokens",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Chain ID to filter tokens (0 for all active chains)",
+                        "name": "chainId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Get testnet tokens only (default: false for mainnet)",
+                        "name": "testnet",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -190,7 +204,7 @@ const docTemplate = `{
         },
         "/tokens/search": {
             "get": {
-                "description": "Search tokens by name, symbol, or address with intelligent chain-based prioritization and concurrent processing",
+                "description": "Search tokens by name/symbol (CoinGecko) or address (onchain + DexScreener)",
                 "consumes": [
                     "application/json"
                 ],
@@ -204,14 +218,14 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Search query (name, symbol, or address)",
+                        "description": "Search query (name/symbol or 0x address)",
                         "name": "q",
                         "in": "query",
                         "required": true
                     },
                     {
                         "type": "integer",
-                        "description": "Preferred chain ID for prioritization",
+                        "description": "Preferred chain ID for address searches",
                         "name": "chainId",
                         "in": "query"
                     },
@@ -219,6 +233,12 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Maximum results (default: 20, max: 100)",
                         "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Filter for testnet chains only (default: false for mainnet)",
+                        "name": "testnet",
                         "in": "query"
                     }
                 ],

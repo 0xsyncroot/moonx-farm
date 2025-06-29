@@ -2,7 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import fastifyJwt from '@fastify/jwt';
+import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 
@@ -168,7 +168,7 @@ This service handles:
   });
 
   // JWT plugin
-  await server.register(fastifyJwt, {
+  await server.register(jwt, {
     secret: config.get('JWT_SECRET') as string,
     sign: {
       expiresIn: config.get('JWT_EXPIRES_IN') as string,

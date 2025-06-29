@@ -149,7 +149,16 @@ type RelayQuoteResponse struct {
 			Amount          string `json:"amount"`
 			AmountFormatted string `json:"amountFormatted"`
 			AmountUsd       string `json:"amountUsd"`
+			MinimumAmount   string `json:"minimumAmount"`
 		} `json:"currencyOut"`
+		TotalImpact struct {
+			Usd     string `json:"usd"`
+			Percent string `json:"percent"`
+		} `json:"totalImpact"`
+		SwapImpact struct {
+			Usd     string `json:"usd"`
+			Percent string `json:"percent"`
+		} `json:"swapImpact"`
 		Rate string `json:"rate"`
 	} `json:"details"`
 }
@@ -299,37 +308,37 @@ func (r *RelayService) executeQuoteRequest(ctx context.Context, payload *RelayQu
 
 // convertResponseToQuote converts Relay response to our Quote model
 func (r *RelayService) convertResponseToQuote(relayResp *RelayQuoteResponse, req *models.QuoteRequest) (*models.Quote, error) {
-	// Extract amounts with fallback handling
+	// Extract amounts - use wei format directly when available
 	fromAmount, err := decimal.NewFromString(relayResp.Details.CurrencyIn.Amount)
 	if err != nil {
-		// Fallback to formatted amount if raw amount fails
-		if fromAmountFormatted, err2 := decimal.NewFromString(relayResp.Details.CurrencyIn.AmountFormatted); err2 == nil {
-			// Adjust for decimals
-			decimals := decimal.New(1, int32(relayResp.Details.CurrencyIn.Currency.Decimals))
-			fromAmount = fromAmountFormatted.Mul(decimals)
-		} else {
-			return nil, fmt.Errorf("invalid currencyIn amount: %w", err)
-		}
+		return nil, fmt.Errorf("invalid currencyIn amount: %w", err)
 	}
 
 	toAmount, err := decimal.NewFromString(relayResp.Details.CurrencyOut.Amount)
 	if err != nil {
-		// Fallback to formatted amount if raw amount fails
-		if toAmountFormatted, err2 := decimal.NewFromString(relayResp.Details.CurrencyOut.AmountFormatted); err2 == nil {
-			// Adjust for decimals
-			decimals := decimal.New(1, int32(relayResp.Details.CurrencyOut.Currency.Decimals))
-			toAmount = toAmountFormatted.Mul(decimals)
-		} else {
-			return nil, fmt.Errorf("invalid currencyOut amount: %w", err)
-		}
+		return nil, fmt.Errorf("invalid currencyOut amount: %w", err)
 	}
 
-	// Calculate toAmountMin with slippage
-	slippageDecimal := req.SlippageTolerance.Div(decimal.NewFromInt(100))
-	if slippageDecimal.IsZero() {
-		slippageDecimal = decimal.NewFromFloat(0.005) // Default 0.5%
+	// Use minimumAmount directly from API (already in wei format)
+	toAmountMin, err := decimal.NewFromString(relayResp.Details.CurrencyOut.MinimumAmount)
+	if err != nil {
+		// Fallback: calculate with slippage if minimumAmount is not available
+		slippageDecimal := req.SlippageTolerance.Div(decimal.NewFromInt(100))
+		if slippageDecimal.IsZero() {
+			slippageDecimal = decimal.NewFromFloat(0.005) // Default 0.5%
+		}
+		toAmountMin = toAmount.Mul(decimal.NewFromInt(1).Sub(slippageDecimal))
+
+		logrus.WithFields(logrus.Fields{
+			"toAmount":   toAmount.String(),
+			"slippage":   slippageDecimal.String(),
+			"calculated": toAmountMin.String(),
+		}).Warn("⚠️ Using calculated toAmountMin (minimumAmount not available)")
+	} else {
+		logrus.WithFields(logrus.Fields{
+			"minimumAmount": toAmountMin.String(),
+		}).Debug("✅ Using API minimumAmount")
 	}
-	toAmountMin := toAmount.Mul(decimal.NewFromInt(1).Sub(slippageDecimal))
 
 	// Calculate price
 	var price decimal.Decimal
@@ -346,10 +355,32 @@ func (r *RelayService) convertResponseToQuote(relayResp *RelayQuoteResponse, req
 		price = toAmount.Div(fromAmount)
 	}
 
-	// Calculate price impact (estimate based on amount vs rate)
+	// Use price impact from API
 	var priceImpact decimal.Decimal
-	if !price.IsZero() && !fromAmount.IsZero() {
-		// Simple price impact estimation - can be improved with market data
+	if relayResp.Details.SwapImpact.Percent != "" {
+		if impact, err := decimal.NewFromString(relayResp.Details.SwapImpact.Percent); err == nil {
+			// Convert to absolute value since API returns negative values
+			priceImpact = impact.Abs()
+			logrus.WithFields(logrus.Fields{
+				"swapImpactPercent": relayResp.Details.SwapImpact.Percent,
+				"priceImpact":       priceImpact.String(),
+			}).Debug("✅ Using API swap impact")
+		} else {
+			logrus.WithError(err).Warn("⚠️ Failed to parse swap impact, using fallback")
+			priceImpact = decimal.NewFromFloat(0.001) // Default 0.1%
+		}
+	} else if relayResp.Details.TotalImpact.Percent != "" {
+		// Fallback to total impact
+		if impact, err := decimal.NewFromString(relayResp.Details.TotalImpact.Percent); err == nil {
+			priceImpact = impact.Abs()
+			logrus.WithFields(logrus.Fields{
+				"totalImpactPercent": relayResp.Details.TotalImpact.Percent,
+				"priceImpact":        priceImpact.String(),
+			}).Debug("📊 Using API total impact as fallback")
+		} else {
+			priceImpact = decimal.NewFromFloat(0.001) // Default 0.1%
+		}
+	} else {
 		priceImpact = decimal.NewFromFloat(0.001) // Default 0.1%
 	}
 
@@ -464,6 +495,15 @@ func (r *RelayService) convertResponseToQuote(relayResp *RelayQuoteResponse, req
 		}
 	}
 
+	// Log final amounts for verification
+	logrus.WithFields(logrus.Fields{
+		"fromAmount":  fromAmount.String(),
+		"toAmount":    toAmount.String(),
+		"toAmountMin": toAmountMin.String(),
+		"priceImpact": priceImpact.String(),
+		"provider":    "relay",
+	}).Info("🎯 Final quote amounts (all in wei format)")
+
 	// Create comprehensive quote
 	quote := &models.Quote{
 		ID:                fmt.Sprintf("relay-%d", time.Now().Unix()),
@@ -500,6 +540,12 @@ func (r *RelayService) convertResponseToQuote(relayResp *RelayQuoteResponse, req
 			"crossChain":           req.ChainID != req.ToChainID,
 			"originChainId":        req.ChainID,
 			"destinationChainId":   req.ToChainID,
+			// New fields from updated API response
+			"swapImpactPercent":  relayResp.Details.SwapImpact.Percent,
+			"swapImpactUSD":      relayResp.Details.SwapImpact.Usd,
+			"totalImpactPercent": relayResp.Details.TotalImpact.Percent,
+			"totalImpactUSD":     relayResp.Details.TotalImpact.Usd,
+			"minimumAmountWei":   relayResp.Details.CurrencyOut.MinimumAmount,
 		},
 	}
 

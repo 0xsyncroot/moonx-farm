@@ -59,6 +59,9 @@ export function SwapInterface() {
   // Local refresh loading state
   const [isRefreshing, setIsRefreshing] = useState(false)
   
+  // Auto-refresh loading state
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false)
+  
   // Quote countdown control states
   const [isCountdownPaused, setIsCountdownPaused] = useState(false)
   const [isSwapInProgress, setIsSwapInProgress] = useState(false)
@@ -237,7 +240,13 @@ export function SwapInterface() {
       // Auto-refresh quote when it expires - ONLY ONCE
       if (remaining <= 0 && !hasRefetchedRef.current) {
         hasRefetchedRef.current = true
-        refetch()
+        setIsAutoRefreshing(true)
+        refetch().finally(() => {
+          // Reset auto-refresh state after a delay to show the skeleton
+          setTimeout(() => {
+            setIsAutoRefreshing(false)
+          }, 800)
+        })
       }
     }, 200) // Smoother animation
 
@@ -251,8 +260,68 @@ export function SwapInterface() {
     }
   }, [])
 
-  // Use selected quote or default to first quote
-  const activeQuote = selectedQuote || quote
+  // FIXED: Ensure we always use the best quote available with proper dependencies
+  const activeQuote = useMemo(() => {
+    // If user manually selected a quote, use that
+    if (selectedQuote) {
+      return selectedQuote
+    }
+    
+    // Otherwise use the best quote from useQuote (already sorted)
+    if (quote) {
+      return quote
+    }
+    
+    // Fallback: use first quote from allQuotes if available
+    if (allQuotes && allQuotes.length > 0) {
+      return allQuotes[0]
+    }
+    
+    return null
+  }, [selectedQuote, quote, allQuotes, quoteResponse?.timestamp])
+
+
+  // ✅ CLEAR manually selected quote when new quotes arrive
+  useEffect(() => {
+    if (quoteResponse?.timestamp && selectedQuote) {
+      setSelectedQuote(null)
+    }
+  }, [quoteResponse?.timestamp]) // Only depend on timestamp to detect new responses
+
+  // ✅ RESET auto-refresh state when new quote arrives
+  useEffect(() => {
+    if (quote && isAutoRefreshing) {
+      setIsAutoRefreshing(false)
+    }
+  }, [quote?.id, isAutoRefreshing]) // Reset when quote ID changes
+
+  // Helper function to safely format quote amounts for display - FIXED for small numbers
+  const formatQuoteAmount = useCallback((amount: string | undefined, token: Token | null) => {
+    if (!amount || !token) return ''
+    
+    try {
+      const formatted = formatTokenAmount(amount, token.decimals)
+      const parsed = parseFloat(formatted)
+      
+      // Return empty string if parsing failed or result is invalid
+      if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) return ''
+      
+      // ✅ FIXED: Handle very small numbers properly without scientific notation
+      if (parsed === 0) return '0'
+      
+      // For very small numbers, use fixed notation with appropriate decimal places
+      if (parsed < 0.000001) {
+        // Use the original formatted string to preserve precision
+        return formatted
+      }
+      
+      // For normal numbers, use standard conversion
+      return parsed.toString()
+    } catch (error) {
+      console.warn('Failed to format quote amount:', error, { amount, token: token?.symbol })
+      return ''
+    }
+  }, [])
 
   // Memoize expensive calculations
   const chainInfo = useMemo(() => {
@@ -268,15 +337,54 @@ export function SwapInterface() {
     }
   }, [fromToken, toToken])
 
-  // Calculate minimum received after slippage
-  const minReceived = activeQuote && toToken ? 
-    parseFloat(formatTokenAmount(activeQuote.toAmountMin, toToken.decimals)) : 0
+  // Calculate minimum received after slippage - FIXED with backend consistency
+  const minReceived = useMemo(() => {
+    if (!activeQuote || !toToken) return 0
+    
+    try {
+      // Priority 1: Use toAmountMin from API if available and valid
+      if (activeQuote.toAmountMin && activeQuote.toAmountMin !== '0') {
+        // Backend now returns consistent wei format
+        const formatted = formatTokenAmount(activeQuote.toAmountMin, toToken.decimals)
+        const parsed = parseFloat(formatted)
+        
+        if (!isNaN(parsed) && isFinite(parsed) && parsed > 0) {
+          return parsed
+        }
+      }
+      
+      // Priority 2: Calculate from toAmount with slippage
+      if (activeQuote.toAmount) {
+        // Backend returns wei format, format to human readable
+        const formatted = formatTokenAmount(activeQuote.toAmount, toToken.decimals)
+        const parsed = parseFloat(formatted)
+        
+        if (!isNaN(parsed) && isFinite(parsed) && parsed > 0) {
+          // Apply slippage tolerance (convert percentage to decimal)
+          const slippageDecimal = (slippage || 0.5) / 100
+          const minAmount = parsed * (1 - slippageDecimal)
+          
+          return Math.max(0, minAmount) // Ensure non-negative
+        }
+      }
+      
+      return 0
+    } catch (error) {
+      console.warn('Failed to calculate minReceived:', error, {
+        activeQuote: activeQuote?.id,
+        toAmountMin: activeQuote?.toAmountMin,
+        toAmount: activeQuote?.toAmount,
+        tokenSymbol: toToken?.symbol,
+        slippage
+      })
+      return 0
+    }
+  }, [activeQuote?.toAmountMin, activeQuote?.toAmount, activeQuote?.id, toToken, slippage])
 
 
 
   // ✨ DEX-style countdown control functions
   const pauseCountdown = useCallback((reason: 'swap' | 'approval' = 'swap') => {
-    console.log(`🔒 Quote countdown PAUSED (${reason})`)
     setIsCountdownPaused(true)
     if (reason === 'swap') {
       setIsSwapInProgress(true)
@@ -284,7 +392,6 @@ export function SwapInterface() {
   }, [])
   
   const resumeCountdown = useCallback((reason: 'cancelled' | 'completed' | 'error' = 'completed') => {
-    console.log(`▶️ Quote countdown RESUMED (${reason})`)
     setIsCountdownPaused(false)
     setIsSwapInProgress(false)
     
@@ -749,8 +856,8 @@ export function SwapInterface() {
                 <div className="flex items-center p-3 md:p-4">
                   <div className="flex-1 min-w-0">
                     <NumericFormat
-                      value={activeQuote?.toAmount && toToken ? 
-                        parseFloat(formatTokenAmount(activeQuote.toAmount, toToken.decimals)) : ''}
+                      key={`quote-${activeQuote?.id || 'empty'}-${activeQuote?.toAmount || '0'}`} // ✅ FORCE RE-RENDER on quote change
+                      value={formatQuoteAmount(activeQuote?.toAmount, toToken)}
                       displayType="text"
                       thousandSeparator=","
                       decimalSeparator="."
@@ -759,21 +866,27 @@ export function SwapInterface() {
                         "w-full font-bold bg-transparent border-0 outline-none",
                         "text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500",
                         "transition-all duration-200",
-                        // Dynamic text size based on value length
+                        // Dynamic text size based on value length - FIXED to use safe helper
                         (() => {
-                          const displayValue = activeQuote?.toAmount && toToken ? 
-                            formatNumber(parseFloat(formatTokenAmount(activeQuote.toAmount, toToken.decimals))) : ''
+                          const displayValue = formatQuoteAmount(activeQuote?.toAmount, toToken)
+                          console.log('📱 Rendering toAmount display:', { displayValue, quoteId: activeQuote?.id, raw: activeQuote?.toAmount }) // ✅ DEBUG
                           return displayValue.length > 12 ? "text-lg md:text-xl" :
                                  displayValue.length > 8 ? "text-xl md:text-2xl" :
                                  "text-2xl md:text-3xl"
                         })()
                       )}
                     />
-                    {toToken?.priceUSD && activeQuote?.toAmount && (
-                      <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
-                        ≈ {formatCurrency(parseFloat(formatTokenAmount(activeQuote.toAmount, toToken.decimals)) * toToken.priceUSD)}
-                      </p>
-                    )}
+                    {toToken?.priceUSD && activeQuote?.toAmount && (() => {
+                      const amountValue = formatQuoteAmount(activeQuote.toAmount, toToken)
+                      if (!amountValue) return null
+                      const parsed = parseFloat(amountValue)
+                      if (isNaN(parsed) || !isFinite(parsed)) return null
+                      return (
+                        <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
+                          ≈ {formatCurrency(parsed * toToken.priceUSD)}
+                        </p>
+                      )
+                    })()}
                   </div>
 
                   {/* Token Selector Button */}
@@ -834,7 +947,7 @@ export function SwapInterface() {
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden relative">
                 
                 {/* Loading Skeleton Overlay */}
-                {(isLoading || isRefreshing) && (
+                {(isLoading || isRefreshing || isAutoRefreshing) && (
                   <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-10 rounded-xl">
                     <div className="p-3">
                       {/* Header Skeleton */}
@@ -971,18 +1084,18 @@ export function SwapInterface() {
                          "group relative p-2.5 rounded-xl transition-all duration-300 overflow-hidden",
                          "border-2 border-transparent hover:border-orange-200 dark:hover:border-orange-700",
                          "shadow-lg hover:shadow-xl active:scale-95 transform",
-                         (isLoading || isRefreshing)
+                         (isLoading || isRefreshing || isAutoRefreshing)
                            ? "bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/30 dark:to-red-900/30 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-700" 
                            : "bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 hover:from-orange-50 hover:to-red-50 dark:hover:from-orange-900/20 dark:hover:to-red-900/20 text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400",
                          "disabled:cursor-not-allowed disabled:transform-none disabled:hover:border-transparent"
                        )}
-                       title={(isLoading || isRefreshing) ? "Fetching new quote..." : "Refresh quote"}
+                       title={(isLoading || isRefreshing || isAutoRefreshing) ? "Fetching new quote..." : "Refresh quote"}
                      >
                        {/* Background shimmer effect */}
                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 translate-x-[-100%] group-hover:translate-x-[200%] transition-transform duration-700" />
                        
                        {/* Loading ripple effect */}
-                       {(isLoading || isRefreshing) && (
+                       {(isLoading || isRefreshing || isAutoRefreshing) && (
                          <>
                            <div className="absolute inset-0 bg-orange-500/10 animate-pulse rounded-xl" />
                            <div className="absolute inset-0 bg-gradient-to-r from-orange-500/5 via-orange-500/20 to-orange-500/5 animate-ping rounded-xl" />
@@ -992,7 +1105,7 @@ export function SwapInterface() {
                        {/* Icon with enhanced animations */}
                        <RefreshCw className={cn(
                          "w-4 h-4 relative z-10 transition-all duration-300",
-                         (isLoading || isRefreshing)
+                         (isLoading || isRefreshing || isAutoRefreshing)
                            ? "animate-spin text-orange-600 dark:text-orange-400" 
                            : "group-hover:rotate-180 group-hover:scale-110"
                        )} />
@@ -1018,14 +1131,23 @@ export function SwapInterface() {
                     {activeQuote?.priceImpact && (
                       <div className={cn(
                         "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium",
-                        parseFloat(activeQuote.priceImpact) > 5 
-                          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 animate-pulse'
-                          : parseFloat(activeQuote.priceImpact) > 2 
-                          ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
-                          : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                        (() => {
+                          const impact = parseFloat(activeQuote.priceImpact)
+                          const absImpact = Math.abs(impact)
+                          return absImpact > 5 
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 animate-pulse'
+                            : absImpact > 2 
+                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                            : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                        })()
                       )}>
                         <TrendingUp className="w-3 h-3" />
-                        {parseFloat(activeQuote.priceImpact).toFixed(2)}% impact
+                        {(() => {
+                          const impact = parseFloat(activeQuote.priceImpact)
+                          const absImpact = Math.abs(impact)
+                          const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+                          return `${sign}${absImpact.toFixed(2)}% impact`
+                        })()}
                       </div>
                     )}
                   </div>
@@ -1087,7 +1209,15 @@ export function SwapInterface() {
                       <Shield className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
                       <span className="text-xs text-gray-600 dark:text-gray-400">Min:</span>
                       <span className="text-xs font-semibold text-gray-900 dark:text-white truncate">
-                        {formatNumber(minReceived)} {toToken?.symbol}
+                        <NumericFormat
+                          value={minReceived}
+                          displayType="text"
+                          thousandSeparator=","
+                          decimalSeparator="."
+                          decimalScale={minReceived < 1 ? 6 : 4}
+                          fixedDecimalScale={false}
+                          suffix={` ${toToken?.symbol || ''}`}
+                        />
                       </span>
                     </div>
 
@@ -1138,12 +1268,16 @@ export function SwapInterface() {
                       </div>
                       
                       {/* High Impact Warning */}
-                      {activeQuote?.priceImpact && parseFloat(activeQuote.priceImpact) > 5 && (
+                      {activeQuote?.priceImpact && Math.abs(parseFloat(activeQuote.priceImpact)) > 5 && (
                         <div className="flex items-start gap-2 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg mt-3">
                           <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
                           <div>
                             <div className="text-xs font-semibold text-red-800 dark:text-red-300">
-                              High Price Impact ({parseFloat(activeQuote.priceImpact).toFixed(2)}%)
+                              High Price Impact ({(() => {
+                                const impact = parseFloat(activeQuote.priceImpact)
+                                const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+                                return `${sign}${Math.abs(impact).toFixed(2)}%`
+                              })()})
                             </div>
                             <div className="text-xs text-red-700 dark:text-red-400 mt-0.5">
                               You may receive significantly less than expected
@@ -1159,7 +1293,7 @@ export function SwapInterface() {
           )}
 
           {/* Loading Skeleton when no active quote */}
-          {isLoading && !activeQuote && isValidRequest && !error && (
+          {(isLoading || isAutoRefreshing) && !activeQuote && isValidRequest && !error && (
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden relative">
               <div className="p-3">
                                  {/* Header Skeleton */}
@@ -1202,7 +1336,9 @@ export function SwapInterface() {
                         <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400 bg-white/95 dark:bg-gray-800/95 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-gray-700">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-sm font-medium">
-                            {isRefreshing ? "Refreshing quote..." : "Finding best quote..."}
+                            {isRefreshing ? "Refreshing quote..." : 
+                             isAutoRefreshing ? "Auto-refreshing quote..." : 
+                             "Finding best quote..."}
                           </span>
                         </div>
                       </div>
@@ -1244,7 +1380,7 @@ export function SwapInterface() {
             fromAmount={amount}
             quote={activeQuote || null}
             disabled={!fromToken || !toToken || !amount || amount === '0' || isLoading || hasInsufficientBalance}
-            priceImpactTooHigh={activeQuote?.priceImpact ? parseFloat(activeQuote.priceImpact) > 15 : false}
+            priceImpactTooHigh={activeQuote?.priceImpact ? Math.abs(parseFloat(activeQuote.priceImpact)) > 15 : false}
             hasInsufficientBalance={hasInsufficientBalance}
             onPauseCountdown={pauseCountdown}
             onResumeCountdown={resumeCountdown}

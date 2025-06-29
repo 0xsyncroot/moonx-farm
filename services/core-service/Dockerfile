@@ -1,126 +1,129 @@
-# =============================================================================
+# ================================
 # MoonXFarm Core Service - Production Dockerfile
-# =============================================================================
-# Multi-stage build for production-optimized microservice
+# ================================
+# Multi-stage build for Fastify core service with workspace support
 # Features: Order Management, Portfolio Sync, P&L Analytics
-# =============================================================================
 
-# =============================================================================
-# Stage 1: Build Dependencies & Workspace Packages
-# =============================================================================
-FROM node:20-alpine AS dependencies
+# ================================
+# Stage 1: Dependencies & Workspace Setup
+# ================================
+FROM node:18-alpine AS deps
 
-# Install pnpm
-RUN npm install -g pnpm
-
-# Set working directory
-WORKDIR /app
-
-# Copy workspace configuration
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-
-# Copy workspace packages (required by Core Service)
-COPY packages/common/ ./packages/common/
-COPY packages/infrastructure/ ./packages/infrastructure/
-COPY configs/ ./configs/
-
-# Copy Core Service package.json
-COPY services/core-service/package.json ./services/core-service/
-
-# Install all dependencies (including workspace packages)
-RUN pnpm install --frozen-lockfile
-
-# =============================================================================
-# Stage 2: Build Application
-# =============================================================================
-FROM dependencies AS builder
-
-# Copy Core Service source code
-COPY services/core-service/src/ ./services/core-service/src/
-COPY services/core-service/tsconfig.json ./services/core-service/
-
-# Build workspace packages first
-RUN pnpm -r build
-
-# Build Core Service
-WORKDIR /app/services/core-service
-RUN pnpm build
-
-# =============================================================================
-# Stage 3: Production Runtime
-# =============================================================================
-FROM node:20-alpine AS production
-
-# Install pnpm for production
-RUN npm install -g pnpm
-
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S moonx -u 1001
+# Install security updates and required dependencies
+RUN apk add --no-cache libc6-compat openssl
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Enable pnpm
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+
+# Copy workspace configuration files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY turbo.json ./
+
+# Copy workspace packages
 COPY packages/common/package.json ./packages/common/
 COPY packages/infrastructure/package.json ./packages/infrastructure/
 COPY configs/package.json ./configs/
+
+# Copy core service package.json
 COPY services/core-service/package.json ./services/core-service/
 
-# Install only production dependencies
-RUN pnpm install --frozen-lockfile --prod
+# Install dependencies using pnpm with frozen lockfile
+RUN pnpm install --frozen-lockfile --production=false
 
-# Copy built workspace packages
-COPY --from=builder /app/packages/common/dist/ ./packages/common/dist/
-COPY --from=builder /app/packages/infrastructure/dist/ ./packages/infrastructure/dist/
-COPY --from=builder /app/configs/dist/ ./configs/dist/
+# ================================
+# Stage 2: Build Application
+# ================================
+FROM node:18-alpine AS builder
 
-# Copy built Core Service
-COPY --from=builder /app/services/core-service/dist/ ./services/core-service/dist/
+# Install security updates
+RUN apk add --no-cache libc6-compat
 
-# Change ownership to nodejs user
-RUN chown -R moonx:nodejs /app
+WORKDIR /app
+
+# Enable pnpm
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages ./packages
+COPY --from=deps /app/configs ./configs
+COPY --from=deps /app/services/core-service/node_modules ./services/core-service/node_modules
+
+# Copy workspace packages source code
+COPY packages/common ./packages/common
+COPY packages/infrastructure ./packages/infrastructure
+COPY configs ./configs
+
+# Copy core service source code
+COPY services/core-service ./services/core-service
+
+# Copy workspace configuration
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY turbo.json ./
+
+# Build workspace packages first
+RUN pnpm --filter @moonx/common build
+RUN pnpm --filter @moonx/infrastructure build  
+RUN pnpm --filter @moonx/configs build
+
+# Build core service with production settings
+RUN pnpm --filter @moonx/core-service build:production
+
+# ================================
+# Stage 3: Production Runtime
+# ================================
+FROM node:18-alpine AS runner
+
+# Install security updates and dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 moonx
+RUN adduser --system --uid 1001 coreservice
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV CORE_SERVICE_PORT=3007
+ENV LOG_LEVEL=info
+ENV LOG_FORMAT=json
+
+# Copy built application from builder stage
+COPY --from=builder --chown=coreservice:moonx /app/services/core-service/dist ./dist
+COPY --from=builder --chown=coreservice:moonx /app/services/core-service/package.json ./package.json
+
+# Copy production dependencies (only what's needed)
+COPY --from=builder --chown=coreservice:moonx /app/node_modules ./node_modules
+
+# Create logs directory
+RUN mkdir -p /app/logs && chown coreservice:moonx /app/logs
 
 # Switch to non-root user
-USER moonx
-
-# Set working directory to service
-WORKDIR /app/services/core-service
+USER coreservice
 
 # Expose port
 EXPOSE 3007
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e " \
-        const http = require('http'); \
-        const options = { \
-            hostname: 'localhost', \
-            port: 3007, \
-            path: '/health', \
-            timeout: 5000 \
-        }; \
-        const req = http.request(options, (res) => { \
-            process.exit(res.statusCode === 200 ? 0 : 1); \
-        }); \
-        req.on('error', () => process.exit(1)); \
-        req.on('timeout', () => process.exit(1)); \
-        req.end(); \
-    "
+  CMD node -e "require('http').get('http://localhost:3007/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })" || exit 1
 
-# Production environment
-ENV NODE_ENV=production
-ENV LOG_LEVEL=info
-ENV LOG_FORMAT=json
-
-# Start Core Service
+# Start application using dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/index.js"]
 
-# =============================================================================
-# Build Instructions:
-# =============================================================================
-# From project root:
-# docker build -f services/core-service/Dockerfile -t moonx/core-service .
-# docker run -p 3007:3007 --env-file services/core-service/.env moonx/core-service
-# ============================================================================= 
+# ================================
+# Labels for container management
+# ================================
+LABEL maintainer="MoonXFarm Team"
+LABEL version="1.0.0"
+LABEL description="MoonXFarm Core Service - Order Management & Portfolio Analytics"
+LABEL org.opencontainers.image.source="https://github.com/0xsyncroot/moonx-farm" 

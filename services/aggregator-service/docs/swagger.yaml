@@ -284,6 +284,15 @@ paths:
       - application/json
       description: Get popular tokens for cross-chain swap with real-time prices from
         Binance
+      parameters:
+      - description: Chain ID to filter tokens (0 for all active chains)
+        in: query
+        name: chainId
+        type: integer
+      - description: 'Get testnet tokens only (default: false for mainnet)'
+        in: query
+        name: testnet
+        type: boolean
       produces:
       - application/json
       responses:
@@ -302,15 +311,15 @@ paths:
     get:
       consumes:
       - application/json
-      description: Search tokens by name, symbol, or address with intelligent chain-based
-        prioritization and concurrent processing
+      description: Search tokens by name/symbol (CoinGecko) or address (onchain +
+        DexScreener)
       parameters:
-      - description: Search query (name, symbol, or address)
+      - description: Search query (name/symbol or 0x address)
         in: query
         name: q
         required: true
         type: string
-      - description: Preferred chain ID for prioritization
+      - description: Preferred chain ID for address searches
         in: query
         name: chainId
         type: integer
@@ -318,6 +327,10 @@ paths:
         in: query
         name: limit
         type: integer
+      - description: 'Filter for testnet chains only (default: false for mainnet)'
+        in: query
+        name: testnet
+        type: boolean
       produces:
       - application/json
       responses:

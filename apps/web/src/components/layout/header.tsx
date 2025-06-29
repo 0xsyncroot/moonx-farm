@@ -15,9 +15,10 @@ import { toast } from 'react-hot-toast'
 
 import { 
   getChainConfig, 
-  DEFAULT_CHAIN
+  DEFAULT_CHAIN,
+  getDefaultChain
 } from '@/config/chains'
-import { TestnetToggle } from '@/components/ui/testnet-toggle'
+import { TestnetToggle, useTestnetMode } from '@/components/ui/testnet-toggle'
 import { ChainIcon } from '@/components/ui/chain-icon'
 
 const navigation = [
@@ -42,6 +43,7 @@ export function Header() {
   const { address: wagmiAddress } = useAccount()
   const wagmiChainId = useChainId()
   const { switchChain } = useSwitchChain()
+  const isTestnet = useTestnetMode()
 
   // Get embedded wallet (EOA) từ Privy
   const embeddedWallet = wallets.find(w => w.walletClientType === 'privy')
@@ -59,27 +61,57 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Auto-switch to Base if connected but on wrong chain
-  useEffect(() => {
-    if (smartWalletClient?.account?.address && wagmiChainId && wagmiChainId !== 8453) {
-      switchChain?.({ chainId: 8453 })
-    }
-  }, [smartWalletClient?.account?.address, wagmiChainId, switchChain])
-
   const walletAddress = smartWalletClient?.account?.address || wagmiAddress
+
+  // Listen for testnet mode changes and show notification
+  useEffect(() => {
+    const handleTestnetModeChange = async (event: Event) => {
+      const customEvent = event as CustomEvent
+      const newIsTestnet = customEvent.detail.isTestnet
+      const targetChain = getDefaultChain(newIsTestnet)
+      
+      console.log('🔍 Testnet Mode Changed:', {
+        newIsTestnet,
+        targetChainId: targetChain.id,
+        targetChainName: targetChain.name,
+        isTestnetChain: targetChain.isTestnet
+      })
+      
+      // Show notification about expected network without auto-switching
+      // This avoids triggering OKX and other wallet connectors
+      if (smartWalletClient?.account?.address) {
+        toast.success(
+          `Switched to ${targetChain.name} successfully`,
+          { duration: 4000 }
+        )
+      }
+    }
+
+    window.addEventListener('testnet-mode-changed', handleTestnetModeChange)
+    return () => {
+      window.removeEventListener('testnet-mode-changed', handleTestnetModeChange)
+    }
+  }, [smartWalletClient])
   
   // Get chainId from multiple sources with priority order
   const detectedChainId = wagmiChainId || smartWalletClient?.chain?.id || walletInfo?.chainId
-  const finalChainId = Number(detectedChainId) || DEFAULT_CHAIN.id
+  const defaultChainForMode = getDefaultChain(isTestnet)
+  
+  // Simplified chain display logic:
+  // Always show the expected chain for current mode - prioritize testnet mode over detected chain
+  // This ensures immediate UI feedback when switching testnet modes
+  const displayChainId = defaultChainForMode.id
   
   // Get chain config from centralized config
-  const chainConfig = getChainConfig(finalChainId)
+  const chainConfig = getChainConfig(displayChainId)
   const chainInfo = chainConfig || {
-    name: `Chain ${finalChainId}`,
+    name: `Chain ${displayChainId}`,
     icon: '🔗',
     color: 'bg-gray-500',
     explorer: '#'
   }
+
+
 
   const copyAddress = async () => {
     const addressToCopy = smartWalletClient?.account?.address

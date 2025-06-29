@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "build:production": "tsc --skipLibCheck --noEmit false",
+    "build:clean": "rm -rf dist && pnpm run build:production",
     "start": "node dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch",

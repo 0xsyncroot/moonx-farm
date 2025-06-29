@@ -39,6 +39,19 @@ type MarketDataPair struct {
 		Name    string `json:"name"`
 		Symbol  string `json:"symbol"`
 	} `json:"quoteToken"`
+	Info *struct {
+		ImageURL  string `json:"imageUrl"`
+		Header    string `json:"header"`
+		OpenGraph string `json:"openGraph"`
+		Websites  []struct {
+			Label string `json:"label"`
+			URL   string `json:"url"`
+		} `json:"websites"`
+		Socials []struct {
+			Type string `json:"type"`
+			URL  string `json:"url"`
+		} `json:"socials"`
+	} `json:"info,omitempty"`
 	PriceNative string `json:"priceNative"`
 	PriceUSD    string `json:"priceUsd"`
 	Txns        struct {
@@ -201,6 +214,11 @@ func (s *MarketDataService) findBestPair(pairs []MarketDataPair, chainID int, to
 func (s *MarketDataService) enhanceTokenFromPair(token *models.Token, pair *MarketDataPair) *models.Token {
 	enhanced := *token // Copy original token
 
+	// Extract logoURI from DexScreener info
+	if pair.Info != nil && pair.Info.ImageURL != "" {
+		enhanced.LogoURI = pair.Info.ImageURL
+	}
+
 	// Update price data
 	if pair.PriceUSD != "" {
 		if priceUSD, err := decimal.NewFromString(pair.PriceUSD); err == nil {
@@ -256,6 +274,11 @@ func (s *MarketDataService) mergeTokenData(original, cached *models.Token) *mode
 					merged.Volume24h = cached.Volume24h
 					merged.MarketCap = cached.MarketCap
 					merged.Popular = cached.Popular
+
+					// IMPORTANT: Also merge logoURI from cached DexScreener data
+					if cached.LogoURI != "" && merged.LogoURI == "" {
+						merged.LogoURI = cached.LogoURI
+					}
 
 					if merged.Metadata == nil {
 						merged.Metadata = make(map[string]interface{})

@@ -327,21 +327,25 @@ func (a *AggregatorService) buildTokenFromConfig(symbol, address string, chainID
 	case "ETH", "WETH":
 		token.Name = "Ethereum"
 		token.Decimals = 18
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/279/large/ethereum.png"
 		if symbol == "ETH" {
 			token.IsNative = true
 		}
+	case "LINK":
+		token.Name = "Chainlink"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/877/large/chainlink-new-logo.png"
 	case "BNB", "WBNB":
 		token.Name = "BNB"
 		token.Decimals = 18
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png"
 		if symbol == "BNB" {
 			token.IsNative = true
 		}
 	case "MATIC":
 		token.Name = "Polygon"
 		token.Decimals = 18
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png"
 		token.IsNative = true
 	case "USDC", "USDbC":
 		token.Name = "USD Coin"
@@ -349,25 +353,27 @@ func (a *AggregatorService) buildTokenFromConfig(symbol, address string, chainID
 		if chainID == 56 { // BSC has 18 decimals for USDC
 			token.Decimals = 18
 		}
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86a33E6441ad06b6b6F0E5Ce7dF9e7fC56a5e/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png"
 	case "USDT":
 		token.Name = "Tether USD"
 		token.Decimals = 6
 		if chainID == 56 { // BSC has 18 decimals for USDT
 			token.Decimals = 18
 		}
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/325/large/Tether.png"
 	case "DAI":
 		token.Name = "Dai Stablecoin"
 		token.Decimals = 18
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x6B175474E89094C44Da98b954EedeAC495271d0F/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/9956/large/Badge_Dai.png"
 	case "BUSD":
 		token.Name = "Binance USD"
 		token.Decimals = 18
-		token.LogoURI = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/assets/0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56/logo.png"
+		token.LogoURI = "https://assets.coingecko.com/coins/images/9576/large/BUSD.png"
 	default:
 		token.Name = symbol
 		token.Decimals = 18
+		// Fallback logo for unknown tokens - use a generic token icon
+		token.LogoURI = "https://www.google.com/s2/favicons?domain=ethereum.org&sz=64" // Generic crypto icon
 	}
 
 	return token
@@ -630,4 +636,127 @@ func (a *AggregatorService) WarmupSearchCache(ctx context.Context) {
 	}
 
 	logrus.Info("Search cache warmup initiated")
+}
+
+// BuildTokenFromConfigWithTestnet builds a Token object with enhanced testnet support
+func (a *AggregatorService) BuildTokenFromConfigWithTestnet(symbol, address string, chainID int, chainConfig *config.ChainConfig) *models.Token {
+	token := &models.Token{
+		Address:  address,
+		Symbol:   symbol,
+		ChainID:  chainID,
+		Popular:  true,
+		IsNative: address == "0x0000000000000000000000000000000000000000",
+		Source:   "config",
+		Verified: true,
+	}
+
+	// Set token details based on symbol and chain with enhanced testnet support
+	switch symbol {
+	case "ETH", "WETH":
+		token.Name = "Ethereum"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/279/large/ethereum.png"
+		if symbol == "ETH" {
+			token.IsNative = true
+		}
+	case "LINK":
+		token.Name = "Chainlink"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/877/large/chainlink-new-logo.png"
+	case "BNB", "WBNB":
+		token.Name = "BNB"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png"
+		if symbol == "BNB" {
+			token.IsNative = true
+		}
+	case "MATIC":
+		token.Name = "Polygon"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png"
+		token.IsNative = true
+	case "USDC", "USDbC":
+		token.Name = "USD Coin"
+		token.Decimals = 6
+		if chainID == 56 { // BSC has 18 decimals for USDC
+			token.Decimals = 18
+		}
+		token.LogoURI = "https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png"
+	case "USDT":
+		token.Name = "Tether USD"
+		token.Decimals = 6
+		if chainID == 56 { // BSC has 18 decimals for USDT
+			token.Decimals = 18
+		}
+		token.LogoURI = "https://assets.coingecko.com/coins/images/325/large/Tether.png"
+	case "DAI":
+		token.Name = "Dai Stablecoin"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/9956/large/Badge_Dai.png"
+	case "BUSD":
+		token.Name = "Binance USD"
+		token.Decimals = 18
+		token.LogoURI = "https://assets.coingecko.com/coins/images/9576/large/BUSD.png"
+	default:
+		token.Name = symbol
+		token.Decimals = 18
+		// Fallback logo for unknown tokens - use a generic token icon
+		token.LogoURI = "https://www.google.com/s2/favicons?domain=ethereum.org&sz=64" // Generic crypto icon
+	}
+
+	// Set testnet-specific metadata
+	if chainConfig.IsTestnet {
+		token.PriceUSD = decimal.Zero
+		token.Change24h = decimal.Zero
+		token.Volume24h = decimal.Zero
+		token.MarketCap = decimal.Zero
+		token.Source = "testnet"
+
+		// Add testnet indicator to metadata
+		if token.Metadata == nil {
+			token.Metadata = make(map[string]interface{})
+		}
+		token.Metadata["isTestnet"] = true
+		token.Metadata["chainName"] = chainConfig.Name
+	}
+
+	return token
+}
+
+// GetTestnetPopularTokens gets popular testnet tokens
+func (a *AggregatorService) GetTestnetPopularTokens(ctx context.Context, chainID int) []*models.Token {
+	var tokens []*models.Token
+
+	// Get testnet chains only
+	testnetChains := config.GetTestnetChains(a.Environment)
+
+	// If chainID is specified, only get tokens for that chain
+	if chainID != 0 {
+		chainConfig := config.GetChainByID(chainID, a.Environment)
+		if chainConfig == nil || !chainConfig.IsTestnet {
+			logrus.WithField("chainID", chainID).Warn("Chain not found or not a testnet")
+			return tokens
+		}
+		testnetChains = map[int]*config.ChainConfig{chainID: chainConfig}
+	}
+
+	// Build tokens from each testnet chain
+	for cID, chainConfig := range testnetChains {
+		popularTokensMap := config.GetPopularTokens(cID)
+
+		for symbol, address := range popularTokensMap {
+			token := a.BuildTokenFromConfigWithTestnet(symbol, address, cID, chainConfig)
+			if token != nil {
+				tokens = append(tokens, token)
+			}
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chainID":    chainID,
+		"tokenCount": len(tokens),
+		"source":     "testnet_config",
+	}).Info("Testnet popular tokens retrieved")
+
+	return tokens
 }

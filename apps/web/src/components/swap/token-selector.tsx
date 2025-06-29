@@ -6,7 +6,7 @@
  * Modern UI Features:
  * - Clean, minimalist design with proper spacing
  * - Smooth animations and micro-interactions
- * - Smart search with instant results
+ * - Smart search with instant results (local + API)
  * - Visual token categories and suggestions
  * - Mobile-optimized responsive design
  * - Live price data with change indicators
@@ -200,7 +200,6 @@ export function TokenSelector({
   currentToken,
   title = 'Select a token'
 }: TokenSelectorProps) {
-  const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'all' | 'popular' | 'favorites'>('all')
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [showFilters, setShowFilters] = useState(false)
@@ -211,6 +210,7 @@ export function TokenSelector({
   
   const isTestnet = useTestnetMode()
 
+  // ✅ FIXED: Use useTokens hook for search logic
   const {
     tokens: searchTokens,
     popularTokens,
@@ -220,6 +220,8 @@ export function TokenSelector({
     isFavorite,
     error: tokensError,
     hasSearchQuery: searchHasQuery,
+    searchQuery: hookSearchQuery,
+    setSearchQuery: setHookSearchQuery,
     loadPopularTokens,
   } = useTokens()
 
@@ -266,13 +268,25 @@ export function TokenSelector({
     }
   }, [isOpen])
 
-  // Load favorites from localStorage - CACHED
+  // Load favorites from localStorage with migration support - CACHED
   useEffect(() => {
     const savedFavorites = localStorage.getItem('tokenFavorites')
     if (savedFavorites) {
       try {
         const parsed = JSON.parse(savedFavorites)
-        setFavorites(new Set(parsed))
+        
+        // Migration: Convert old address-only format to chainId-address format
+        const migratedFavorites = parsed.map((item: string) => {
+          // If already in chainId-address format, keep as is
+          if (item.includes('-') && item.split('-')[0].match(/^\d+$/)) {
+            return item
+          }
+          // If it's an address only, we can't determine the exact chain
+          // but we'll keep it for backward compatibility
+          return item
+        })
+        
+        setFavorites(new Set(migratedFavorites))
       } catch (error) {
         console.error('Failed to parse favorites:', error)
         // Clear invalid data
@@ -286,15 +300,37 @@ export function TokenSelector({
     return [84532, 97].includes(chainId) // Base Sepolia, BSC Testnet
   }
 
-  // OPTIMIZED token source logic - memoized with stable dependencies
+  // ✅ FIXED: Improved token source logic - combines API search results with local tokens
   const availableTokens = useMemo(() => {
     let tokens: Token[] = []
     
-    // Search mode: use search results or empty
     if (searchHasQuery) {
-      tokens = searchTokens.length > 0 ? searchTokens : []
+      // ✅ SEARCH MODE: Use API search results + local filtering
+      const apiResults = searchTokens.length > 0 ? searchTokens : []
+      
+      // Also search through local emergency fallback tokens
+      const localTokens = Object.values(EMERGENCY_FALLBACK).flat()
+      const query = hookSearchQuery.toLowerCase().trim()
+      const localMatches = localTokens.filter((token: Token) => {
+        const symbolMatch = token.symbol.toLowerCase().includes(query)
+        const nameMatch = token.name.toLowerCase().includes(query)
+        const addressMatch = token.address.toLowerCase().includes(query)
+        return symbolMatch || nameMatch || addressMatch
+      })
+      
+      // Combine API results with local matches (deduplicate by address)
+      const combined = [...apiResults]
+      const existingAddresses = new Set(apiResults.map(t => t.address.toLowerCase()))
+      
+      localMatches.forEach(token => {
+        if (!existingAddresses.has(token.address.toLowerCase())) {
+          combined.push(token)
+        }
+      })
+      
+      tokens = combined
     } else {
-      // Non-search mode: use API tokens or fallback
+      // ✅ NON-SEARCH MODE: Use API tokens or fallback
       if (apiTokens.length > 0) {
         tokens = apiTokens
       } else {
@@ -308,13 +344,14 @@ export function TokenSelector({
       const tokenIsTestnet = isTestnetChain(token.chainId)
       return isTestnet ? tokenIsTestnet : !tokenIsTestnet
     })
-  }, [searchHasQuery, searchTokens, apiTokens, isTestnet])
+  }, [searchHasQuery, searchTokens, hookSearchQuery, apiTokens, isTestnet])
 
   // OPTIMIZED smart filtering - reduced complexity
   const filteredTokens = useMemo(() => {
     let tokens: Token[] = []
     
-    if (!searchQuery.trim()) {
+    if (!hookSearchQuery.trim()) {
+      // ✅ NO SEARCH: Use tab-based filtering
       switch (activeTab) {
         case 'popular':
           tokens = popularTokens.length > 0 ? popularTokens : 
@@ -322,25 +359,40 @@ export function TokenSelector({
           break
         case 'favorites':
           tokens = hookFavoriteTokens.length > 0 ? hookFavoriteTokens :
-                   availableTokens.filter((token: Token) => favorites.has(token.address))
+                   availableTokens.filter((token: Token) => {
+                     const tokenKey = `${token.chainId}-${token.address}`
+                     // Check both new format (chainId-address) and old format (address only)
+                     return favorites.has(tokenKey) || favorites.has(token.address)
+                   })
           break
         default:
           tokens = availableTokens
       }
     } else {
-      const query = searchQuery.toLowerCase().trim()
-      tokens = availableTokens.filter((token: Token) => {
-        const symbolMatch = token.symbol.toLowerCase().includes(query)
-        const nameMatch = token.name.toLowerCase().includes(query)
-        const addressMatch = token.address.toLowerCase().includes(query)
-        
-        return symbolMatch || nameMatch || addressMatch
-      }).sort((a, b) => {
-        // Simplified sorting for better performance
+      // ✅ WITH SEARCH: Use all available tokens (already filtered by search)
+      tokens = availableTokens
+      
+      // Additional local sorting for better relevance
+      const query = hookSearchQuery.toLowerCase().trim()
+      tokens = tokens.sort((a, b) => {
+        // Exact symbol match first
         const aExact = a.symbol.toLowerCase() === query
         const bExact = b.symbol.toLowerCase() === query
         if (aExact && !bExact) return -1
         if (!aExact && bExact) return 1
+        
+        // Symbol starts with query
+        const aStarts = a.symbol.toLowerCase().startsWith(query)
+        const bStarts = b.symbol.toLowerCase().startsWith(query)
+        if (aStarts && !bStarts) return -1
+        if (!aStarts && bStarts) return 1
+        
+        // Popular/verified tokens first
+        if (a.popular && !b.popular) return -1
+        if (!a.popular && b.popular) return 1
+        if (a.verified && !b.verified) return -1
+        if (!a.verified && b.verified) return 1
+        
         return 0
       })
     }
@@ -362,44 +414,54 @@ export function TokenSelector({
       
       return a.symbol.localeCompare(b.symbol)
     })
-  }, [availableTokens, searchQuery, activeTab, popularTokens, hookFavoriteTokens, favorites, isTestnet])
+  }, [availableTokens, hookSearchQuery, activeTab, popularTokens, hookFavoriteTokens, favorites, isTestnet])
 
-  // Local favorite management
-  const handleToggleFavorite = (tokenAddress: string) => {
+  // Local favorite management with chainId support
+  const handleToggleFavorite = (tokenKey: string) => {
+    // Extract address from tokenKey (chainId-address format)
+    const tokenAddress = tokenKey.includes('-') ? tokenKey.split('-')[1] : tokenKey
+    
     if (toggleFavorite) {
+      // Use original address for useTokens hook compatibility
       toggleFavorite(tokenAddress)
     } else {
-      const newFavorites = favorites.has(tokenAddress)
-        ? new Set(Array.from(favorites).filter(addr => addr !== tokenAddress))
-        : new Set([...Array.from(favorites), tokenAddress])
+      // Use full tokenKey for local storage to support multi-chain
+      const newFavorites = favorites.has(tokenKey)
+        ? new Set(Array.from(favorites).filter(key => key !== tokenKey))
+        : new Set([...Array.from(favorites), tokenKey])
       
       setFavorites(newFavorites)
       localStorage.setItem('tokenFavorites', JSON.stringify(Array.from(newFavorites)))
     }
   }
 
-  const checkIsFavorite = (tokenAddress: string) => {
+  const checkIsFavorite = (tokenKey: string) => {
+    // Extract address from tokenKey for useTokens hook compatibility
+    const tokenAddress = tokenKey.includes('-') ? tokenKey.split('-')[1] : tokenKey
+    
     if (isFavorite) {
+      // Check useTokens hook first (uses address only)
       return isFavorite(tokenAddress)
     }
-    return favorites.has(tokenAddress)
+    // Check local favorites (uses chainId-address key)
+    return favorites.has(tokenKey)
   }
 
   // Reset when closing
   useEffect(() => {
     if (!isOpen) {
-      setSearchQuery('')
+      setHookSearchQuery('') // ✅ FIXED: Clear search query properly
       setShowFilters(false)
       // Don't clear apiTokens to cache them
     }
-  }, [isOpen])
+  }, [isOpen, setHookSearchQuery])
 
   const handleSelectToken = (token: Token) => {
     onSelectToken(token)
     onClose()
   }
 
-  const hasLocalSearchQuery = searchQuery.trim().length > 0
+  // ✅ FIXED: Use hook search query for all logic
   const hasResults = filteredTokens.length > 0
   const isLoading = apiLoading || searchLoading
   const error = apiError || tokensError
@@ -425,14 +487,14 @@ export function TokenSelector({
           <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-3">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">{title}</h2>
-              {hasLocalSearchQuery && (
+              {searchHasQuery && (
                 <div className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
                   <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                     {filteredTokens.length} found
                   </span>
                 </div>
               )}
-              {!hasLocalSearchQuery && availableTokens.length > 0 && (
+              {!searchHasQuery && availableTokens.length > 0 && (
                 <div className="px-2 py-1 bg-green-100 dark:bg-green-900/30 rounded-full">
                   <span className="text-xs font-medium text-green-600 dark:text-green-400">
                     {availableTokens.length} tokens
@@ -456,32 +518,58 @@ export function TokenSelector({
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search by name, symbol, or address..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, symbol, or paste token address..."
+                value={hookSearchQuery}
+                onChange={(e) => setHookSearchQuery(e.target.value)}
                 className="w-full pl-12 pr-12 py-4 bg-gray-50 dark:bg-gray-800 border-0 rounded-2xl 
                          text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400
                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-700
                          transition-all duration-200 text-lg"
               />
-              {searchQuery && (
+              {hookSearchQuery && (
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => setHookSearchQuery('')}
                   className="absolute right-4 top-1/2 transform -translate-y-1/2 p-1 
                            text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
+              {isLoading && (
+                <div className="absolute right-12 top-1/2 transform -translate-y-1/2">
+                  <LoadingSpinner size="sm" />
+                </div>
+              )}
             </div>
 
+            {/* Search Status */}
+            {searchHasQuery && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">
+                  {isLoading ? 'Searching...' : `Found ${filteredTokens.length} tokens`}
+                </span>
+                {searchTokens.length > 0 && (
+                  <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full text-xs text-blue-600 dark:text-blue-400">
+                    API: {searchTokens.length}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Tabs */}
-            {!hasLocalSearchQuery && (
+            {!searchHasQuery && (
               <div className="flex bg-gray-100 dark:bg-gray-800 rounded-2xl p-1">
                 {[
                   { key: 'all', label: 'All Tokens', count: availableTokens.length },
                   { key: 'popular', label: 'Popular', count: popularTokens.length },
-                  { key: 'favorites', label: 'Favorites', count: hookFavoriteTokens.length || favorites.size },
+                  { 
+                    key: 'favorites', 
+                    label: 'Favorites', 
+                    count: hookFavoriteTokens.length || availableTokens.filter((token: Token) => {
+                      const tokenKey = `${token.chainId}-${token.address}`
+                      return favorites.has(tokenKey) || favorites.has(token.address)
+                    }).length
+                  },
                 ].map(({ key, label, count }) => (
                   <button
                     key={key}
@@ -536,7 +624,7 @@ export function TokenSelector({
               <div className="flex flex-col items-center justify-center py-16">
                 <LoadingSpinner size="sm" />
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
-                  {hasLocalSearchQuery ? 'Searching tokens...' : 'Loading tokens...'}
+                  {searchHasQuery ? 'Searching tokens...' : 'Loading tokens...'}
                 </p>
               </div>
             ) : showEmptyState ? (
@@ -545,10 +633,10 @@ export function TokenSelector({
                   <Search className="w-8 h-8 text-gray-400" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                  {hasLocalSearchQuery ? 'No tokens found' : 'No tokens available'}
+                  {searchHasQuery ? 'No tokens found' : 'No tokens available'}
                 </h3>
                 <p className="text-gray-500 dark:text-gray-400 text-sm max-w-sm">
-                  {hasLocalSearchQuery ? (
+                  {searchHasQuery ? (
                     'Try searching with a different term, symbol, or paste a token address'
                   ) : (
                     'Switch to a supported chain or check your network connection'
@@ -562,11 +650,14 @@ export function TokenSelector({
                   <TokenRow
                     key={`${token.chainId}-${token.address}`}
                     token={token}
-                    isSelected={currentToken?.address === token.address}
-                    isFavorite={checkIsFavorite(token.address)}
+                    isSelected={
+                      currentToken?.address === token.address && 
+                      currentToken?.chainId === token.chainId
+                    }
+                    isFavorite={checkIsFavorite(`${token.chainId}-${token.address}`)}
                     onSelect={() => handleSelectToken(token)}
-                    onToggleFavorite={() => handleToggleFavorite(token.address)}
-                    searchQuery={searchQuery}
+                    onToggleFavorite={() => handleToggleFavorite(`${token.chainId}-${token.address}`)}
+                    searchQuery={hookSearchQuery}
                     index={index}
                   />
                 ))}
@@ -579,6 +670,7 @@ export function TokenSelector({
             <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
               <span>
                 {filteredTokens.length} {filteredTokens.length === 1 ? 'token' : 'tokens'}
+                {searchHasQuery && ` • ${searchTokens.length} from API`}
               </span>
               {isLoading && (
                 <div className="flex items-center gap-2">
@@ -687,10 +779,10 @@ function TokenRow({
           {token.verified && (
             <CheckCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
           )}
-                      {/* Chain name as subtle text */}
-            <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">
-              {chainInfo?.name}
-            </span>
+          {/* Chain name as subtle text */}
+          <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">
+            {chainInfo?.name}
+          </span>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 truncate leading-tight">
           {highlightText(token.name, searchQuery)}

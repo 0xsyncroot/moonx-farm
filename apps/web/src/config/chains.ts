@@ -179,7 +179,7 @@ export const IS_TESTNET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_TESTNETS === 't
 
 // Get default chain based on environment
 export const getDefaultChain = (useTestnet = false): ChainConfig => {
-  if (useTestnet && IS_TESTNET_ENABLED) {
+  if (useTestnet) {
     return DEFAULT_TESTNET_CHAIN
   }
   return DEFAULT_MAINNET_CHAIN

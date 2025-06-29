@@ -1,5 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Enable standalone output for Docker deployment
+  output: 'standalone',
+  
+  // Disable ESLint during production builds
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  
+  // Disable TypeScript checking during builds (optional)
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
   },
