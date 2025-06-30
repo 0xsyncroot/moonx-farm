@@ -1,5 +1,6 @@
 const { getSelectors, FacetCutAction } = require('./libraries/diamond.js')
 const { ethers } = require("hardhat");
+const hre = require("hardhat");
 
 /**
  * Script để remove facet đã deploy sai và triển khai lại facet đó
@@ -19,19 +20,19 @@ async function deployFacet(name, args = []) {
     
     const Facet = await ethers.getContractFactory(name);
     const facet = await Facet.deploy(...args);
-    await facet.waitForDeployment();
+    await facet.deployed();
     
-    const facetAddress = await facet.getAddress();
+    const facetAddress = facet.address;
     console.log(`✅ ${name} deployed at: ${facetAddress}`);
     
     return facet;
 }
 
-async function getFacetSelectors(facetName) {
+async function getFacetSelectors(facetName, constructorArgs = []) {
     // Deploy temporary facet để lấy selectors
     const Facet = await ethers.getContractFactory(facetName);
-    const tempFacet = await Facet.deploy();
-    await tempFacet.waitForDeployment();
+    const tempFacet = await Facet.deploy(...constructorArgs);
+    await tempFacet.deployed();
     
     const selectors = getSelectors(tempFacet);
     console.log(`📋 Found ${selectors.length} function selectors for ${facetName}`);
@@ -39,14 +40,14 @@ async function getFacetSelectors(facetName) {
     return selectors;
 }
 
-async function removeFacet(diamondAddress, facetName) {
+async function removeFacet(diamondAddress, facetName, constructorArgs = []) {
     console.log(`\n🗑️  Removing ${facetName} from diamond...`);
     
     const [owner] = await ethers.getSigners();
     const diamondCut = await ethers.getContractAt("IDiamondCut", diamondAddress);
     
     // Get function selectors của facet cần remove
-    const selectors = await getFacetSelectors(facetName);
+    const selectors = await getFacetSelectors(facetName, constructorArgs);
     
     if (selectors.length === 0) {
         throw new Error(`No function selectors found for ${facetName}`);
@@ -54,13 +55,13 @@ async function removeFacet(diamondAddress, facetName) {
     
     // Prepare cut để remove
     const cut = [{
-        facetAddress: ethers.ZeroAddress,
+        facetAddress: ethers.constants.AddressZero,
         action: FacetCutAction.Remove,
         functionSelectors: selectors
     }];
     
     // Remove facet từ diamond
-    const tx = await diamondCut.diamondCut(cut, ethers.ZeroAddress, "0x");
+    const tx = await diamondCut.diamondCut(cut, ethers.constants.AddressZero, "0x");
     await tx.wait();
     
     console.log(`✅ Successfully removed ${facetName} from diamond`);
@@ -75,7 +76,7 @@ async function addFacet(diamondAddress, facetName, constructorArgs = []) {
     
     // Deploy facet mới
     const facet = await deployFacet(facetName, constructorArgs);
-    const facetAddress = await facet.getAddress();
+    const facetAddress = facet.address;
     
     // Prepare cut để add
     const cut = [{
@@ -85,7 +86,7 @@ async function addFacet(diamondAddress, facetName, constructorArgs = []) {
     }];
     
     // Add facet vào diamond
-    const tx = await diamondCut.diamondCut(cut, ethers.ZeroAddress, "0x");
+    const tx = await diamondCut.diamondCut(cut, ethers.constants.AddressZero, "0x");
     await tx.wait();
     
     console.log(`✅ Successfully added ${facetName} to diamond`);
@@ -173,11 +174,11 @@ async function main() {
     
     try {
         // Step 1: Remove facet cũ
-        await removeFacet(diamondAddress, facetName);
+        await removeFacet(diamondAddress, facetName, constructorArgs);
         
         // Step 2: Deploy và add facet mới
         const newFacet = await addFacet(diamondAddress, facetName, constructorArgs);
-        const newFacetAddress = await newFacet.getAddress();
+        const newFacetAddress = newFacet.address;
         
         // Step 3: Verify contract (optional)
         const shouldVerify = process.env.VERIFY_CONTRACT === 'true';

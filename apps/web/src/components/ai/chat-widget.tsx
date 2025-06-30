@@ -1,7 +1,8 @@
 'use client'
 
 import { useRef, useEffect, useState } from 'react'
-import { MessageCircle, X, Send, User, Sparkles, TrendingUp, Wallet, HelpCircle, Settings, Square, RotateCcw } from 'lucide-react'
+import { MessageCircle, X, Send, User, Sparkles, TrendingUp, Wallet, HelpCircle, Settings, Square, RotateCcw, Sun, Moon } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { useChat } from './chat-provider'
@@ -9,11 +10,11 @@ import { LiliAvatar } from './lili-avatar'
 import ReactMarkdown from 'react-markdown'
 
 // Typing Animation Component (replaces "Lili is thinking...")
-const TypingAnimation = () => (
+const TypingAnimation = ({ isDark }: { isDark: boolean }) => (
   <div className="flex items-center gap-0.5">
-    <div className="w-1 h-1 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-    <div className="w-1 h-1 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-    <div className="w-1 h-1 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+    <div className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-gray-300" : "bg-gray-600")} style={{ animationDelay: '0ms' }}></div>
+    <div className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-gray-300" : "bg-gray-600")} style={{ animationDelay: '150ms' }}></div>
+    <div className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-gray-300" : "bg-gray-600")} style={{ animationDelay: '300ms' }}></div>
   </div>
 )
 
@@ -23,7 +24,8 @@ const TypewriterText: React.FC<{
   speed?: number; 
   onComplete?: () => void;
   isStreaming?: boolean;
-}> = ({ text, speed = 20, onComplete, isStreaming = false }) => {
+  isDark?: boolean;
+}> = ({ text, speed = 20, onComplete, isStreaming = false, isDark = true }) => {
   const [displayedText, setDisplayedText] = useState('')
   const [showCursor, setShowCursor] = useState(false)
   
@@ -96,35 +98,49 @@ const TypewriterText: React.FC<{
   if (isStreaming && !displayedText) {
     return (
       <div className="flex items-center py-1">
-        <TypingAnimation />
+        <TypingAnimation isDark={isDark} />
       </div>
     )
   }
 
+  const textColor = isDark ? 'text-gray-100' : 'text-gray-800'
+  const strongColor = isDark ? 'text-white' : 'text-gray-900'
+  const emColor = isDark ? 'text-gray-200' : 'text-gray-700'
+  const codeColor = isDark ? 'text-orange-200' : 'text-orange-800'
+  const codeBg = isDark ? 'bg-[#ff7842]/20' : 'bg-orange-100'
+  const codeBorder = isDark ? 'border-[#ff7842]/30' : 'border-orange-300'
+  const preBg = isDark ? 'bg-gray-800' : 'bg-gray-100'
+  const preBorder = isDark ? 'border-gray-600' : 'border-gray-300'
+  const preText = isDark ? 'text-gray-200' : 'text-gray-800'
+  const blockquoteBorder = isDark ? 'border-[#ff7842]' : 'border-orange-500'
+  const blockquoteBg = isDark ? 'bg-[#ff7842]/5' : 'bg-orange-50'
+  const blockquoteText = isDark ? 'text-gray-200' : 'text-gray-700'
+  const hrBorder = isDark ? 'border-gray-600' : 'border-gray-300'
+
   return (
-    <div className="prose prose-sm max-w-none text-xs text-gray-100">
+    <div className={cn("prose prose-sm max-w-none text-xs", textColor)}>
       <ReactMarkdown
         components={{
           // Custom styles for markdown elements
-          p: ({ children }) => <p className="mb-2 last:mb-0 text-gray-100">{children}</p>,
-          strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
-          em: ({ children }) => <em className="italic text-gray-200">{children}</em>,
-          ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 text-gray-100">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 text-gray-100">{children}</ol>,
-          li: ({ children }) => <li className="text-xs text-gray-100">{children}</li>,
+          p: ({ children }) => <p className={cn("mb-2 last:mb-0", textColor)}>{children}</p>,
+          strong: ({ children }) => <strong className={cn("font-bold", strongColor)}>{children}</strong>,
+          em: ({ children }) => <em className={cn("italic", emColor)}>{children}</em>,
+          ul: ({ children }) => <ul className={cn("list-disc list-inside mb-2 space-y-1", textColor)}>{children}</ul>,
+          ol: ({ children }) => <ol className={cn("list-decimal list-inside mb-2 space-y-1", textColor)}>{children}</ol>,
+          li: ({ children }) => <li className={cn("text-xs", textColor)}>{children}</li>,
           code: ({ children }) => (
-            <code className="bg-[#ff7842]/20 text-orange-200 px-1.5 py-0.5 rounded text-[11px] font-mono border border-[#ff7842]/30">{children}</code>
+            <code className={cn(codeBg, codeColor, codeBorder, "px-1.5 py-0.5 rounded text-[11px] font-mono border")}>{children}</code>
           ),
           pre: ({ children }) => (
-            <pre className="bg-gray-800 border border-gray-600 p-3 rounded-lg text-[11px] font-mono overflow-x-auto text-gray-200">{children}</pre>
+            <pre className={cn(preBg, preBorder, preText, "border p-3 rounded-lg text-[11px] font-mono overflow-x-auto")}>{children}</pre>
           ),
-          h1: ({ children }) => <h1 className="text-sm font-bold mb-2 text-white">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-sm font-semibold mb-2 text-white">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-xs font-semibold mb-1 text-gray-200">{children}</h3>,
+          h1: ({ children }) => <h1 className={cn("text-sm font-bold mb-2", strongColor)}>{children}</h1>,
+          h2: ({ children }) => <h2 className={cn("text-sm font-semibold mb-2", strongColor)}>{children}</h2>,
+          h3: ({ children }) => <h3 className={cn("text-xs font-semibold mb-1", emColor)}>{children}</h3>,
           blockquote: ({ children }) => (
-            <blockquote className="border-l-3 border-[#ff7842] pl-3 my-2 text-gray-200 bg-[#ff7842]/5 py-1">{children}</blockquote>
+            <blockquote className={cn("border-l-3 pl-3 my-2 py-1", blockquoteBorder, blockquoteBg, blockquoteText)}>{children}</blockquote>
           ),
-          hr: () => <hr className="border-gray-600 my-3" />
+          hr: () => <hr className={cn("my-3", hrBorder)} />
         }}
       >
         {displayedText}
@@ -145,6 +161,16 @@ export function ChatWidget({ className }: ChatWidgetProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [inputValue, setInputValue] = useState('')
+  const { theme, setTheme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  // Wait until mounted to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Get current theme (light/dark) - resolvedTheme handles 'system' automatically
+  const isDarkMode = mounted ? resolvedTheme === 'dark' : true
 
   const scrollToBottom = () => {
     if (messagesEndRef.current) {
@@ -240,29 +266,88 @@ export function ChatWidget({ className }: ChatWidgetProps) {
     })
   }
 
+  // Theme-based class helpers
+  const getThemeClasses = () => {
+    if (isDarkMode) {
+      return {
+        container: 'bg-gray-900/95 border-white/10',
+        header: 'border-white/10 bg-gradient-to-r from-[#ff7842]/10 to-[#ff4d00]/10',
+        headerText: 'text-white',
+        headerSubtext: 'text-gray-400',
+        avatar: 'bg-gradient-to-br from-[#ff7842]/20 to-[#ff4d00]/20 border-[#ff7842]/30',
+        button: 'hover:bg-white/10 text-gray-400',
+        buttonHover: 'group-hover:text-white',
+        welcomeText: 'text-gray-300',
+        suggestion: 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-200 hover:text-white hover:border-[#ff7842]/30',
+        userMessage: 'bg-[#ff7842] text-white',
+        assistantMessage: 'bg-white/5 text-white border-white/10',
+        systemMessage: 'bg-blue-500/20 text-blue-200 border-blue-500/30',
+        typingContainer: 'bg-white/5 text-white border-white/10',
+        input: 'bg-white/5 border-white/10 text-white placeholder-gray-300 focus:ring-2 focus:ring-[#ff7842]/50 focus:border-[#ff7842]/50',
+        inputContainer: 'border-white/10 bg-gray-900/50',
+        stopButton: 'bg-red-500/20 hover:bg-red-500/30 text-red-300',
+        floatingButton: 'bg-gradient-to-br from-[#ff7842] to-[#ff4d00] hover:from-[#ff7842]/90 hover:to-[#ff4d00]/90'
+      }
+    } else {
+      return {
+        container: 'bg-white/95 border-gray-200',
+        header: 'border-gray-200 bg-gradient-to-r from-orange-50 to-orange-100',
+        headerText: 'text-gray-900',
+        headerSubtext: 'text-gray-600',
+        avatar: 'bg-gradient-to-br from-orange-100 to-orange-200 border-orange-300',
+        button: 'hover:bg-gray-100 text-gray-600',
+        buttonHover: 'group-hover:text-gray-900',
+        welcomeText: 'text-gray-700',
+        suggestion: 'bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-700 hover:text-gray-900 hover:border-orange-300',
+        userMessage: 'bg-[#ff7842] text-white',
+        assistantMessage: 'bg-gray-50 text-gray-900 border-gray-200',
+        systemMessage: 'bg-blue-50 text-blue-800 border-blue-200',
+        typingContainer: 'bg-gray-50 text-gray-900 border-gray-200',
+        input: 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-[#ff7842]/50 focus:border-[#ff7842]/50',
+        inputContainer: 'border-gray-200 bg-white/50',
+        stopButton: 'bg-red-50 hover:bg-red-100 text-red-600',
+        floatingButton: 'bg-gradient-to-br from-[#ff7842] to-[#ff4d00] hover:from-[#ff7842]/90 hover:to-[#ff4d00]/90'
+      }
+    }
+  }
+
+  const themeClasses = getThemeClasses()
+
   return (
     <div className={cn("fixed bottom-4 right-4 z-50", className)}>
       {/* Chat Interface */}
       {isOpen && (
-        <div className="mb-4 w-80 sm:w-96 h-[500px] max-h-[80vh] bg-gray-900/95 backdrop-blur-xl 
-                      border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden
-                      animate-in slide-in-from-bottom-2 duration-200">
+        <div className={cn(
+          "mb-4 w-80 sm:w-96 h-[500px] max-h-[80vh] backdrop-blur-xl rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2 duration-200",
+          themeClasses.container
+        )}>
           {/* Header */}
-          <div className="p-4 border-b border-white/10 bg-gradient-to-r from-[#ff7842]/10 to-[#ff4d00]/10">
+          <div className={cn("p-4 border-b", themeClasses.header)}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-[#ff7842]/20 to-[#ff4d00]/20 border border-[#ff7842]/30">
+                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center border", themeClasses.avatar)}>
                   <LiliAvatar size="sm" isAnimated={true} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-medium text-white">Lili</h3>
-                  <p className="text-xs text-gray-400">Your friendly DeFi assistant</p>
+                  <h3 className={cn("text-sm font-medium", themeClasses.headerText)}>Lili</h3>
+                  <p className={cn("text-xs", themeClasses.headerSubtext)}>Your friendly DeFi assistant</p>
                 </div>
               </div>
               <div className="flex items-center gap-1">
                 <button
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  className={cn("p-1 rounded-lg transition-colors group", themeClasses.button)}
+                  title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  {isDarkMode ? (
+                    <Sun className={cn("w-3 h-3", themeClasses.button, themeClasses.buttonHover)} />
+                  ) : (
+                    <Moon className={cn("w-3 h-3", themeClasses.button, themeClasses.buttonHover)} />
+                  )}
+                </button>
+                <button
                   onClick={() => setIsWalkerEnabled(!isWalkerEnabled)}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors group"
+                  className={cn("p-1 rounded-lg transition-colors group", themeClasses.button)}
                   title={isWalkerEnabled ? "Disable Lili walker" : "Enable Lili walker"}
                 >
                   <div className="text-xs">
@@ -271,16 +356,16 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                 </button>
                 <button
                   onClick={startNewConversation}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors group"
+                  className={cn("p-1 rounded-lg transition-colors group", themeClasses.button)}
                   title="Start new conversation"
                 >
-                  <RotateCcw className="w-3 h-3 text-gray-400 group-hover:text-white" />
+                  <RotateCcw className={cn("w-3 h-3", themeClasses.button, themeClasses.buttonHover)} />
                 </button>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+                  className={cn("p-1 rounded-lg transition-colors", themeClasses.button)}
                 >
-                  <X className="w-4 h-4 text-gray-400" />
+                  <X className={cn("w-4 h-4", themeClasses.button)} />
                 </button>
               </div>
             </div>
@@ -294,21 +379,22 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                 <div className="w-16 h-16 mx-auto mb-4">
                   <LiliAvatar size="lg" isAnimated={true} />
                 </div>
-                <p className="text-gray-300 text-xs mb-6">
+                <p className={cn("text-xs mb-6", themeClasses.welcomeText)}>
                   Hi! I'm Lili, your AI assistant for MoonX Farm - a DeFi trading platform with smart wallets, gasless transactions, and automated trading. How can I help you today?
                 </p>
                 
                                  {/* Quick suggestions for first time users */}
                  <div className="space-y-2">
-                   <p className="text-xs text-gray-300 font-medium">Quick suggestions:</p>
+                   <p className={cn("text-xs font-medium", themeClasses.welcomeText)}>Quick suggestions:</p>
                   <div className="grid grid-cols-1 gap-2">
                     {quickSuggestions.map((suggestion, index) => (
                       <button
                         key={index}
                         onClick={() => handleSuggestionClick(suggestion.query, suggestion.context)}
-                        className="flex items-center gap-2 p-2 bg-white/5 hover:bg-white/10 border border-white/10 
-                                 rounded-lg text-xs text-gray-200 hover:text-white transition-all duration-200 
-                                 text-left hover:border-[#ff7842]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className={cn(
+                          "flex items-center gap-2 p-2 border rounded-lg text-xs transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed",
+                          themeClasses.suggestion
+                        )}
                         disabled={isLoading}
                       >
                         <suggestion.icon className="w-3 h-3 text-[#ff7842]" />
@@ -333,8 +419,7 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                   )}
                 >
                   {message.role === 'assistant' && (
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1 
-                                  bg-gradient-to-br from-[#ff7842]/20 to-[#ff4d00]/20 border border-[#ff7842]/30">
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1 border", themeClasses.avatar)}>
                       <LiliAvatar size="xs" isAnimated={true} />
                     </div>
                   )}
@@ -342,10 +427,10 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                     className={cn(
                       "max-w-[80%] p-3 rounded-lg leading-relaxed",
                       message.role === 'user'
-                        ? 'bg-[#ff7842] text-white text-xs'
+                        ? themeClasses.userMessage
                         : message.role === 'system'
-                        ? 'bg-blue-500/20 text-blue-200 border border-blue-500/30 text-xs'
-                        : 'bg-white/5 text-white border border-white/10'
+                        ? cn(themeClasses.systemMessage, "border")
+                        : cn(themeClasses.assistantMessage, "border")
                     )}
                   >
                     {message.role === 'user' ? (
@@ -353,17 +438,20 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                     ) : (
                       // Welcome messages và system messages hiển thị ngay, không cần animation
                       message.id.includes('welcome') || message.role === 'system' ? (
-                        <div className="prose prose-sm max-w-none text-xs text-gray-100">
+                        <div className={cn("prose prose-sm max-w-none text-xs", isDarkMode ? "text-gray-100" : "text-gray-800")}>
                           <ReactMarkdown
                             components={{
-                              p: ({ children }) => <p className="mb-2 last:mb-0 text-gray-100">{children}</p>,
-                              strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
-                              em: ({ children }) => <em className="italic text-gray-200">{children}</em>,
-                              ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 text-gray-100">{children}</ul>,
-                              ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 text-gray-100">{children}</ol>,
-                              li: ({ children }) => <li className="text-xs text-gray-100">{children}</li>,
+                              p: ({ children }) => <p className={cn("mb-2 last:mb-0", isDarkMode ? "text-gray-100" : "text-gray-800")}>{children}</p>,
+                              strong: ({ children }) => <strong className={cn("font-bold", isDarkMode ? "text-white" : "text-gray-900")}>{children}</strong>,
+                              em: ({ children }) => <em className={cn("italic", isDarkMode ? "text-gray-200" : "text-gray-700")}>{children}</em>,
+                              ul: ({ children }) => <ul className={cn("list-disc list-inside mb-2 space-y-1", isDarkMode ? "text-gray-100" : "text-gray-800")}>{children}</ul>,
+                              ol: ({ children }) => <ol className={cn("list-decimal list-inside mb-2 space-y-1", isDarkMode ? "text-gray-100" : "text-gray-800")}>{children}</ol>,
+                              li: ({ children }) => <li className={cn("text-xs", isDarkMode ? "text-gray-100" : "text-gray-800")}>{children}</li>,
                               code: ({ children }) => (
-                                <code className="bg-[#ff7842]/20 text-orange-200 px-1.5 py-0.5 rounded text-[11px] font-mono border border-[#ff7842]/30">{children}</code>
+                                <code className={cn(
+                                  "px-1.5 py-0.5 rounded text-[11px] font-mono border",
+                                  isDarkMode ? "bg-[#ff7842]/20 text-orange-200 border-[#ff7842]/30" : "bg-orange-100 text-orange-800 border-orange-300"
+                                )}>{children}</code>
                               ),
                             }}
                           >
@@ -376,13 +464,14 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                           text={message.content} 
                           isStreaming={isLastAssistantMessage && isLoading}
                           speed={50}
+                          isDark={isDarkMode}
                         />
                       )
                     )}
                   </div>
                   {message.role === 'user' && (
-                    <div className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-                      <User className="w-3 h-3 text-white" />
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1", isDarkMode ? "bg-gray-600" : "bg-gray-300")}>
+                      <User className={cn("w-3 h-3", isDarkMode ? "text-white" : "text-gray-700")} />
                     </div>
                   )}
                 </div>
@@ -401,12 +490,11 @@ export function ChatWidget({ className }: ChatWidgetProps) {
               
               return shouldShowTyping && (
                 <div className="flex gap-2 justify-start animate-in fade-in duration-200">
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 
-                                bg-gradient-to-br from-[#ff7842]/20 to-[#ff4d00]/20 border border-[#ff7842]/30">
+                  <div className={cn("w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 border", themeClasses.avatar)}>
                     <LiliAvatar size="xs" isAnimated={true} />
                   </div>
-                  <div className="bg-white/5 text-white border border-white/10 p-3 rounded-lg min-h-[32px] flex items-center">
-                    <TypingAnimation />
+                  <div className={cn("p-3 rounded-lg min-h-[32px] flex items-center border", themeClasses.typingContainer)}>
+                    <TypingAnimation isDark={isDarkMode} />
                   </div>
                 </div>
               )
@@ -415,15 +503,16 @@ export function ChatWidget({ className }: ChatWidgetProps) {
             {/* Quick Suggestions (only show if this is the first conversation) */}
             {messages.length === 1 && !isLoading && (
               <div className="space-y-2 animate-in fade-in duration-500 delay-300">
-                <p className="text-xs text-gray-300 font-medium">Quick suggestions:</p>
+                <p className={cn("text-xs font-medium", themeClasses.welcomeText)}>Quick suggestions:</p>
                 <div className="grid grid-cols-1 gap-2">
                   {quickSuggestions.map((suggestion, index) => (
                     <button
                       key={index}
                       onClick={() => handleSuggestionClick(suggestion.query, suggestion.context)}
-                      className="flex items-center gap-2 p-2 bg-white/5 hover:bg-white/10 border border-white/10 
-                               rounded-lg text-xs text-gray-200 hover:text-white transition-all duration-200 
-                               text-left hover:border-[#ff7842]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className={cn(
+                        "flex items-center gap-2 p-2 border rounded-lg text-xs transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed",
+                        themeClasses.suggestion
+                      )}
                       disabled={isLoading}
                     >
                       <suggestion.icon className="w-3 h-3 text-[#ff7842]" />
@@ -438,14 +527,16 @@ export function ChatWidget({ className }: ChatWidgetProps) {
           </div>
 
           {/* Input */}
-          <div className="p-4 border-t border-white/10 bg-gray-900/50">
+          <div className={cn("p-4 border-t", themeClasses.inputContainer)}>
             {/* Status bar - chỉ hiện khi cần */}
             {isLoading && (
               <div className="mb-2 flex justify-end">
                 <button
                   onClick={stopGeneration}
-                  className="flex items-center gap-1 px-2 py-1 bg-red-500/20 hover:bg-red-500/30 
-                           text-red-300 rounded text-xs transition-colors"
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
+                    themeClasses.stopButton
+                  )}
                   title="Stop generation"
                 >
                   <Square className="w-3 h-3" />
@@ -462,9 +553,10 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Ask me anything about trading..."
-                className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white 
-                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-[#ff7842]/50 
-                         focus:border-[#ff7842]/50 text-xs transition-all duration-200"
+                className={cn(
+                  "flex-1 px-3 py-2 border rounded-lg focus:outline-none text-xs transition-all duration-200",
+                  themeClasses.input
+                )}
                 disabled={isLoading}
               />
               <button
@@ -484,15 +576,17 @@ export function ChatWidget({ className }: ChatWidgetProps) {
       {/* Floating Action Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-14 h-14 bg-gradient-to-br from-[#ff7842] to-[#ff4d00] hover:from-[#ff7842]/90 
-                 hover:to-[#ff4d00]/90 text-white rounded-full shadow-lg hover:shadow-xl 
-                 transition-all duration-200 flex items-center justify-center group
-                 hover:scale-105 active:scale-95"
+        className={cn(
+          "w-14 h-14 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center group hover:scale-105 active:scale-95",
+          themeClasses.floatingButton
+        )}
       >
         <LiliAvatar size="lg" isAnimated={true} className="group-hover:scale-110 transition-transform duration-200" />
         {/* Online indicator */}
-        <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-900 
-                      animate-pulse"></div>
+        <div className={cn(
+          "absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 animate-pulse",
+          isDarkMode ? "border-gray-900" : "border-white"
+        )}></div>
       </button>
 
       {/* Mobile positioning adjustments & animations */}

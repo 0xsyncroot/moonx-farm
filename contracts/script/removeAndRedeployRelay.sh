@@ -4,9 +4,9 @@
 # Chỉ cần sửa các biến bên dưới
 
 # ===== CONFIGURATION - SỬA CÁC GIÁ TRỊ NÀY =====
-NETWORK="localhost"                    # Network: localhost, sepolia, mainnet
-DIAMOND_ADDRESS="0x5FbDB2315678afecb367f032d93F642f64180aa3"  # Địa chỉ diamond
-RELAY_AGGREGATOR_ADDRESS="0x1234567890123456789012345678901234567890"  # Địa chỉ relay aggregator
+NETWORK="bsc"                    # Network: localhost, sepolia, mainnet
+DIAMOND_ADDRESS="0x5a96aC4B19E039cBc40cB6eB736069041BaABCC2"  # Địa chỉ diamond
+RELAY_AGGREGATOR_ADDRESS="0xa5F565650890fBA1824Ee0F21EbBbF660a179934"  # Địa chỉ relay aggregator
 VERIFY="false"                         # Verify contract: true/false
 # ==============================================
 
