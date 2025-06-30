@@ -209,6 +209,8 @@ export function TokenSelector({
   const [apiError, setApiError] = useState<Error | null>(null)
   const [isMounted, setIsMounted] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const loadingRef = useRef(false)
+  const hasLoadedRef = useRef(false)
   
   const isTestnet = useTestnetMode()
 
@@ -232,38 +234,57 @@ export function TokenSelector({
     loadPopularTokens,
   } = useTokens()
 
+  const loadPopularTokensRef = useRef(loadPopularTokens)
+
+  // ✅ UPDATE: Keep ref in sync with latest function
+  useEffect(() => {
+    loadPopularTokensRef.current = loadPopularTokens
+  }, [loadPopularTokens])
+
   // Load popular tokens when modal opens - FIXED for performance
   const loadTokensOnOpen = useCallback(async () => {
-    // Prevent multiple loads - check all conditions upfront
-    if (!isOpen || searchHasQuery || apiTokens.length > 0 || apiLoading) {
+    // ✅ FIXED: Use refs to prevent multiple loads
+    if (!isOpen || searchHasQuery || apiTokens.length > 0 || loadingRef.current || hasLoadedRef.current) {
       return
     }
     
+    loadingRef.current = true
     setApiLoading(true)
     setApiError(null)
     
     try {
-      const result = await loadPopularTokens()
+      const result = await loadPopularTokensRef.current()
       if (result?.tokens) {
         setApiTokens(result.tokens)
+        hasLoadedRef.current = true // ✅ MARK: We've successfully loaded tokens
       }
     } catch (error) {
       console.error('❌ [Modal] Load failed:', error)
       setApiError(error instanceof Error ? error : new Error('Failed to load tokens'))
     } finally {
+      loadingRef.current = false
       setApiLoading(false)
     }
-  }, [isOpen, searchHasQuery, apiTokens.length, apiLoading, loadPopularTokens])
+  }, [isOpen, searchHasQuery, apiTokens.length]) // ✅ FIXED: Simplified deps
 
   // Trigger load when modal opens - OPTIMIZED to prevent re-triggers
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      // ✅ RESET: Clear flags when modal closes
+      hasLoadedRef.current = false
+      return
+    }
     
-    // Only load if we don't have tokens and not currently loading
-    if (apiTokens.length === 0 && !apiLoading && !searchHasQuery) {
+    // ✅ FIXED: Use refs for better state management
+    if (apiTokens.length === 0 && !loadingRef.current && !hasLoadedRef.current && !searchHasQuery) {
       loadTokensOnOpen()
     }
-  }, [isOpen, apiTokens.length, apiLoading, searchHasQuery]) // Removed loadTokensOnOpen to prevent loops
+    
+    // ✅ CLEANUP: Handle component unmounting
+    return () => {
+      loadingRef.current = false
+    }
+  }, [isOpen, searchHasQuery, loadTokensOnOpen]) // ✅ FIXED: Simplified deps
 
   // Auto-focus search when opened - OPTIMIZED
   useEffect(() => {
