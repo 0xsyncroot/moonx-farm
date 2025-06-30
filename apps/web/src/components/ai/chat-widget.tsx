@@ -25,48 +25,85 @@ const TypewriterText: React.FC<{
   isStreaming?: boolean;
 }> = ({ text, speed = 50, onComplete, isStreaming = false }) => {
   const [displayedText, setDisplayedText] = useState('')
-  const [showCursor, setShowCursor] = useState(true)
-  const [isAnimating, setIsAnimating] = useState(false)
+  const [showCursor, setShowCursor] = useState(false)
   
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastTextRef = useRef('')
+  const wasStreamingRef = useRef(false)
+  const isTypingRef = useRef(false)
+
   useEffect(() => {
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+
     if (!text) {
       setDisplayedText('')
       setShowCursor(false)
-      setIsAnimating(false)
+      lastTextRef.current = ''
+      wasStreamingRef.current = false
+      isTypingRef.current = false
       return
     }
 
-    // Nếu đang streaming, hiển thị text ngay lập tức
+    // Currently streaming - show text immediately
     if (isStreaming) {
       setDisplayedText(text)
       setShowCursor(true)
-      setIsAnimating(false)
+      lastTextRef.current = text
+      wasStreamingRef.current = true
+      isTypingRef.current = false
       return
     }
 
-    // Nếu không streaming và chưa animate, bắt đầu typing animation
-    if (!isStreaming && !isAnimating) {
-      setIsAnimating(true)
+    // Just finished streaming - keep text, hide cursor
+    if (!isStreaming && wasStreamingRef.current) {
+      setDisplayedText(text)
+      setShowCursor(false)
+      wasStreamingRef.current = false
+      isTypingRef.current = false
+      onComplete?.()
+      return
+    }
+
+    // New message - start typing animation
+    if (!isStreaming && !isTypingRef.current && text !== lastTextRef.current) {
       setDisplayedText('')
       setShowCursor(true)
+      lastTextRef.current = text
+      isTypingRef.current = true
       
-      let currentIndex = 0
-      
-      const interval = setInterval(() => {
-        if (currentIndex < text.length) {
-          currentIndex++
-          setDisplayedText(text.slice(0, currentIndex))
-        } else {
-          clearInterval(interval)
-          setIsAnimating(false)
+      let charIndex = 0
+      intervalRef.current = setInterval(() => {
+        charIndex++
+        setDisplayedText(text.slice(0, charIndex))
+        
+        if (charIndex >= text.length) {
+          clearInterval(intervalRef.current!)
+          intervalRef.current = null
           setShowCursor(false)
+          isTypingRef.current = false
           onComplete?.()
         }
       }, speed)
-      
-      return () => clearInterval(interval)
     }
-  }, [text, isStreaming, speed, onComplete, isAnimating])
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [text, isStreaming, speed])
+
+  // Reset typing flag for new messages
+  useEffect(() => {
+    if (text && text !== lastTextRef.current && !isStreaming) {
+      isTypingRef.current = false
+    }
+  }, [text, isStreaming])
 
   // If streaming and no text yet, show typing animation instead of empty markdown
   if (isStreaming && !displayedText) {
