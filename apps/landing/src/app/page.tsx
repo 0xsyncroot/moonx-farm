@@ -562,7 +562,7 @@ export default function LandingPage() {
               <CardContent className="p-6 sm:p-8">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-6 rounded-2xl overflow-hidden shadow-lg shadow-purple-500/25">
                   <Image
-                    src="/images/dthieu.jpg"
+                    src="/images/dthieu-n.png"
                     alt="Trung Hieu"
                     width={96}
                     height={96}
