@@ -57,19 +57,47 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+  
+  /* Improved mobile viewport handling */
+  html {
+    scroll-behavior: smooth;
+    /* Prevent horizontal scroll on mobile */
+    overflow-x: hidden;
+  }
+  
+  body {
+    /* Prevent horizontal scroll on mobile */
+    overflow-x: hidden;
+  }
 }
 
 @layer components {
-  /* Jupiter-inspired glass morphism */
+  /* Responsive container utility */
+  .container-responsive {
+    @apply container mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Jupiter-inspired glass morphism - responsive */
   .glass {
     @apply bg-white/10 backdrop-blur-md border border-white/20;
+    /* Better performance on mobile */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
   
   .glass-dark {
     @apply dark:bg-black/10 dark:backdrop-blur-md dark:border-white/10;
   }
 
-  /* Custom gradients */
+  /* Mobile-optimized glass */
+  .glass-mobile {
+    @apply glass;
+    /* Reduced blur for better mobile performance */
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  /* Custom gradients - responsive */
   .gradient-primary {
     background: linear-gradient(135deg, rgba(255, 120, 66, 0.6) 0%, rgba(255, 120, 66, 0.3) 100%);
   }
@@ -78,16 +106,34 @@
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
   }
 
-  /* Animation utilities */
+  /* Animation utilities - performance optimized */
   .animate-float {
     animation: float 3s ease-in-out infinite;
+    /* Hardware acceleration */
+    transform: translateZ(0);
+    will-change: transform;
   }
 
-  /* Jupiter-inspired button styles */
+  /* Disable heavy animations on mobile for better performance */
+  @media (max-width: 768px) {
+    .animate-float {
+      animation: none;
+    }
+    
+    .floating-orb {
+      display: none;
+    }
+  }
+
+  /* Jupiter-inspired button styles - responsive */
   .btn-jupiter {
-    @apply relative px-6 py-3 text-white font-medium rounded-lg transition-all duration-200;
+    @apply relative px-4 py-2 sm:px-6 sm:py-3 text-white font-medium rounded-lg transition-all duration-200;
+    @apply text-sm sm:text-base;
     background: linear-gradient(135deg, rgba(255, 120, 66, 0.8) 0%, rgba(255, 120, 66, 0.6) 100%);
     box-shadow: 0 4px 20px rgba(255, 120, 66, 0.3);
+    /* Hardware acceleration */
+    transform: translateZ(0);
+    will-change: transform;
   }
 
   .btn-jupiter:hover {
@@ -105,32 +151,101 @@
     box-shadow: none;
   }
 
-  /* Landing page specific styles */
+  /* Mobile-optimized button */
+  @media (max-width: 640px) {
+    .btn-jupiter {
+      @apply w-full justify-center;
+    }
+  }
+
+  /* Landing page specific styles - responsive */
   .hero-gradient {
     background: linear-gradient(135deg, rgba(255, 120, 66, 0.1) 0%, rgba(255, 120, 66, 0.05) 100%);
   }
 
   .feature-card {
-    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-6 transition-all duration-300;
-    @apply hover:bg-white/10 hover:border-white/20 hover:scale-105;
+    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-xl transition-all duration-300;
+    @apply p-4 sm:p-6;
+    @apply hover:bg-white/10 hover:border-white/20;
+    /* Hardware acceleration */
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  /* Mobile-specific feature card */
+  @media (max-width: 768px) {
+    .feature-card {
+      @apply hover:scale-100; /* Disable scale on mobile */
+    }
+  }
+
+  @media (min-width: 769px) {
+    .feature-card:hover {
+      @apply scale-105;
+    }
   }
 
   .floating-orb {
     @apply absolute rounded-full blur-3xl animate-float;
+    /* Hardware acceleration */
+    transform: translateZ(0);
+    will-change: transform;
   }
 
   .text-gradient {
     @apply bg-gradient-to-r from-orange-400 to-orange-300 bg-clip-text text-transparent;
   }
 
-  /* Smooth scroll */
-  html {
-    scroll-behavior: smooth;
+  /* Responsive typography utilities */
+  .heading-responsive {
+    @apply text-2xl xs:text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl;
+    @apply leading-tight;
   }
 
-  /* Custom scrollbar */
+  .subheading-responsive {
+    @apply text-lg xs:text-xl sm:text-2xl md:text-3xl lg:text-4xl;
+    @apply leading-relaxed;
+  }
+
+  .body-responsive {
+    @apply text-sm xs:text-base sm:text-lg md:text-xl;
+    @apply leading-relaxed;
+  }
+
+  /* Navigation responsive styles */
+  .nav-responsive {
+    @apply px-4 sm:px-6 lg:px-8;
+    @apply py-3 sm:py-4;
+  }
+
+  /* Hero section responsive spacing */
+  .hero-spacing {
+    @apply px-4 sm:px-6 lg:px-8;
+    @apply py-12 sm:py-16 md:py-20 lg:py-24 xl:py-28;
+  }
+
+  /* Section spacing responsive */
+  .section-spacing {
+    @apply px-4 sm:px-6 lg:px-8;
+    @apply py-12 sm:py-16 md:py-20;
+  }
+
+  /* Grid responsive utilities */
+  .grid-responsive-2 {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 lg:gap-8;
+  }
+
+  .grid-responsive-3 {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8;
+  }
+
+  .grid-responsive-4 {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8;
+  }
+
+  /* Custom scrollbar - responsive */
   ::-webkit-scrollbar {
-    width: 6px;
+    @apply w-1 sm:w-1.5;
   }
 
   ::-webkit-scrollbar-track {
@@ -143,5 +258,48 @@
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-orange-500/80;
+  }
+
+  /* Mobile menu styles */
+  .mobile-menu {
+    @apply fixed inset-x-0 top-0 z-50 bg-gray-900/95 backdrop-blur-md;
+    @apply transform transition-transform duration-300 ease-in-out;
+  }
+
+  .mobile-menu.open {
+    @apply translate-y-0;
+  }
+
+  .mobile-menu.closed {
+    @apply -translate-y-full;
+  }
+
+  /* Improved mobile touch targets */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
+
+  /* Safe area handling for mobile */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Performance optimizations */
+  .will-change-transform {
+    will-change: transform;
+  }
+
+  .will-change-opacity {
+    will-change: opacity;
+  }
+
+  .gpu-accelerated {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
   }
 } 
