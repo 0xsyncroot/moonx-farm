@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 
 const logger = createLogger('auth-middleware');
 

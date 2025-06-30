@@ -9,7 +9,7 @@ MoonXFarm DEX sử dụng shared packages architecture để tối ưu code reus
 ### Current Structure
 ```
 moonx-farm/
-├── configs/                    # @moonx/configs (Centralized Configuration)
+├── configs/                    # @moonx-farm/configs (Centralized Configuration)
 ├── packages/
 │   ├── common/                # @moonx/common (Utilities & Types)  
 │   ├── api-client/            # @moonx/api-client (API SDK)
@@ -21,7 +21,7 @@ moonx-farm/
 
 ### Package Dependencies
 ```
-@moonx/configs (profile-based config loading)
+@moonx-farm/configs (profile-based config loading)
     ↑
 @moonx/common (utilities, types, logging)
     ↑
@@ -32,7 +32,7 @@ Services & Apps (business logic)
 
 ## Package Descriptions
 
-### 1. @moonx/configs
+### 1. @moonx-farm/configs
 **Location**: `/configs`  
 **Purpose**: Centralized configuration management với profile-based loading  
 **Key Features**:
@@ -63,7 +63,7 @@ Services & Apps (business logic)
 
 ### 4. packages/infrastructure (Legacy)
 **Location**: `/packages/infrastructure`  
-**Status**: Deprecated - being replaced by @moonx/configs  
+**Status**: Deprecated - being replaced by @moonx-farm/configs  
 **Migration**: Functionality moved to configs package
 
 ## Design Principles
@@ -74,7 +74,7 @@ Services & Apps (business logic)
 - Clear boundaries giữa các packages
 
 ### 2. Dependency Management
-- @moonx/configs là foundation layer
+- @moonx-farm/configs là foundation layer
 - @moonx/common builds on configs
 - Services depend on both configs và common
 
@@ -85,7 +85,7 @@ Services & Apps (business logic)
 
 ### 4. Zero External Dependencies (where possible)
 - @moonx/common có minimal external deps
-- @moonx/configs chỉ depend on Zod
+- @moonx-farm/configs chỉ depend on Zod
 - Giảm bundle size và security risks
 
 ## Usage Patterns
@@ -93,24 +93,24 @@ Services & Apps (business logic)
 ### Configuration Loading
 ```typescript
 // Service-specific config
-import { createAuthServiceConfig } from '@moonx/configs';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
 const config = createAuthServiceConfig();
 
 // Utility functions
-import { getDatabaseConfig } from '@moonx/configs';
+import { getDatabaseConfig } from '@moonx-farm/configs';
 const dbConfig = getDatabaseConfig('auth-service');
 ```
 
 ### Common Utilities
 ```typescript
 // Types và utilities
-import { formatTokenAmount, ChainId, TokenInfo } from '@moonx/common';
+import { formatTokenAmount, ChainId, TokenInfo } from '@moonx-farm/common';
 
 // Error handling
-import { BadRequestError, ValidationError } from '@moonx/common';
+import { BadRequestError, ValidationError } from '@moonx-farm/common';
 
 // Logging
-import { createLogger } from '@moonx/common';
+import { createLogger } from '@moonx-farm/common';
 const logger = createLogger('service-name');
 ```
 
@@ -154,8 +154,8 @@ cd packages/common && npm test
 
 ## Migration Guide
 
-### From packages/infrastructure to @moonx/configs
-1. Update imports: `@moonx/infrastructure` → `@moonx/configs`
+### From packages/infrastructure to @moonx-farm/configs
+1. Update imports: `@moonx/infrastructure` → `@moonx-farm/configs`
 2. Use profile-based loading instead of direct imports
 3. Update configuration schemas
 4. Test service startup với new config system

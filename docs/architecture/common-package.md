@@ -707,10 +707,10 @@ export function expectValidOrder(order: any): asserts order is Order {
 ### Example Usage
 ```typescript
 // ✅ Good: Specific imports
-import { formatTokenAmount, truncateAddress, retry } from '@moonx/common';
+import { formatTokenAmount, truncateAddress, retry } from '@moonx-farm/common';
 
 // ❌ Bad: Barrel imports
-import * as common from '@moonx/common';
+import * as common from '@moonx-farm/common';
 
 // ✅ Good: Structured error handling
 try {

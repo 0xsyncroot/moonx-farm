@@ -49,7 +49,7 @@ Overall: 95% Complete - Production Ready
 ### **🟢 Shared Packages (90%)**
 | Package | Status | Progress | Notes |
 |---------|--------|----------|-------|
-| `@moonx/configs` | ✅ Complete | 100% | Generic config manager, Zod validation, profile-based loading với core-service support |
+| `@moonx-farm/configs` | ✅ Complete | 100% | Generic config manager, Zod validation, profile-based loading với core-service support |
 | `@moonx/common` | ✅ Complete | 100% | Types, centralized logging, validation schemas, error handling |
 | `@moonx/infrastructure` | ✅ Complete | 100% | Database, Redis, Kafka connection managers |
 | `@moonx/api-client` | 🔴 Not Started | 0% | SDK cho internal API calls |
@@ -236,7 +236,7 @@ Overall: 95% Complete - Production Ready
 - **TypeScript Production Fixes**:
   - Fixed all TypeScript errors across Core Service
   - Proper null checking và optional property handling
-  - Type-safe configuration với @moonx/configs integration
+  - Type-safe configuration với @moonx-farm/configs integration
 
 - **Database Schema Optimization**:
   - Complete database migrations với comprehensive indexes

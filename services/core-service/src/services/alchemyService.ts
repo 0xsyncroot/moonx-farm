@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getApiKeys } from '@moonx/configs';
+import { getApiKeys } from '@moonx-farm/configs';
 import { TokenHolding } from '../types';
 
 interface AlchemyTokenBalance {
@@ -45,13 +45,13 @@ export class AlchemyService {
   private timeout: number = 10000;
 
   constructor() {
-    // Get API keys from @moonx/configs
+    // Get API keys from @moonx-farm/configs
     const apiKeys = getApiKeys('core-service');
     this.apiKey = apiKeys.alchemy || '';
     this.baseUrl = 'https://api.alchemy.com/v2';
     
     if (!this.apiKey) {
-      throw new Error('ALCHEMY_API_KEY configuration is required - check @moonx/configs');
+      throw new Error('ALCHEMY_API_KEY configuration is required - check @moonx-farm/configs');
     }
     
     // Supported chains mapping - extended for production

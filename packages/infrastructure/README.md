@@ -11,16 +11,16 @@ This package provides infrastructure clients and managers for:
 
 ## ⚠️ Important: Package Name Change
 
-This package was previously named `@moonx/config` which caused confusion with the configuration management package `@moonx/configs`. 
+This package was previously named `@moonx/config` which caused confusion with the configuration management package `@moonx-farm/configs`. 
 
 **The package has been renamed to `@moonx/infrastructure` to better reflect its purpose.**
 
-## Difference from @moonx/configs
+## Difference from @moonx-farm/configs
 
 | Package | Purpose | What it provides |
 |---------|---------|------------------|
 | `@moonx/infrastructure` | **Infrastructure Clients** | Database, Redis, Kafka connection managers and clients |
-| `@moonx/configs` | **Configuration Management** | Environment variables, profiles, validation, utilities |
+| `@moonx-farm/configs` | **Configuration Management** | Environment variables, profiles, validation, utilities |
 
 ## Features
 
@@ -110,7 +110,7 @@ DB_ENABLE_QUERY_LOGGING=true
 ### Database Manager
 
 ```typescript
-import { DatabaseManager, createDatabase } from '@moonx/infrastructure';
+import { DatabaseManager, createDatabase } from '@moonx-farm/infrastructure';
 
 // Create database manager
 const db = createDatabase({
@@ -129,7 +129,7 @@ const result = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
 ### Redis Manager
 
 ```typescript
-import { RedisManager, createRedis } from '@moonx/infrastructure';
+import { RedisManager, createRedis } from '@moonx-farm/infrastructure';
 
 // Create Redis manager
 const redis = createRedis({
@@ -147,7 +147,7 @@ const user = await redis.get('user:123');
 ### Kafka Manager
 
 ```typescript
-import { KafkaManager, createKafka } from '@moonx/infrastructure';
+import { KafkaManager, createKafka } from '@moonx-farm/infrastructure';
 
 // Create Kafka manager
 const kafka = createKafka({
@@ -175,15 +175,15 @@ await kafka.subscribe(
 );
 ```
 
-## Integration with @moonx/configs
+## Integration with @moonx-farm/configs
 
 You can use both packages together:
 
 ```typescript
-import { createConfig } from '@moonx/configs';
-import { createDatabase, createRedis, createKafka } from '@moonx/infrastructure';
+import { createConfig } from '@moonx-farm/configs';
+import { createDatabase, createRedis, createKafka } from '@moonx-farm/infrastructure';
 
-// Get configuration from @moonx/configs
+// Get configuration from @moonx-farm/configs
 const config = createConfig('auth-service');
 
 // Create infrastructure clients using config
@@ -216,7 +216,7 @@ If you were using the old `@moonx/config` package:
 import { DatabaseManager } from '@moonx/config';
 
 // New import
-import { DatabaseManager } from '@moonx/infrastructure';
+import { DatabaseManager } from '@moonx-farm/infrastructure';
 ```
 
 ## Benefits

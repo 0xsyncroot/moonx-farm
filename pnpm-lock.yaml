@@ -26,10 +26,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@moonx/common':
+      '@moonx-farm/common':
         specifier: workspace:*
         version: link:../../packages/common
-      '@moonx/configs':
+      '@moonx-farm/configs':
         specifier: workspace:*
         version: link:../../configs
       '@privy-io/react-auth':
@@ -254,7 +254,7 @@ importers:
 
   packages/common:
     dependencies:
-      '@moonx/configs':
+      '@moonx-farm/configs':
         specifier: workspace:*
         version: link:../../configs
       ethers:
@@ -297,10 +297,10 @@ importers:
 
   packages/infrastructure:
     dependencies:
-      '@moonx/common':
+      '@moonx-farm/common':
         specifier: workspace:*
         version: link:../common
-      '@moonx/configs':
+      '@moonx-farm/configs':
         specifier: workspace:*
         version: link:../../configs
       ioredis:
@@ -364,13 +364,13 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^5.2.3
         version: 5.2.3
-      '@moonx/common':
+      '@moonx-farm/common':
         specifier: workspace:*
         version: link:../../packages/common
-      '@moonx/configs':
+      '@moonx-farm/configs':
         specifier: workspace:*
         version: link:../../configs
-      '@moonx/infrastructure':
+      '@moonx-farm/infrastructure':
         specifier: workspace:*
         version: link:../../packages/infrastructure
       '@privy-io/server-auth':
@@ -467,13 +467,13 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^5.0.0
         version: 5.2.3
-      '@moonx/common':
+      '@moonx-farm/common':
         specifier: workspace:*
         version: link:../../packages/common
-      '@moonx/configs':
+      '@moonx-farm/configs':
         specifier: workspace:*
         version: link:../../configs
-      '@moonx/infrastructure':
+      '@moonx-farm/infrastructure':
         specifier: workspace:*
         version: link:../../packages/infrastructure
       axios:
@@ -546,13 +546,13 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^5.0.1
         version: 5.2.3
-      '@moonx/common':
+      '@moonx-farm/common':
         specifier: workspace:*
         version: link:../../packages/common
-      '@moonx/configs':
+      '@moonx-farm/configs':
         specifier: workspace:*
         version: link:../../configs
-      '@moonx/infrastructure':
+      '@moonx-farm/infrastructure':
         specifier: workspace:*
         version: link:../../packages/infrastructure
       '@zerodev/ecdsa-validator':
@@ -9073,7 +9073,7 @@ snapshots:
   '@eslint/eslintrc@2.1.4':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1
       espree: 9.6.1
       globals: 13.24.0
       ignore: 5.3.2
@@ -9726,7 +9726,7 @@ snapshots:
   '@humanwhocodes/config-array@0.13.0':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -14058,6 +14058,10 @@ snapshots:
     dependencies:
       ms: 2.1.3
 
+  debug@4.4.1:
+    dependencies:
+      ms: 2.1.3
+
   debug@4.4.1(supports-color@8.1.1):
     dependencies:
       ms: 2.1.3
@@ -14450,7 +14454,7 @@ snapshots:
       eslint: 8.57.1
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint@8.57.1))(eslint@8.57.1)
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
       eslint-plugin-jsx-a11y: 6.10.2(eslint@8.57.1)
       eslint-plugin-react: 7.37.5(eslint@8.57.1)
       eslint-plugin-react-hooks: 5.0.0-canary-7118f5dd7-20230705(eslint@8.57.1)
@@ -14480,7 +14484,7 @@ snapshots:
       tinyglobby: 0.2.14
       unrs-resolver: 1.9.2
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -14495,7 +14499,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.8.3))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -14596,7 +14600,7 @@ snapshots:
       ajv: 6.12.6
       chalk: 4.1.2
       cross-spawn: 7.0.6
-      debug: 4.4.1(supports-color@8.1.1)
+      debug: 4.4.1
       doctrine: 3.0.0
       escape-string-regexp: 4.0.0
       eslint-scope: 7.2.2

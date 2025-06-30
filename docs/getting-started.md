@@ -155,7 +155,7 @@ cd services/core-service
 npm run dev
 ```
 - Fastify v5 framework
-- @moonx/configs integration
+- @moonx-farm/configs integration
 - PostgreSQL + Redis
 - OpenAPI documentation
 

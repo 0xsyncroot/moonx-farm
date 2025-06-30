@@ -1,8 +1,8 @@
-# Logger Integration with @moonx/configs
+# Logger Integration with @moonx-farm/configs
 
 ## Overview
 
-The logger system in `@moonx/common` has been integrated with the centralized configuration system in `@moonx/configs` to provide profile-based logging configuration.
+The logger system in `@moonx/common` has been integrated with the centralized configuration system in `@moonx-farm/configs` to provide profile-based logging configuration.
 
 ## What's Been Implemented
 
@@ -68,7 +68,7 @@ export function getLoggerConfig() {
 #### New Functions:
 
 1. **`createLoggerForProfile(profile, level?)`** - Creates logger using profile configuration
-2. **`getLoggerConfigFromConfigs()`** - Gets config from @moonx/configs with fallback
+2. **`getLoggerConfigFromConfigs()`** - Gets config from @moonx-farm/configs with fallback
 3. **Enhanced `createLogger()`** - Now tries to use profile config first
 
 #### Features:
@@ -84,7 +84,7 @@ export function getLoggerConfig() {
 ### Type-Safe Usage (Recommended)
 
 ```typescript
-import { createLoggerForService, createLoggerForProfile, ConfigProfile } from '@moonx/common';
+import { createLoggerForService, createLoggerForProfile, ConfigProfile } from '@moonx-farm/common';
 
 // Type-safe service logger creation
 const authLogger = createLoggerForService('auth-service');
@@ -100,7 +100,7 @@ const fullLogger = createLoggerForProfile('full');
 ### Flexible Usage (Any Service Name)
 
 ```typescript
-import { createLoggerForAnyService, createLogger } from '@moonx/common';
+import { createLoggerForAnyService, createLogger } from '@moonx-farm/common';
 
 // Any service name (uses environment variables)
 const customLogger = createLoggerForAnyService('my-custom-service');
@@ -113,7 +113,7 @@ const logger = createLogger('auth-service');
 ### Custom Configuration
 
 ```typescript
-import { createLoggerWithConfig, LoggerConfig } from '@moonx/common';
+import { createLoggerWithConfig, LoggerConfig } from '@moonx-farm/common';
 
 const config: LoggerConfig = {
   level: 'debug',
@@ -152,7 +152,7 @@ userLogger.info('User action performed', { action: 'login' });
 2. **Profile-Based**: Different settings per service
 3. **Environment-Aware**: Automatic configuration based on environment
 4. **Type Safety**: Full TypeScript and Zod validation
-5. **Fallback Support**: Works even without @moonx/configs
+5. **Fallback Support**: Works even without @moonx-farm/configs
 6. **Flexible**: Supports both simple and advanced use cases
 
 ## Migration Guide

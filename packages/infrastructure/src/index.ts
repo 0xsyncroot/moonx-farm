@@ -7,7 +7,7 @@
  * - KafkaManager: Kafka messaging and event streaming
  * 
  * Note: This is NOT the configuration management package.
- * For configuration management, use @moonx/configs instead.
+ * For configuration management, use @moonx-farm/configs instead.
  */
 
 export * from './database';

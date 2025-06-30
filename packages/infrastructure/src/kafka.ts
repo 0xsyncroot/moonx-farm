@@ -1,5 +1,5 @@
 import { Kafka, KafkaConfig, Producer, Consumer, ConsumerConfig, ProducerConfig } from 'kafkajs';
-import { createLogger, ServiceUnavailableError, generateId } from '@moonx/common';
+import { createLogger, ServiceUnavailableError, generateId } from '@moonx-farm/common';
 
 const logger = createLogger('kafka');
 

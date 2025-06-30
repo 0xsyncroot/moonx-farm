@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Test script to demonstrate logger configuration from @moonx/configs
+ * Test script to demonstrate logger configuration from @moonx-farm/configs
  */
 
 // Note: This is a demonstration file. In a real project, you would import from @moonx/common
-// import { createLogger, createLoggerForProfile, createLoggerWithConfig, LoggerConfig } from '@moonx/common';
+// import { createLogger, createLoggerForProfile, createLoggerWithConfig, LoggerConfig } from '@moonx-farm/common';
 
 console.log('=== Logger Configuration Test ===\n');
 

@@ -182,7 +182,7 @@
 - ✅ Structured logging với winston integration
 
 #### **Configuration Integration**
-- ✅ Complete `@moonx/configs` integration với core-service profile
+- ✅ Complete `@moonx-farm/configs` integration với core-service profile
 - ✅ Profile-based loading: database, Redis, JWT, external APIs
 - ✅ Environment-based configuration với proper validation
 - ✅ Port configuration: Core Service on 3007 (configured in configs)
@@ -363,7 +363,7 @@ Core Services Running:
   - Frontend: Port 3000 ✅
 
 Database Schema: ✅ Complete
-Configuration: ✅ @moonx/configs integrated
+Configuration: ✅ @moonx-farm/configs integrated
 Environment: ✅ 300+ variables configured
 ```
 
@@ -387,7 +387,7 @@ Environment: ✅ 300+ variables configured
 - ✅ Database schema với comprehensive indexes
 - ✅ ApiResponse standardization
 - ✅ TypeScript production fixes
-- ✅ Configuration integration với @moonx/configs
+- ✅ Configuration integration với @moonx-farm/configs
 
 #### **Quality Improvements**
 - ✅ Enterprise-grade error handling

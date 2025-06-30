@@ -1,4 +1,4 @@
-import { DatabaseManager, RedisManager } from '@moonx/infrastructure';
+import { DatabaseManager, RedisManager } from '@moonx-farm/infrastructure';
 import { OrderModel, Order, OrderExecution } from '../models/order';
 import { CreateOrderRequest, UpdateOrderRequest, CreateOrderExecutionRequest } from '../schemas/orderSchemas';
 

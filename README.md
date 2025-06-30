@@ -25,7 +25,7 @@ MoonXFarm is a next-generation decentralized exchange (DEX) platform with **Acco
 | **Auth Service** | ✅ Complete | JWT + Privy integration, OpenAPI docs, production-ready |
 | **Aggregator Service** | ✅ Complete | Multi-tier quotes, circuit breaker, cross-chain support |
 | **Smart Contracts** | ✅ Complete | Diamond proxy, multi-aggregator integration, environment config |
-| **Configuration** | ✅ Complete | @moonx/configs với profile-based loading |
+| **Configuration** | ✅ Complete | @moonx-farm/configs với profile-based loading |
 | **Database** | ✅ Complete | Orders, portfolio, user_trades schemas với indexes |
 
 ### 📋 Final Phase (3% remaining)
@@ -86,7 +86,7 @@ graph TB
 - **Framework**: Fastify v5
 - **Database**: PostgreSQL 15+
 - **Cache**: Redis 7+
-- **Configuration**: @moonx/configs (profile-based)
+- **Configuration**: @moonx-farm/configs (profile-based)
 
 ### Smart Contracts
 - **Pattern**: Diamond Proxy (EIP-2535)

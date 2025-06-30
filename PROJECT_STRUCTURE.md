@@ -71,7 +71,7 @@ moonx-farm/
 │           └── index.ts               # Infrastructure exports
 │
 ├── configs/                            # Centralized Configuration Management (✅ IMPLEMENTED)
-│   ├── package.json                   # @moonx/configs package
+│   ├── package.json                   # @moonx-farm/configs package
 │   ├── tsconfig.json                  # TypeScript configuration
 │   ├── README.md                      # Configuration documentation
 │   ├── LOGGER_INTEGRATION.md         # Logger integration guide
@@ -196,7 +196,7 @@ moonx-farm/
 │   │   │   ├── migrations/
 │   │   │   │   ├── 001_create_orders.sql   # ✅ Order tables với indexes
 │   │   │   │   └── 002_create_user_trades.sql # ✅ User trades table
-│   │   │   └── index.ts                    # ✅ Fastify server với @moonx/configs
+│   │   │   └── index.ts                    # ✅ Fastify server với @moonx-farm/configs
 │   │   └── tests/
 │   │       ├── unit/
 │   │       └── integration/
@@ -652,7 +652,7 @@ packages/
 ├── @moonx/contracts-sdk/    # Contract interaction SDK
 ├── @moonx/api-types/        # Shared TypeScript types
 ├── @moonx/ui-components/    # Reusable UI components
-├── @moonx/configs/          # Centralized configuration management
+├── @moonx-farm/configs/          # Centralized configuration management
 └── @moonx/dev-tools/        # Development utilities
 ```
 
@@ -672,15 +672,15 @@ Mỗi service có profile riêng, chỉ load config cần thiết:
 
 ```typescript
 // Auth Service - chỉ cần database, Redis, JWT
-import { createAuthServiceConfig } from '@moonx/configs';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
 const config = createAuthServiceConfig();
 
 // Aggregator Service - cần Redis, external APIs, blockchain
-import { createAggregatorServiceConfig } from '@moonx/configs';  
+import { createAggregatorServiceConfig } from '@moonx-farm/configs';  
 const config = createAggregatorServiceConfig();
 
 // Web App - cần frontend config
-import { createWebConfig } from '@moonx/configs';
+import { createWebConfig } from '@moonx-farm/configs';
 const config = createWebConfig();
 ```
 
@@ -710,7 +710,7 @@ import {
   getNetworkConfigs,
   getTradingConfig,
   getApiKeys 
-} from '@moonx/configs';
+} from '@moonx-farm/configs';
 
 // Lấy config cho từng service
 const dbConfig = getDatabaseConfig('auth-service');
@@ -743,7 +743,7 @@ configs/
 ├── utils.ts          # Utility functions  
 ├── env.ts            # Zod schemas cho validation
 ├── example.ts        # Usage examples
-├── package.json      # @moonx/configs
+├── package.json      # @moonx-farm/configs
 ├── tsconfig.json     # TypeScript config
 └── README.md         # Detailed documentation
 ```
@@ -834,7 +834,7 @@ NEXT_PUBLIC_DIAMOND_CONTRACT_OPTIMISM=
 
 ### Core Service API Specification
 
-**Service**: Core Platform Service (Port: 3007 - configured in @moonx/configs)  
+**Service**: Core Platform Service (Port: 3007 - configured in @moonx-farm/configs)  
 **Purpose**: Central platform APIs cho toàn bộ data operations
 
 #### **✅ Order Management APIs (COMPLETED)**
@@ -970,7 +970,7 @@ graph TB
 | **Auth Service** | ✅ Complete | JWT management, Privy integration, OpenAPI docs |
 | **Aggregator Service** | ✅ Complete | Multi-tier quotes, circuit breaker, cross-chain support |
 | **Smart Contracts** | ✅ Complete | Diamond proxy, multi-aggregator integration, environment config |
-| **Configuration** | ✅ Complete | @moonx/configs với profile-based loading |
+| **Configuration** | ✅ Complete | @moonx-farm/configs với profile-based loading |
 | **Database** | ✅ Complete | Orders, portfolio, user_trades schemas với indexes |
 
 ### **📋 Pending Components (10%)**

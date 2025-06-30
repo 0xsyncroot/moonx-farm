@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import axios from 'axios';
-import { createCoreServiceConfig, getServiceUrls } from '@moonx/configs';
+import { createCoreServiceConfig, getServiceUrls } from '@moonx-farm/configs';
 
 interface AuthenticatedRequest extends FastifyRequest {
   user?: {

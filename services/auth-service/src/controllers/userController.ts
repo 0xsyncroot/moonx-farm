@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 import { PrivyService } from '../services/privyService';
 import { authenticate } from '../middleware/authMiddleware';
 

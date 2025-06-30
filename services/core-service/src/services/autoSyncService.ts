@@ -1,7 +1,7 @@
 import { PortfolioService } from './portfolioService';
 import { CacheService } from './cacheService';
 import { DatabaseService } from './databaseService';
-import { createConfig } from '@moonx/configs';
+import { createConfig } from '@moonx-farm/configs';
 
 interface UserSyncStatus {
   userId: string;

@@ -1,4 +1,4 @@
-import { RedisManager, createRedisConfig } from '@moonx/infrastructure';
+import { RedisManager, createRedisConfig } from '@moonx-farm/infrastructure';
 
 export class CacheService {
   private redis: RedisManager;

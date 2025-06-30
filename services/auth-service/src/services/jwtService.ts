@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 import { randomBytes } from 'crypto';
 
 const logger = createLogger('jwt-service');

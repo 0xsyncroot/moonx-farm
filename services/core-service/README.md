@@ -4,9 +4,9 @@ Central Platform Service providing **Order Management**, **Portfolio Sync**, **P
 
 ## 🏗️ Architecture
 
-**Port**: 3007 (configured in @moonx/configs)  
+**Port**: 3007 (configured in @moonx-farm/configs)  
 **Framework**: Fastify v5 with TypeScript  
-**Infrastructure**: @moonx/infrastructure, @moonx/configs, @moonx/common  
+**Infrastructure**: @moonx/infrastructure, @moonx-farm/configs, @moonx/common  
 **Authentication**: JWT verification via Auth Service  
 **Database**: PostgreSQL với orders, order_executions, user_trades tables  
 **Caching**: Redis with intelligent TTL strategies  

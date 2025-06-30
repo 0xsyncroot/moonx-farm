@@ -1,4 +1,4 @@
-import { DatabaseManager } from '@moonx/infrastructure';
+import { DatabaseManager } from '@moonx-farm/infrastructure';
 
 export interface Order {
   id: string;

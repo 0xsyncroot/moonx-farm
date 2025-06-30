@@ -1,5 +1,5 @@
-import { DatabaseManager } from '@moonx/infrastructure';
-import { createLogger, LogContext } from '@moonx/common';
+import { DatabaseManager } from '@moonx-farm/infrastructure';
+import { createLogger, LogContext } from '@moonx-farm/common';
 
 const logger = createLogger('auth-database-service');
 

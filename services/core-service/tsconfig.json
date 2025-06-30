@@ -41,10 +41,7 @@
     "resolveJsonModule": true,
     "downlevelIteration": true,
     "paths": {
-      "@/*": ["./*"],
-      "@moonx/common": ["../../packages/common/src"],
-      "@moonx/configs": ["../../configs"],
-      "@moonx/infrastructure": ["../../packages/infrastructure/src"]
+      "@/*": ["./*"]
     },
     "types": ["node", "jest"]
   },

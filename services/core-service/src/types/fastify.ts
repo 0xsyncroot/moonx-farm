@@ -1,7 +1,7 @@
 // Fastify Type Extensions
 
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { DatabaseManager, RedisManager } from '@moonx/infrastructure';
+import { DatabaseManager, RedisManager } from '@moonx-farm/infrastructure';
 
 // Extend FastifyRequest to include user property
 declare module 'fastify' {

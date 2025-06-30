@@ -6,14 +6,14 @@ import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 
-import { createAuthServiceConfig } from '@moonx/configs';
-import { createLogger } from '@moonx/common';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
+import { createLogger } from '@moonx-farm/common';
 import { 
   DatabaseManager, 
   RedisManager, 
   createDatabaseConfig, 
   createRedisConfig 
-} from '@moonx/infrastructure';
+} from '@moonx-farm/infrastructure';
 
 import { authRoutes } from './controllers/authController';
 import { sessionRoutes } from './controllers/sessionController';

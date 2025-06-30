@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 import { PrivyService, VerifyTokenResult } from '../services/privyService';
 import { JwtService, TokenPair } from '../services/jwtService';
 import { DatabaseService, User } from '../services/databaseService';

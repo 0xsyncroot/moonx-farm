@@ -108,7 +108,7 @@ Welcome to the MoonXFarm DEX documentation. This guide provides comprehensive in
 ## 🛠️ Tech Stack
 
 - **Frontend**: Next.js 14+ + ZeroDev SDK v5.4+ + Privy
-- **Backend**: TypeScript + Fastify v5 + @moonx/configs
+- **Backend**: TypeScript + Fastify v5 + @moonx-farm/configs
 - **Database**: PostgreSQL 15+ + Redis 7+
 - **Smart Contracts**: Diamond Proxy (EIP-2535) + Hardhat
 - **Infrastructure**: Docker + pnpm workspace + Turborepo

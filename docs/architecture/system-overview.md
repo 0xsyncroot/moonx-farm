@@ -163,7 +163,7 @@ GET    /api/v1/portfolio/analytics       // Analytics
 
 **Technical Implementation:**
 - **Fastify v5**: Production-grade HTTP framework
-- **@moonx/configs**: Profile-based configuration
+- **@moonx-farm/configs**: Profile-based configuration
 - **Auto-sync System**: Smart triggers every 2 minutes
 - **ApiResponse Standard**: Consistent format across all endpoints
 - **Enterprise Logging**: Structured Winston logging
