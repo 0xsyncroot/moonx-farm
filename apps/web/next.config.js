@@ -2,23 +2,37 @@
 const nextConfig = {
   // Enable standalone output for Docker deployment
   output: 'standalone',
-  
+
+  swcMinify: true,           // bật SWC minification
+  compiler: {
+    // Xoá tất cả console.* calls khỏi client-side bundle
+    removeConsole: {
+      exclude: ['error']
+    }
+  },
   // Disable ESLint during production builds
   eslint: {
     ignoreDuringBuilds: true,
   },
-  
+
   // Disable TypeScript checking during builds (optional)
   typescript: {
     ignoreBuildErrors: true,
   },
-  
+
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
   },
-  transpilePackages: ['@moonx/common', '@moonx/configs'],
+  transpilePackages: ['@moonx-farm/common', '@moonx-farm/configs'],
   images: {
     remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'assets.coingecko.com',
+        port: '',
+        // bất kỳ đường dẫn con nào dưới /coins/images/
+        pathname: '/coins/images/**',
+      },
       {
         protocol: 'https',
         hostname: '**',

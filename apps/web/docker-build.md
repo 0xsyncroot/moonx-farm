@@ -68,7 +68,7 @@ pnpm install
 2. **Build workspace packages:**
 ```bash
 pnpm --filter @moonx/common build
-pnpm --filter @moonx/configs build
+pnpm --filter @moonx-farm/configs build
 ```
 
 3. **Start development server:**
@@ -232,7 +232,7 @@ server {
 # Clean and rebuild
 pnpm clean
 pnpm --filter @moonx/common build
-pnpm --filter @moonx/configs build
+pnpm --filter @moonx-farm/configs build
 docker build --no-cache -f apps/web/Dockerfile -t moonx-web .
 ```
 

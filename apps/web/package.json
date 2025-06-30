@@ -13,8 +13,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@moonx/common": "workspace:*",
-    "@moonx/configs": "workspace:*",
+    "@moonx-farm/common": "^1.0.5",
+    "@moonx-farm/configs": "^1.0.0",
+    "@permissionless/wagmi": "^0.1.4",
     "@privy-io/react-auth": "^1.78.0",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -40,6 +41,7 @@
     "lucide-react": "^0.379.0",
     "next": "^14.2.3",
     "next-themes": "^0.3.0",
+    "permissionless": "^0.2.47",
     "qrcode": "^1.5.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

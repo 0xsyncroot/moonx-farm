@@ -54,7 +54,7 @@ NEXT_PUBLIC_BSC_RPC=https://bsc-dataseed1.binance.org
 ## 🏗️ Build Architecture
 
 - **Multi-stage build**: Optimized for production
-- **Workspace support**: Handles `@moonx/common` and `@moonx/configs` packages
+- **Workspace support**: Handles `@moonx/common` and `@moonx-farm/configs` packages
 - **Security**: Non-root user, minimal attack surface
 - **Performance**: Next.js standalone output
 
