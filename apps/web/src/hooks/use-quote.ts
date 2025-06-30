@@ -49,8 +49,12 @@ export function useQuote() {
     quoteRequest.toToken &&
     debouncedAmount &&
     parseFloat(debouncedAmount) > 0 &&
-    quoteRequest.fromToken.address !== quoteRequest.toToken.address &&
-    smartWalletAddress // ✅ SỬA: Yêu cầu Smart Wallet address
+    // Check if tokens are different OR if they're the same native token on different chains
+    (quoteRequest.fromToken.address !== quoteRequest.toToken.address ||
+     (quoteRequest.fromToken.isNative && 
+      quoteRequest.toToken.isNative && 
+      quoteRequest.fromToken.chainId !== quoteRequest.toToken.chainId)) &&
+    smartWalletAddress
 
   // Get quotes from aggregator service
   const {

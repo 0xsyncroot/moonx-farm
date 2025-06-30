@@ -68,7 +68,6 @@ export function SwapInterface() {
   
   // Track if component has been initialized from URL
   const isInitializedRef = useRef(false)
-
   // Use tokens hook for token lookup
   const { getTokenBySymbol, searchToken } = useTokens()
 
@@ -280,7 +279,6 @@ export function SwapInterface() {
     return null
   }, [selectedQuote, quote, allQuotes, quoteResponse?.timestamp])
 
-
   // ✅ CLEAR manually selected quote when new quotes arrive
   useEffect(() => {
     if (quoteResponse?.timestamp && selectedQuote) {
@@ -425,13 +423,24 @@ export function SwapInterface() {
     // Don't close modal here - let the component handle it
   }, [])
 
-  // Default chain ID
+  // Default chain ID - FIXED to prevent chain switching on F5
   const defaultChainId = useMemo(() => {
-    const chainId = walletInfo?.chainId
-    if (typeof chainId === 'number') return chainId
-    if (typeof chainId === 'string') return parseInt(chainId, 10)
+    // Priority 1: Use chain ID from URL parameters
+    const fromChainId = searchParams.get('fromChain')
+    const toChainId = searchParams.get('toChain')
+    
+    if (fromChainId) {
+      const parsed = parseInt(fromChainId, 10)
+      return parsed
+    }
+    
+    if (toChainId) {
+      const parsed = parseInt(toChainId, 10)
+      return parsed
+    }
     return 8453
-  }, [walletInfo?.chainId])
+  }, [searchParams, smartWalletClient?.chain?.id, walletInfo?.chainId])
+
 
   // Enhanced token lookup function
   const findTokenByParam = useCallback(async (param: string, chainId: number): Promise<Token | null> => {
@@ -552,10 +561,14 @@ export function SwapInterface() {
         // Load from token if URL has it but component doesn't
         if (fromTokenParam && (!fromToken || fromToken.address !== fromTokenParam)) {
           const chainId = fromChainId ? parseInt(fromChainId) : defaultChainId
+          console.log('🔄 Loading from token:', { fromTokenParam, chainId })
           try {
             const foundToken = await findTokenByParam(fromTokenParam, chainId)
             if (foundToken) {
+              console.log('✅ Found from token:', foundToken.symbol)
               setFromToken(foundToken)
+            } else {
+              console.warn('❌ From token not found:', fromTokenParam)
             }
           } catch (error) {
             console.warn('Failed to load from token from URL:', error)
@@ -569,6 +582,8 @@ export function SwapInterface() {
             const foundToken = await findTokenByParam(toTokenParam, chainId)
             if (foundToken) {
               setToToken(foundToken)
+            } else {
+              console.warn('❌ To token not found:', toTokenParam)
             }
           } catch (error) {
             console.warn('Failed to load to token from URL:', error)
@@ -587,6 +602,8 @@ export function SwapInterface() {
     // Only load if we have a default chain ID
     if (defaultChainId) {
       loadTokensFromURL()
+    } else {
+      console.warn('❌ No default chain ID available for URL loading')
     }
       }, [
       searchParams.toString(), // Only depend on search params string
