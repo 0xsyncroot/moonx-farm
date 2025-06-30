@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Search, Star, TrendingUp, Zap, ArrowUpRight, Filter, CheckCircle, AlertCircle } from 'lucide-react'
 import { useTokens, Token } from '@/hooks/use-tokens'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
@@ -206,9 +207,15 @@ export function TokenSelector({
   const [apiTokens, setApiTokens] = useState<Token[]>([])
   const [apiLoading, setApiLoading] = useState(false)
   const [apiError, setApiError] = useState<Error | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   
   const isTestnet = useTestnetMode()
+
+  // Mount check for Portal
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   // ✅ FIXED: Use useTokens hook for search logic
   const {
@@ -467,18 +474,18 @@ export function TokenSelector({
   const error = apiError || tokensError
   const showEmptyState = !isLoading && !hasResults
 
-  if (!isOpen) return null
+  if (!isOpen || !isMounted) return null
 
-  return (
+  const modalContent = (
     <>
       {/* Backdrop with blur */}
       <div 
-        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md transition-opacity duration-300"
+        className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md transition-opacity duration-300"
         onClick={onClose}
       />
       
       {/* Modal Container */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
         <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-3xl shadow-2xl 
                        pointer-events-auto transform transition-all duration-300 
                        animate-in slide-in-from-bottom-8 fade-in-0">
@@ -684,6 +691,8 @@ export function TokenSelector({
       </div>
     </>
   )
+
+  return createPortal(modalContent, document.body)
 }
 
 interface TokenRowProps {

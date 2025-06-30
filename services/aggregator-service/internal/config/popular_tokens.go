@@ -98,17 +98,6 @@ var PopularTokensByChain = map[int]map[string]*PopularTokenMetadata{
 			IsStablecoin:  true,
 			Tags:          []string{"stablecoin", "popular"},
 		},
-		"0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca": {
-			Symbol:        "USDbC",
-			Name:          "USD Base Coin",
-			Decimals:      6,
-			LogoURI:       "https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png",
-			IsNative:      false,
-			CoinGeckoID:   "usd-coin",
-			BinanceSymbol: "USDC",
-			IsStablecoin:  true,
-			Tags:          []string{"stablecoin", "popular"},
-		},
 		"0x4200000000000000000000000000000000000006": {
 			Symbol:        "WETH",
 			Name:          "Wrapped Ethereum",

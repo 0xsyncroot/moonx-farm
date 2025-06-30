@@ -67,9 +67,17 @@ export class CacheService {
       
       // Handle JSON parsing safely
       try {
+        // Check if data is already a string representation of "[object Object]"
+        if (data === '[object Object]') {
+          console.warn(`Found invalid cached data (stringified object) for key ${key}, clearing...`);
+          await this.del(key);
+          return null;
+        }
+        
         return JSON.parse(data) as T;
       } catch (parseError) {
-        console.warn(`Failed to parse cached data for key ${key}:`, parseError);
+        const dataPreview = typeof data === 'string' ? data.substring(0, 100) : String(data).substring(0, 100);
+        console.warn(`Failed to parse cached data for key ${key}: ${parseError instanceof Error ? parseError.message : String(parseError)}, data preview: ${dataPreview}...`);
         // Clear invalid cached data
         await this.del(key);
         return null;
@@ -210,13 +218,25 @@ export class CacheService {
     }
 
     try {
-      // Simplified implementation for basic patterns
-      // In production, implement proper SCAN-based pattern deletion
-      console.warn(`Pattern deletion not fully implemented for pattern: ${pattern}`);
+      // Pattern deletion not implemented - would require Redis SCAN
+      console.warn(`Pattern deletion requested for: ${pattern} - implementation needed`);
       return 0;
     } catch (error) {
       console.error(`Cache delete pattern error for pattern ${pattern}:`, error);
       return 0;
+    }
+  }
+
+  /**
+   * Clear all P&L cache for a specific user
+   */
+  async clearUserPnLCache(userId: string): Promise<void> {
+    try {
+      const pattern = `pnl:${userId}:*`;
+      const deletedCount = await this.deletePattern(pattern);
+      console.log(`🧹 Cleared ${deletedCount} P&L cache entries for user ${userId}`);
+    } catch (error) {
+      console.error(`Error clearing P&L cache for user ${userId}:`, error);
     }
   }
 

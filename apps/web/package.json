@@ -31,6 +31,7 @@
     "@zerodev/ecdsa-validator": "^5.4.9",
     "@zerodev/permissions": "^5.5.9",
     "@zerodev/sdk": "^5.4.39",
+    "axios": "^1.10.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "copy-to-clipboard": "^3.3.3",

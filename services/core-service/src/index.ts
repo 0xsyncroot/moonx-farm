@@ -7,6 +7,7 @@ import { AutoSyncService } from './services/autoSyncService';
 import { AuthMiddleware } from './middleware/authMiddleware';
 import { orderRoutes } from './routes/orders';
 import { portfolioRoutes } from './routes/portfolio';
+import { bitqueryRoutes } from './routes/bitquery';
 
 const logger = createLogger('core-service');
 
@@ -162,6 +163,11 @@ const startServer = async () => {
       // Register order routes
       await orderRoutes(fastify);
     });
+
+    // Bitquery API Routes (no authentication required)
+    fastify.register(async function (fastify) {
+      await bitqueryRoutes(fastify);
+    }, { prefix: '/bitquery' });
   }, { prefix: '/api/v1' });
 
   // Error handling

@@ -13,6 +13,7 @@ MoonXFarm is a next-generation decentralized exchange (DEX) platform with **Acco
 - **⚡ High Performance**: Sub-second API responses, intelligent caching
 - **🛡️ MEV Protection**: Built-in protection through routing optimization
 - **📊 Portfolio Tracking**: Real-time P&L calculation across 5 chains
+- **📈 Real Market Data**: Bitquery API integration for historical OHLCV data
 - **🏗️ Simplified Architecture**: Direct service connections, optimized performance
 
 ## 🏆 Current Status: 97% Complete & Production Ready
@@ -27,6 +28,7 @@ MoonXFarm is a next-generation decentralized exchange (DEX) platform with **Acco
 | **Smart Contracts** | ✅ Complete | Diamond proxy, multi-aggregator integration, environment config |
 | **Configuration** | ✅ Complete | @moonx-farm/configs với profile-based loading |
 | **Database** | ✅ Complete | Orders, portfolio, user_trades schemas với indexes |
+| **Market Data** | ✅ Complete | Bitquery API integration for real OHLCV data |
 
 ### 📋 Final Phase (3% remaining)
 - **Notify Service**: Socket.IO real-time notifications

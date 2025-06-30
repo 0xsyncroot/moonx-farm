@@ -90,7 +90,7 @@ export class TradesService {
       let query = `
         SELECT 
           id, user_id, wallet_address, tx_hash, chain_id, block_number, 
-          timestamp, trade_type, status, from_token, to_token, 
+          timestamp, type as trade_type, status, from_token, to_token, 
           gas_fee_eth, gas_fee_usd, protocol_fee_usd, slippage, 
           price_impact, dex_name, router_address, aggregator, pnl,
           created_at, updated_at
