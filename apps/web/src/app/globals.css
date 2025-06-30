@@ -420,4 +420,123 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  /* AI Chat Widget Styles */
+  .chat-widget {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .chat-widget-mobile {
+    @apply fixed bottom-4 right-4 z-50;
+  }
+
+  .chat-interface {
+    @apply mb-4 bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl;
+    animation: slideInFromBottom 0.3s ease-out;
+  }
+
+  .chat-interface-mobile {
+    @apply w-80 h-[500px] max-h-[80vh];
+  }
+
+  .chat-message {
+    animation: fadeInUp 0.2s ease-out;
+  }
+
+  .chat-input {
+    @apply px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400;
+    @apply focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50;
+    transition: all 0.2s ease;
+  }
+
+  .chat-button {
+    @apply bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all duration-200;
+    @apply hover:scale-105 active:scale-95;
+  }
+
+  .chat-fab {
+    @apply w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-full;
+    @apply shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center;
+    @apply hover:scale-105 active:scale-95;
+  }
+
+  /* Chat scrollbar styling */
+  .chat-messages::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.3);
+    border-radius: 2px;
+  }
+
+  .chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(156, 163, 175, 0.5);
+  }
+
+  /* Animations */
+  @keyframes slideInFromBottom {
+    from {
+      opacity: 0;
+      transform: translateY(20px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Mobile responsive adjustments */
+  @media (max-width: 640px) {
+    .chat-interface-mobile {
+      @apply w-[calc(100vw-2rem)] max-w-sm h-[calc(100vh-8rem)];
+      right: 1rem;
+      bottom: 5rem;
+    }
+    
+    .chat-widget-mobile {
+      @apply bottom-4 right-4;
+    }
+
+    .chat-fab {
+      @apply w-12 h-12;
+    }
+
+    .chat-fab svg {
+      @apply w-5 h-5;
+    }
+  }
+
+  /* Light mode adjustments for chat */
+  .light .chat-interface {
+    @apply bg-white/95 border-gray-200;
+  }
+
+  .light .chat-input {
+    @apply bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-500;
+    @apply focus:ring-orange-500/30 focus:border-orange-500;
+  }
+
+  .light .chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(107, 114, 128, 0.3);
+  }
+
+  .light .chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(107, 114, 128, 0.5);
+  }
 } 
