@@ -264,9 +264,10 @@ export class ChatApiService {
                 hasReceivedContent = true
                 onProgress(finalContent)
               } 
-              // For end events, use the complete content
+              // For end events, only update if we haven't received any streaming content yet
+              // or if the content is significantly longer (indicating a complete response)
               else if (event.event === 'on_chain_end' || event.event === 'on_chain_stream') {
-                if (content !== finalContent) {
+                if (!hasReceivedContent || (content.length > finalContent.length + 50)) {
                   finalContent = content
                   hasReceivedContent = true
                   onProgress(finalContent)
@@ -290,9 +291,10 @@ export class ChatApiService {
                 hasReceivedContent = true
                 onProgress(finalContent)
               } 
-              // For end events, use the complete content
+              // For end events, only update if we haven't received any streaming content yet
+              // or if the content is significantly longer (indicating a complete response)
               else if (event.event === 'on_chain_end' || event.event === 'on_chain_stream') {
-                if (content !== finalContent) {
+                if (!hasReceivedContent || (content.length > finalContent.length + 50)) {
                   finalContent = content
                   hasReceivedContent = true
                   onProgress(finalContent)

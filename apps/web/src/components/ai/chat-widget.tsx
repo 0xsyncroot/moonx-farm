@@ -23,87 +23,74 @@ const TypewriterText: React.FC<{
   speed?: number; 
   onComplete?: () => void;
   isStreaming?: boolean;
-}> = ({ text, speed = 50, onComplete, isStreaming = false }) => {
+}> = ({ text, speed = 20, onComplete, isStreaming = false }) => {
   const [displayedText, setDisplayedText] = useState('')
   const [showCursor, setShowCursor] = useState(false)
   
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const lastTextRef = useRef('')
-  const wasStreamingRef = useRef(false)
-  const isTypingRef = useRef(false)
+  const isTyping = useRef(false)
 
   useEffect(() => {
-    // Clear any existing interval
+    // Clear any existing timeout
     if (intervalRef.current) {
-      clearInterval(intervalRef.current)
+      clearTimeout(intervalRef.current)
       intervalRef.current = null
     }
 
     if (!text) {
       setDisplayedText('')
       setShowCursor(false)
-      lastTextRef.current = ''
-      wasStreamingRef.current = false
-      isTypingRef.current = false
       return
     }
 
-    // Currently streaming - show text immediately
+    // If streaming, show text immediately (will be updated in real-time)
     if (isStreaming) {
       setDisplayedText(text)
       setShowCursor(true)
-      lastTextRef.current = text
-      wasStreamingRef.current = true
-      isTypingRef.current = false
       return
     }
 
-    // Just finished streaming - keep text, hide cursor
-    if (!isStreaming && wasStreamingRef.current) {
-      setDisplayedText(text)
-      setShowCursor(false)
-      wasStreamingRef.current = false
-      isTypingRef.current = false
-      onComplete?.()
-      return
-    }
-
-    // New message - start typing animation
-    if (!isStreaming && !isTypingRef.current && text !== lastTextRef.current) {
+    // If not streaming and text is different, start typing animation
+    if (!isStreaming && displayedText !== text && !isTyping.current) {
+      isTyping.current = true
       setDisplayedText('')
       setShowCursor(true)
-      lastTextRef.current = text
-      isTypingRef.current = true
       
       let charIndex = 0
-      intervalRef.current = setInterval(() => {
-        charIndex++
-        setDisplayedText(text.slice(0, charIndex))
-        
-        if (charIndex >= text.length) {
-          clearInterval(intervalRef.current!)
-          intervalRef.current = null
+      
+      const typeChar = () => {
+        if (charIndex < text.length) {
+          setDisplayedText(prev => text.slice(0, charIndex + 1))
+          charIndex++
+          intervalRef.current = setTimeout(typeChar, speed)
+        } else {
           setShowCursor(false)
-          isTypingRef.current = false
+          isTyping.current = false
           onComplete?.()
         }
-      }, speed)
+      }
+      
+      // Start typing after a small delay
+      intervalRef.current = setTimeout(typeChar, 100)
     }
 
     return () => {
       if (intervalRef.current) {
-        clearInterval(intervalRef.current)
+        clearTimeout(intervalRef.current)
         intervalRef.current = null
       }
     }
   }, [text, isStreaming, speed])
 
-  // Reset typing flag for new messages
+  // Cleanup on unmount
   useEffect(() => {
-    if (text && text !== lastTextRef.current && !isStreaming) {
-      isTypingRef.current = false
+    return () => {
+      if (intervalRef.current) {
+        clearTimeout(intervalRef.current)
+      }
+      isTyping.current = false
     }
-  }, [text, isStreaming])
+  }, [])
 
   // If streaming and no text yet, show typing animation instead of empty markdown
   if (isStreaming && !displayedText) {
@@ -160,12 +147,22 @@ export function ChatWidget({ className }: ChatWidgetProps) {
   const [inputValue, setInputValue] = useState('')
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
   }
 
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Additional scroll effect for when typing is happening
+  useEffect(() => {
+    if (isLoading) {
+      const intervalId = setInterval(scrollToBottom, 200)
+      return () => clearInterval(intervalId)
+    }
+  }, [isLoading])
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -176,8 +173,22 @@ export function ChatWidget({ className }: ChatWidgetProps) {
   const handleSendMessage = async () => {
     if (!inputValue.trim() || isLoading) return
     
-    await sendMessage(inputValue)
-    setInputValue('')
+    const messageToSend = inputValue.trim()
+    setInputValue('') // Clear input immediately
+    
+    try {
+      await sendMessage(messageToSend)
+    } catch (error) {
+      console.error('Error sending message:', error)
+      // Input is already cleared, so user can retry
+    }
+    
+    // Focus back to input after sending
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus()
+      }
+    }, 100)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -361,6 +372,7 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                         </div>
                       ) : (
                         <TypewriterText 
+                          key={`${message.id}-${message.content.length}`}
                           text={message.content} 
                           isStreaming={isLastAssistantMessage && isLoading}
                           speed={50}
