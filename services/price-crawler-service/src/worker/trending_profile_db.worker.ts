@@ -4,71 +4,153 @@ import { getCoinProfileCoingecko } from "../fetcher/coingecko.fetcher";
 import { getTokenAuditGoPlus } from "../fetcher/goplus.fetcher";
 import { upsertTokenPg, upsertTokenPricePg, upsertTokenAuditPg } from "../db/upsert_pg";
 import { pool, connectPgDb } from "../db/pgdb";
+import { JobMessage } from "../types/job_message";
+import { logger } from "../../../packages/common/src";
 
-// Pipeline: fetch profile + audit, upsert vào DB, log thao tác
-async function trendingProfileToDb(chain: string, address: string, coingeckoId?: string) {
-  // 1. Fetch profile
-  let profile = await getTokenProfileDexscreener(address);
-  if (!profile) profile = await getTokenProfileGeckoTerminal(chain, address);
-  if (!profile && coingeckoId) profile = await getCoinProfileCoingecko(coingeckoId);
+// Hàm nhận diện stablecoin đơn giản (có thể mở rộng)
+function isStablecoin(symbol: string): boolean {
+  const stablecoins = ["USDT", "USDC", "DAI", "WETH", "TUSD", "BUSD"];
+  return stablecoins.includes(symbol?.toUpperCase());
+}
 
-  // 2. Fetch audit
-  const audit = await getTokenAuditGoPlus(chain, address);
+// Xử lý từng loại job cho trending token
+export async function handleTrendingJob(msg: JobMessage) {
+  const { job_type, chain, address, coingeckoId, symbol } = msg;
+  let profile = null;
+  let audit = null;
 
-  // 3. Upsert token
-  if (profile) {
-    await upsertTokenPg({
-      contract: address,
-      symbol: profile.symbol,
-      name: profile.name,
-      chain_id: chain,
-      decimals: profile.decimals,
-      logo_url: profile.logoUrl,
-      source: profile.source,
-      is_stablecoin: false // TODO: logic nhận diện stablecoin
-    });
+  // Metadata & Price đều cần fetch profile
+  if (job_type === "metadata" || job_type === "price") {
+    profile = await getTokenProfileDexscreener(address);
+    if (!profile) profile = await getTokenProfileGeckoTerminal(chain, address);
+    if (!profile && coingeckoId) profile = await getCoinProfileCoingecko(coingeckoId);
 
-    // 4. Upsert giá (mainPool)
-    if (profile.mainPool && profile.mainPool.priceUsd) {
+    logger.info({ job_type, token_type: "trending", address, step: "fetch_profile", status: !!profile });
+    if (!profile) {
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "fail", "Không fetch được profile"]
+      );
+      logger.error({ job_type, token_type: "trending", address, error: "Không fetch được profile" });
+      return;
+    }
+
+    // Loại trừ stablecoin
+    if (isStablecoin(profile.symbol)) {
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "skip", "Stablecoin bị loại trừ"]
+      );
+      logger.info({ job_type, token_type: "trending", address, status: "skip", reason: "Stablecoin bị loại trừ" });
+      return;
+    }
+
+    // Upsert metadata
+    if (job_type === "metadata") {
+      logger.info({ job_type, token_type: "trending", address, step: "upsert_metadata" });
+      await upsertTokenPg({
+        contract: address,
+        token_type: "trending",
+        symbol: profile.symbol,
+        name: profile.name,
+        decimals: profile.decimals,
+        logo_url: profile.logoUrl,
+        contracts: profile.contracts,
+        socials: profile.socials,
+        tags: profile.tags,
+        description: profile.description,
+        source: profile.source
+      });
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "success", "Upsert metadata thành công"]
+      );
+    }
+
+    // Upsert price
+    if (job_type === "price" && profile.mainPool && profile.mainPool.priceUsd) {
+      logger.info({ job_type, token_type: "trending", address, step: "upsert_price" });
       await upsertTokenPricePg({
         contract: address,
-        price_usdt: profile.mainPool.priceUsd,
+        token_type: "trending",
+        chain: profile.mainPool.chain,
+        dex: profile.mainPool.dex,
+        pair_address: profile.mainPool.pairAddress,
+        price_usd: profile.mainPool.priceUsd,
+        liquidity_usd: profile.mainPool.liquidityUsd,
+        volume_24h: profile.mainPool.volume24h,
+        fdv: profile.mainPool.fdv,
+        pool_created_at: typeof profile.mainPool.createdAt === "number"
+          ? profile.mainPool.createdAt
+          : (typeof profile.mainPool.createdAt === "string"
+              ? Number(profile.mainPool.createdAt) || null
+              : null),
+        pool_url: profile.mainPool.url,
+        markets: profile.markets,
         source: profile.source,
-        timestamp: new Date().toISOString()
+        timestamp: msg.timestamp || new Date().toISOString()
       });
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "success", "Upsert price thành công"]
+      );
     }
   }
 
-  // 5. Upsert audit
-  if (audit) {
-    await upsertTokenAuditPg({
-      contract: address,
-      audit_score: audit.audit_score,
-      audit_provider: "GoPlus Labs",
-      is_verified: audit.is_verified,
-      report_url: audit.report_url
-    });
+  // Audit job: chỉ chạy sau khi đã có metadata & price
+  if (job_type === "audit") {
+    // Kiểm tra đã có metadata & price chưa
+    const metaRes = await pool.query(
+      `SELECT contract FROM tokens WHERE contract = $1`, [address]
+    );
+    const priceRes = await pool.query(
+      `SELECT contract FROM token_prices WHERE contract = $1`, [address]
+    );
+    if (metaRes.rowCount === 0 || priceRes.rowCount === 0) {
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "wait", "Chưa có metadata/price, delay audit"]
+      );
+      logger.info({ job_type, token_type: "trending", address, status: "wait", reason: "Chưa có metadata/price, delay audit" });
+      return;
+    }
+    logger.info({ job_type, token_type: "trending", address, step: "fetch_audit" });
+    audit = await getTokenAuditGoPlus(chain, address);
+    if (audit) {
+      logger.info({ job_type, token_type: "trending", address, step: "upsert_audit" });
+      await upsertTokenAuditPg({
+        contract: address,
+        audit_score: audit.audit_score,
+        audit_provider: "GoPlus Labs",
+        is_verified: audit.is_verified,
+        report_url: audit.report_url
+      });
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "success", "Upsert audit thành công"]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
+        [job_type, "trending", address, "fail", "Không fetch được audit"]
+      );
+      logger.error({ job_type, token_type: "trending", address, error: "Không fetch được audit" });
+    }
   }
-
-  // 6. Log thao tác vào job_logs
-  await pool.query(
-    `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
-    [
-      "trending_profile",
-      "trending",
-      address,
-      "success",
-      `Upsert profile${audit ? " + audit" : ""} thành công`
-    ]
-  );
 }
 
 async function main() {
   await connectPgDb();
-  const chain = "base";
-  const address = "0x4200000000000000000000000000000000000006";
-  const coingeckoId = "weth";
-  await trendingProfileToDb(chain, address, coingeckoId);
+  // Test message mẫu
+  const testMsg: JobMessage = {
+    job_type: "metadata",
+    token_type: "trending",
+    chain: "base",
+    address: "0x4200000000000000000000000000000000000006",
+    coingeckoId: "weth",
+    timestamp: new Date().toISOString()
+  };
+  await handleTrendingJob(testMsg);
   await pool.end();
   process.exit(0);
 }

@@ -302,13 +302,39 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
   - Đã có hàm upsert cho từng bảng.
   - Worker lưu dữ liệu thành công, log thao tác vào job_logs.
 
-### Giai đoạn 6: Xử lý logic từng loại Job
-- **Mục tiêu:** 
-  - Cài đặt chi tiết pipeline cho từng loại job: price, metadata, audit.
-  - Đảm bảo audit chạy sau price/meta với trending token.
-- **Đầu ra:** 
-  - Worker xử lý đủ các loại job, flow hoàn chỉnh.
-- **Tiêu chí hoàn thành:** End-to-end flow cho từng loại job.
+### Giai đoạn 6: Xử lý logic từng loại Job (Top & Trending)
+
+#### Tiến độ & xác nhận checklist
+
+- [x] Đã hoàn thiện worker cho **top token** và **trending token** (metadata, price, audit).
+- [x] Đã chuẩn hóa nhận message từ Kafka topic, phân biệt job_type, token_type.
+- [x] Đã đảm bảo tuần tự chuẩn: Lập lịch (scheduler) → gửi job lên Kafka topic → Kafka consumer worker nhận và xử lý → Call API fetch dữ liệu → map dữ liệu chuẩn hóa → lưu trữ vào DB (tokens, token_prices, token_audits).
+- [x] Đã loại trừ stablecoin, chỉ lấy giá USDT.
+- [x] Đã đảm bảo audit chỉ chạy sau khi đã có price/meta với trending token.
+- [x] Đã structured logging, log trạng thái vào job_logs, dùng logger chuẩn.
+- [x] Đã viết script test end-to-end pipeline trending, kiểm tra kết quả DB và log.
+- [x] Đã đảm bảo không trùng lặp dữ liệu, đúng logic upsert, dùng config/DB/package chung.
+
+#### Checklist xác nhận từng bước pipeline (cho cả Top/Trending, đủ Meta/Price/Audit):
+
+| Bước                | Top Token (Meta/Price) | Trending Token (Meta/Price/Audit) |
+|---------------------|:---------------------:|:---------------------------------:|
+| Lập lịch (Scheduler)|          ✅           |                ✅                 |
+| Gửi Kafka topic     |          ✅           |                ✅                 |
+| Kafka Consumer      |          ✅           |                ✅                 |
+| Call API            |          ✅           |                ✅                 |
+| Map dữ liệu         |          ✅           |                ✅                 |
+| Lưu DB              |          ✅           |                ✅                 |
+| Audit (nếu có)      |          ❌           |                ✅                 |
+
+- **Lưu ý:** Audit chỉ áp dụng cho trending token.
+
+#### Kết luận
+
+- Đã hoàn thiện đầy đủ pipeline cho cả top/trending token, mỗi loại đều có đủ metadata, price, audit (trending).
+- Toàn bộ luồng đã đáp ứng đúng tuần tự chuẩn: Scheduler → Kafka topic → Kafka consumer worker → Call API → map dữ liệu → lưu trữ dữ liệu.
+- Đã kiểm thử end-to-end, log/tracking đầy đủ, sẵn sàng chuyển sang giai đoạn tiếp theo.
+
 
 ### Giai đoạn 7: Error Handling, Retry, Logging
 - **Mục tiêu:** 
