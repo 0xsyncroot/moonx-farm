@@ -38,7 +38,7 @@ export class Worker {
     console.log("[Worker] Started and listening for jobs...");
   }
 
-  // Xử lý pipeline cho từng loại job
+  // Xử lý pipeline cho từng loại job - thực hiện gọi đến các job đã thiết kế
   async handleJob(topic: string, payload: KafkaJobPayload) {
     switch (payload.job_type) {
       case JobType.PRICE:

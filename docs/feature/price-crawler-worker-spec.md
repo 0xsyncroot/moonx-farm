@@ -306,6 +306,8 @@ CREATE INDEX idx_joblog_contract ON job_logs(contract);
 
 #### Tiến độ & xác nhận checklist
 
+- [x] Đã bổ sung logic **triggerAllJobsOnStartup**: Khi service khởi động lần đầu, toàn bộ các job (metadata, price cho top/trending, audit cho trending) sẽ được gửi ngay lên Kafka, đảm bảo pipeline luôn đầy đủ dữ liệu và đúng thứ tự (metadata → price → audit).
+- [x] Đã thực hiện gọi triggerAllJobsOnStartup trong entrypoint chính của service (ví dụ: src/index.ts), đảm bảo luôn kích hoạt job khi start.
 - [x] Đã hoàn thiện worker cho **top token** và **trending token** (metadata, price, audit).
 - [x] Đã chuẩn hóa nhận message từ Kafka topic, phân biệt job_type, token_type.
 - [x] Đã đảm bảo tuần tự chuẩn: Lập lịch (scheduler) → gửi job lên Kafka topic → Kafka consumer worker nhận và xử lý → Call API fetch dữ liệu → map dữ liệu chuẩn hóa → lưu trữ vào DB (tokens, token_prices, token_audits).
