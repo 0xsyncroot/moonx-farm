@@ -80,7 +80,10 @@ function ThemedPrivyProvider({ children }: PrivyProviderProps) {
         },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets', // Create AA wallet automatically
-          noPromptOnSignature: true, // Seamless UX
+          priceDisplay: {
+            primary: 'fiat-currency',
+            secondary: 'native-token',
+          }
         },
         mfa: {
           noPromptOnMfaRequired: false,

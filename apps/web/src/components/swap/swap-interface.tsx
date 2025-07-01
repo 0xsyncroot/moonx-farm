@@ -14,6 +14,7 @@ import { useUrlSync } from '@/hooks/use-url-sync'
 import { useQuoteCountdown } from '@/hooks/use-quote-countdown'
 import { useChainInfo } from '@/hooks/use-chain-info'
 import { useShare } from '@/hooks/use-share'
+import { useAutoChainSwitch } from '@/hooks/use-auto-chain-switch'
 
 // Components
 import { SwapHeader } from './swap-header'
@@ -27,6 +28,7 @@ import { SwapSettings } from './swap-settings'
 import { QuoteComparison } from './quote-comparison'
 
 import { cn, formatTokenAmount } from '@/lib/utils'
+import { getChainConfig } from '@/config/chains'
 
 /**
  * SwapInterface Component - Refactored Version
@@ -39,7 +41,6 @@ import { cn, formatTokenAmount } from '@/lib/utils'
  * - UI components split into smaller, focused components
  */
 export function SwapInterface() {
-  const { client: smartWalletClient } = useSmartWallets()
   const { walletInfo } = useAuth()
   const searchParams = useSearchParams()
   
@@ -55,7 +56,7 @@ export function SwapInterface() {
   const isInitializedRef = useRef(false)
   const { getTokenBySymbol, searchToken } = useTokens()
 
-  // Main quote hook
+  // Main quote hook - initially without auto chain switch
   const {
     fromToken,
     toToken,
@@ -75,6 +76,16 @@ export function SwapInterface() {
     swapTokens,
     refetch,
   } = useQuote()
+
+  // Auto chain switch when fromToken changes
+  const {
+    isLoading: isChainSwitching,
+    isSuccess: chainSwitchSuccess,
+    error: chainSwitchError,
+    smartWalletClient,
+    switchToChain,
+    currentChain
+  } = useAutoChainSwitch(fromToken)
 
   // URL synchronization
   const { markInitialized } = useUrlSync({
@@ -114,13 +125,37 @@ export function SwapInterface() {
     slippage: slippage || 0.5
   })
 
-  // Token balances
-  const fromTokenBalance = useTokenBalance(fromToken)
-  const toTokenBalance = useTokenBalance(toToken)
+  // Token balances with auto-switched smart wallet client
+  const fromTokenBalance = useTokenBalance(fromToken, smartWalletClient)
+  const toTokenBalance = useTokenBalance(toToken, smartWalletClient)
 
-  // Check if balance is sufficient
-  const hasInsufficientBalance = fromToken && amount && fromTokenBalance.balance ? 
-    !hasSufficientBalance(fromTokenBalance.balance, amount, fromToken.decimals) : false
+  // ✅ Check if balance is sufficient - ONLY after URL params are fully loaded
+  // Tránh false positive khi amount chưa được load từ URL
+  const hasInsufficientBalance = useMemo(() => {
+    // Only check balance if we have all required data AND component is initialized
+    if (!fromToken || !amount || !fromTokenBalance.balance || !isInitializedRef.current) {
+      return false
+    }
+    
+    // Parse amount safely
+    const parsedAmount = parseFloat(amount)
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return false
+    }
+    
+    const isInsufficient = !hasSufficientBalance(fromTokenBalance.balance, amount, fromToken.decimals)
+    
+    if (process.env.NODE_ENV === 'development' && isInsufficient) {
+      console.log('⚠️ Insufficient balance detected:', {
+        token: fromToken.symbol,
+        requestedAmount: amount,
+        availableBalance: fromTokenBalance.balanceFormatted,
+        isInitialized: isInitializedRef.current
+      })
+    }
+    
+    return isInsufficient
+  }, [fromToken, amount, fromTokenBalance.balance, fromTokenBalance.balanceFormatted])
 
   // Default chain ID for token loading
   const defaultChainId = useMemo(() => {
@@ -129,8 +164,12 @@ export function SwapInterface() {
     
     if (fromChainId) return parseInt(fromChainId, 10)
     if (toChainId) return parseInt(toChainId, 10)
+    
+    // Use current chain from auto chain switch hook
+    if (currentChain?.id) return currentChain.id
+    
     return 8453 // Base as default
-  }, [searchParams, smartWalletClient?.chain?.id, walletInfo?.chainId])
+  }, [searchParams, currentChain?.id, walletInfo?.chainId])
 
   // Enhanced token lookup function
   const findTokenByParam = useCallback(async (param: string, chainId: number): Promise<Token | null> => {
@@ -158,21 +197,8 @@ export function SwapInterface() {
     }
   }, [getTokenBySymbol, searchToken])
 
-  // Initialize basic state from URL parameters on mount
-  useEffect(() => {
-    const amountParam = searchParams.get('amount')
-    const slippageParam = searchParams.get('slippage')
-
-    if (amountParam && !amount) {
-      setAmount(amountParam)
-    }
-    
-    if (slippageParam && !slippage) {
-      setSlippage(parseFloat(slippageParam))
-    }
-  }, [searchParams, amount, slippage, setAmount, setSlippage])
-
-  // Load tokens from URL ONLY on mount to prevent loops
+  // ✅ Single useEffect để load ALL URL parameters synchronously
+  // Tránh race condition giữa amount và tokens
   const lastSearchParamsRef = useRef<string>('')
   
   useEffect(() => {
@@ -182,19 +208,41 @@ export function SwapInterface() {
     }
     lastSearchParamsRef.current = currentSearchParams
 
-    const fromTokenParam = searchParams.get('from')
-    const toTokenParam = searchParams.get('to') 
-    const fromChainId = searchParams.get('fromChain')
-    const toChainId = searchParams.get('toChain')
-    
-    const loadTokensFromURL = async () => {
+    const loadFromURL = async () => {
       try {
+        // 1. Load basic params first (amount, slippage)
+        const amountParam = searchParams.get('amount')
+        const slippageParam = searchParams.get('slippage')
+        
+        if (amountParam && !amount) {
+          setAmount(amountParam)
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 Loading amount from URL:', amountParam)
+          }
+        }
+        
+        if (slippageParam && !slippage) {
+          setSlippage(parseFloat(slippageParam))
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 Loading slippage from URL:', slippageParam)
+          }
+        }
+
+        // 2. Load tokens after amount is set
+        const fromTokenParam = searchParams.get('from')
+        const toTokenParam = searchParams.get('to') 
+        const fromChainId = searchParams.get('fromChain')
+        const toChainId = searchParams.get('toChain')
+        
         // Load from token
         if (fromTokenParam && (!fromToken || fromToken.address !== fromTokenParam)) {
           const chainId = fromChainId ? parseInt(fromChainId) : defaultChainId
           const foundToken = await findTokenByParam(fromTokenParam, chainId)
           if (foundToken) {
             setFromToken(foundToken)
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🔗 Loading fromToken from URL:', foundToken.symbol, 'on', foundToken.chainId)
+            }
           }
         }
 
@@ -204,23 +252,42 @@ export function SwapInterface() {
           const foundToken = await findTokenByParam(toTokenParam, chainId)
           if (foundToken) {
             setToToken(foundToken)
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🔗 Loading toToken from URL:', foundToken.symbol, 'on', foundToken.chainId)
+            }
           }
         }
 
-        // Mark as initialized after first attempt
+        // 3. Mark as initialized after all attempts
         if (!isInitializedRef.current) {
           isInitializedRef.current = true
           markInitialized()
+          if (process.env.NODE_ENV === 'development') {
+            console.log('✅ URL params loading completed and marked as initialized')
+          }
         }
       } catch (error) {
-        console.error('Failed to load tokens from URL:', error)
+        console.error('Failed to load params from URL:', error)
       }
     }
 
     if (defaultChainId) {
-      loadTokensFromURL()
+      loadFromURL()
     }
-  }, [searchParams.toString(), defaultChainId])
+  }, [
+    searchParams.toString(), 
+    defaultChainId,
+    amount, // Include để prevent re-set nếu đã có
+    slippage, // Include để prevent re-set nếu đã có
+    fromToken?.address, // Include để prevent re-load nếu đã đúng token
+    toToken?.address, // Include để prevent re-load nếu đã đúng token
+    setAmount,
+    setSlippage,
+    setFromToken,
+    setToToken,
+    findTokenByParam,
+    markInitialized
+  ])
 
   // Determine active quote - priority: manual selection > best quote > first quote
   const activeQuote = useMemo(() => {
@@ -406,6 +473,56 @@ export function SwapInterface() {
         />
 
         <div className="p-3 md:p-4 space-y-3 md:space-y-4">
+          {/* Chain Switch Indicator */}
+          {isChainSwitching && (
+            <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 
+                           rounded-2xl text-blue-700 dark:text-blue-400">
+              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <div>
+                <div className="text-sm font-medium">Switching network...</div>
+                <div className="text-xs text-blue-600 dark:text-blue-300 mt-1">
+                  Preparing smart wallet for {fromToken ? getChainConfig(fromToken.chainId)?.name : 'target chain'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Chain Switch Success */}
+          {chainSwitchSuccess && (
+            <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 
+                           rounded-2xl text-green-700 dark:text-green-400">
+              <div className="w-5 h-5 text-green-600 flex-shrink-0">✓</div>
+              <div>
+                <div className="text-sm font-medium">Network switched successfully</div>
+                <div className="text-xs text-green-600 dark:text-green-300 mt-1">
+                  Ready for cross-chain swap on {currentChain?.name}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Chain Switch Error */}
+          {chainSwitchError && (
+            <div className="flex items-center justify-between gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 
+                           rounded-2xl text-red-700 dark:text-red-400">
+              <div className="flex items-center gap-3">
+                <div className="w-5 h-5 text-red-600 flex-shrink-0">⚠</div>
+                <div>
+                  <div className="text-sm font-medium">Failed to switch network</div>
+                  <div className="text-xs text-red-600 dark:text-red-300 mt-1">
+                    {chainSwitchError}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* Cross-Chain Bridge Indicator */}
           {chainInfo.isCrossChain && (
             <CrossChainIndicator
@@ -514,11 +631,12 @@ export function SwapInterface() {
             toToken={toToken}
             fromAmount={amount}
             quote={activeQuote || null}
-            disabled={!fromToken || !toToken || !amount || amount === '0' || isLoading || hasInsufficientBalance}
+            disabled={!fromToken || !toToken || !amount || amount === '0' || isLoading || hasInsufficientBalance || isChainSwitching}
             priceImpactTooHigh={activeQuote?.priceImpact ? Math.abs(parseFloat(activeQuote.priceImpact)) > 15 : false}
             hasInsufficientBalance={hasInsufficientBalance}
             onPauseCountdown={pauseCountdown}
             onResumeCountdown={resumeCountdown}
+            smartWalletClient={smartWalletClient}
           />
         </div>
       </div>

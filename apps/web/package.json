@@ -16,7 +16,7 @@
     "@moonx-farm/common": "^1.0.5",
     "@moonx-farm/configs": "^1.0.0",
     "@permissionless/wagmi": "^0.1.4",
-    "@privy-io/react-auth": "^1.78.0",
+    "@privy-io/react-auth": "^2.3.0",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-dropdown-menu": "^2.0.6",

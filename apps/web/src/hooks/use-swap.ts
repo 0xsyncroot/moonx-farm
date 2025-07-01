@@ -18,8 +18,9 @@ export interface SwapState {
   step: 'idle' | 'approving' | 'swapping' | 'success' | 'error' | 'cancelled'
 }
 
-export function useSwap() {
-  const { client: smartWalletClient } = useSmartWallets()
+export function useSwap(customSmartWalletClient?: any) {
+  const { client: defaultSmartWalletClient } = useSmartWallets()
+  const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
   
   const [swapState, setSwapState] = useState<SwapState>({
     isSwapping: false,

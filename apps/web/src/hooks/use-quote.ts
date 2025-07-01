@@ -16,9 +16,12 @@ interface QuoteRequest {
   slippage?: number
 }
 
-export function useQuote() {
+export function useQuote(customSmartWalletClient?: any) {
   const { walletInfo } = useAuth()
-  const { client: smartWalletClient } = useSmartWallets()
+  const { client: defaultSmartWalletClient } = useSmartWallets()
+  
+  // Use custom smart wallet client if provided, otherwise use default
+  const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>({
     fromToken: null,
     toToken: null,

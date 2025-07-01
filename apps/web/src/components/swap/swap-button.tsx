@@ -121,6 +121,7 @@ interface SwapButtonProps {
   hasInsufficientBalance?: boolean
   onPauseCountdown?: (reason?: 'swap' | 'approval') => void
   onResumeCountdown?: (reason?: 'cancelled' | 'completed' | 'error') => void
+  smartWalletClient?: any // Smart wallet client from auto chain switch
 }
 
 export function SwapButton({
@@ -132,11 +133,13 @@ export function SwapButton({
   priceImpactTooHigh,
   hasInsufficientBalance = false,
   onPauseCountdown,
-  onResumeCountdown
+  onResumeCountdown,
+  smartWalletClient: customSmartWalletClient
 }: SwapButtonProps) {
   const { user, login, createWallet } = usePrivy()
-  const { client: smartWalletClient } = useSmartWallets()
-  const { executeSwap, swapState, canSwap, resetSwapState, isSwapping, setOnSwapComplete } = useSwap()
+  const { client: defaultSmartWalletClient } = useSmartWallets()
+  const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
+  const { executeSwap, swapState, canSwap, resetSwapState, isSwapping, setOnSwapComplete } = useSwap(smartWalletClient)
 
   // Prevent rapid consecutive clicks
   const lastClickTimeRef = useRef(0)

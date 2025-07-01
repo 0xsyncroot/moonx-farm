@@ -19,9 +19,12 @@ interface TokenBalanceResult {
  * Hook to get token balance for the connected wallet
  * Supports both native tokens (ETH, BNB) and ERC20 tokens
  */
-export function useTokenBalance(token: Token | null): TokenBalanceResult {
+export function useTokenBalance(token: Token | null, customSmartWalletClient?: any): TokenBalanceResult {
   const { address: wagmiAddress } = useAccount()
-  const { client: smartWalletClient } = useSmartWallets()
+  const { client: defaultSmartWalletClient } = useSmartWallets()
+  
+  // Use custom smart wallet client if provided, otherwise use default
+  const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
   
   // Prioritize smart wallet address over wagmi address
   const walletAddress = smartWalletClient?.account?.address || wagmiAddress
