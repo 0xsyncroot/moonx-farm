@@ -83,7 +83,7 @@ type Estimate struct {
 	ToAmount          string    `json:"toAmount"`
 	ToAmountMin       string    `json:"toAmountMin"`
 	ApprovalAddress   string    `json:"approvalAddress"`
-	ExecutionDuration int       `json:"executionDuration"`
+	ExecutionDuration float64   `json:"executionDuration"`
 	FeeCosts          []FeeCost `json:"feeCosts"`
 	GasCosts          []GasCost `json:"gasCosts"`
 	FromAmountUSD     string    `json:"fromAmountUSD"`
