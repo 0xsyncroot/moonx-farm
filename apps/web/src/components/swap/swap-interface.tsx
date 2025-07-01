@@ -224,18 +224,63 @@ export function SwapInterface() {
 
   // Determine active quote - priority: manual selection > best quote > first quote
   const activeQuote = useMemo(() => {
-    if (selectedQuote) return selectedQuote
-    if (quote) return quote
-    if (allQuotes && allQuotes.length > 0) return allQuotes[0]
-    return null
+    let active = null
+    
+    if (selectedQuote) {
+      console.log('🎯 Using manually selected quote:', selectedQuote.id, selectedQuote.provider)
+      active = selectedQuote
+    } else if (quote) {
+      console.log('🏆 Using best quote from API:', quote.id, quote.provider)
+      active = quote
+    } else if (allQuotes && allQuotes.length > 0) {
+      console.log('📝 Using first available quote:', allQuotes[0].id, allQuotes[0].provider)
+      active = allQuotes[0]
+    }
+    
+    if (active) {
+      // Validate quote has required fields for contract execution
+      const isValid = !!(
+        active.callData &&
+        active.fromToken?.address &&
+        active.toToken?.address &&
+        active.fromAmount &&
+        active.toAmount &&
+        active.provider
+      )
+      
+      if (!isValid) {
+        console.error('❌ Active quote missing required fields:', {
+          id: active.id,
+          provider: active.provider,
+          hasCallData: !!active.callData,
+          hasFromToken: !!active.fromToken?.address,
+          hasToToken: !!active.toToken?.address,
+          hasFromAmount: !!active.fromAmount,
+          hasToAmount: !!active.toAmount
+        })
+      }
+    }
+    
+    return active
   }, [selectedQuote, quote, allQuotes, quoteResponse?.timestamp])
 
   // Clear manually selected quote when new quotes arrive
+  // BUT preserve selection if user explicitly chose it recently
+  const lastUserSelectTimeRef = useRef(0)
+  
   useEffect(() => {
     if (quoteResponse?.timestamp && selectedQuote) {
-      setSelectedQuote(null)
+      // Only clear if it's been more than 10 seconds since user selection
+      // This prevents clearing when user just selected a quote
+      const timeSinceSelection = Date.now() - lastUserSelectTimeRef.current
+      if (timeSinceSelection > 10000) {
+        console.log('⏰ Clearing manually selected quote after 10 seconds')
+        setSelectedQuote(null)
+      } else {
+        console.log('📌 Preserving manually selected quote (selected', (timeSinceSelection / 1000).toFixed(1), 'seconds ago)')
+      }
     }
-  }, [quoteResponse?.timestamp])
+  }, [quoteResponse?.timestamp, selectedQuote])
 
   // Calculate minimum received after slippage
   const minReceived = useMemo(() => {
@@ -296,6 +341,34 @@ export function SwapInterface() {
   }, [setToToken])
 
   const handleSelectQuote = useCallback((quote: any) => {
+    console.log('📌 User manually selected quote:', {
+      id: quote.id,
+      provider: quote.provider,
+      toAmount: quote.toAmount,
+      hasCallData: !!quote.callData,
+      hasValue: !!quote.value,
+      hasFromToken: !!quote.fromToken?.address,
+      hasToToken: !!quote.toToken?.address
+    })
+    
+    // Additional validation before setting selected quote
+    const isValidQuote = !!(
+      quote.id &&
+      quote.provider &&
+      quote.callData &&
+      quote.fromToken?.address &&
+      quote.toToken?.address &&
+      quote.fromAmount &&
+      quote.toAmount
+    )
+    
+    if (!isValidQuote) {
+      console.error('❌ Attempted to select invalid quote, falling back to best quote')
+      // Don't set selectedQuote, let it fallback to best quote
+      return
+    }
+    
+    lastUserSelectTimeRef.current = Date.now()
     setSelectedQuote(quote)
   }, [])
 

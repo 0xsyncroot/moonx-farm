@@ -12,6 +12,9 @@ export const DIAMOND_ABIS = {
   RelayProxyFacet: parseAbi([
     'function callRelay(uint256 fromTokenWithFee, uint256 fromAmt, uint256 toTokenWithFee, bytes calldata callData) external payable'
   ]),
+  CrossChainRelayFacet: parseAbi([
+    'function callCrossChainRelay(uint256 fromTokenWithFee, uint256 fromAmt, uint256 toTokenWithFee, bytes calldata rawCallData) external payable'
+  ]),
   ERC20: parseAbi([
     'function approve(address spender, uint256 amount) external returns (bool)',
     'function allowance(address owner, address spender) external view returns (uint256)',
@@ -46,6 +49,8 @@ export interface SwapParams {
   callData: string
   value: string
   chainId: number
+  fromChainId: number
+  toChainId: number
   userAddress: Address
 }
 
@@ -76,29 +81,41 @@ export class PrivyContractSwapExecutor {
     return address
   }
 
-  private getFacetFunction(provider: string): 'callLifi' | 'callOneInch' | 'callRelay' {
+  private getFacetFunction(provider: string, fromChainId: number, toChainId: number): 'callLifi' | 'callOneInch' | 'callRelay' | 'callCrossChainRelay' {
+    // Check if it's a cross-chain transaction
+    const isCrossChain = fromChainId !== toChainId
+    
+    // For relay provider, use cross-chain facet if chains are different
+    if (provider.toLowerCase() === 'relay') {
+      return isCrossChain ? 'callCrossChainRelay' : 'callRelay'
+    }
+    
     switch (provider.toLowerCase()) {
       case 'lifi':
         return 'callLifi'
       case '1inch':
       case 'oneinch':
         return 'callOneInch'
-      case 'relay':
-        return 'callRelay'
       default:
         throw new Error(`Unsupported provider: ${provider}`)
     }
   }
 
-  private getFacetAbi(provider: string) {
+  private getFacetAbi(provider: string, fromChainId: number, toChainId: number) {
+    // Check if it's a cross-chain transaction
+    const isCrossChain = fromChainId !== toChainId
+    
+    // For relay provider, use cross-chain facet if chains are different
+    if (provider.toLowerCase() === 'relay') {
+      return isCrossChain ? DIAMOND_ABIS.CrossChainRelayFacet : DIAMOND_ABIS.RelayProxyFacet
+    }
+    
     switch (provider.toLowerCase()) {
       case 'lifi':
         return DIAMOND_ABIS.LifiProxyFacet
       case '1inch':
       case 'oneinch':
         return DIAMOND_ABIS.OneInchProxyFacet
-      case 'relay':
-        return DIAMOND_ABIS.RelayProxyFacet
       default:
         throw new Error(`Unsupported provider: ${provider}`)
     }
@@ -294,7 +311,15 @@ export class PrivyContractSwapExecutor {
 
     try {
       const diamondAddress = this.getDiamondAddress(params.chainId)
-      const facetFunction = this.getFacetFunction(params.provider)
+      const facetFunction = this.getFacetFunction(params.provider, params.fromChainId, params.toChainId)
+
+      console.log('⚙️ Contract execution setup:', {
+        operationId,
+        provider: params.provider,
+        facetFunction,
+        diamondAddress,
+        chainId: params.chainId
+      })
 
       // Calculate fees and encode token addresses with fee
       const { tokenWithFee: fromTokenWithFee } = 
@@ -302,6 +327,15 @@ export class PrivyContractSwapExecutor {
       
       const { tokenWithFee: toTokenWithFee } = 
         this.calculateTokenWithFee(params.toToken, params.toAmount, params.chainId)
+
+      console.log('💰 Token encoding:', {
+        fromToken: params.fromToken,
+        fromTokenWithFee: fromTokenWithFee.toString(16),
+        toToken: params.toToken,
+        toTokenWithFee: toTokenWithFee.toString(16),
+        fromAmount: params.fromAmount.toString(),
+        toAmount: params.toAmount.toString()
+      })
 
       // Check if we need to approve tokens
       const isFromNative = this.isNativeToken(params.fromToken, params.chainId)
@@ -322,7 +356,28 @@ export class PrivyContractSwapExecutor {
       }
 
       // Encode the facet function call
-      const facetAbi = this.getFacetAbi(params.provider)
+      const facetAbi = this.getFacetAbi(params.provider, params.fromChainId, params.toChainId)
+      
+      console.log('🔨 Encoding function call:', {
+        provider: params.provider,
+        facetFunction,
+        abiName: facetAbi === DIAMOND_ABIS.LifiProxyFacet ? 'LifiProxyFacet' :
+                  facetAbi === DIAMOND_ABIS.OneInchProxyFacet ? 'OneInchProxyFacet' :
+                  facetAbi === DIAMOND_ABIS.RelayProxyFacet ? 'RelayProxyFacet' :
+                  facetAbi === DIAMOND_ABIS.CrossChainRelayFacet ? 'CrossChainRelayFacet' : 'Unknown',
+        isCrossChain: params.fromChainId !== params.toChainId,
+        fromChainId: params.fromChainId,
+        toChainId: params.toChainId,
+        callDataLength: params.callData.length
+      })
+      
+      console.log('🔨 function call args:', {
+        fromTokenWithFee: fromTokenWithFee.toString(16),
+        fromAmount: params.fromAmount.toString(),
+        toTokenWithFee: toTokenWithFee.toString(16),
+        callData: params.callData
+      })
+      
       const swapCallData = encodeFunctionData({
         abi: facetAbi,
         functionName: facetFunction,
@@ -332,6 +387,12 @@ export class PrivyContractSwapExecutor {
           toTokenWithFee,
           params.callData as `0x${string}`
         ],
+      })
+      
+      console.log('📡 Encoded swap call data:', {
+        length: swapCallData.length,
+        selector: swapCallData.slice(0, 10),
+        fullData: swapCallData.slice(0, 200) + '...'
       })
 
       // Send swap transaction - FIXED: Smart fallback to prevent double modals
@@ -380,19 +441,29 @@ export class PrivyContractSwapExecutor {
     // The quote provider field tells us which aggregator to use
     const provider = quote.provider?.toLowerCase()
     
+    console.log('🔍 Provider mapping:', {
+      originalProvider: quote.provider,
+      lowerCaseProvider: provider,
+      quoteId: quote.id
+    })
+    
     // Map provider names to our facet functions
     switch (provider) {
       case 'lifi':
       case 'li.fi':
+        console.log('✅ Mapped to lifi facet')
         return 'lifi'
       case '1inch':
       case 'oneinch':
       case '1inch_v5':
+        console.log('✅ Mapped to 1inch facet')
         return '1inch'
       case 'relay':
       case 'relay.link':
+        console.log('✅ Mapped to relay facet')
         return 'relay'
       default:
+        console.error('❌ Unsupported provider:', provider)
         throw new Error(`Unsupported provider in quote: ${provider}`)
     }
   }
@@ -406,17 +477,42 @@ export function prepareSwapFromQuote(
   quote: any,
   userAddress: Address
 ): SwapParams {
+  console.log('🔧 Preparing swap from quote:', {
+    quoteId: quote.id,
+    originalProvider: quote.provider,
+    fromToken: quote.fromToken?.symbol,
+    toToken: quote.toToken?.symbol,
+    hasCallData: !!quote.callData,
+    callDataLength: quote.callData?.length
+  })
+  
+  const mappedProvider = PrivyContractSwapExecutor.getProviderFromQuote(quote)
+  
   const swapParams = {
     fromToken: quote.fromToken.address as Address,
     toToken: quote.toToken.address as Address,
     fromAmount: BigInt(quote.fromAmount),
     toAmount: BigInt(quote.toAmount),
-    provider: PrivyContractSwapExecutor.getProviderFromQuote(quote),
+    provider: mappedProvider,
     callData: quote.callData,
     value: quote.value,
     chainId: quote.fromToken.chainId,
+    fromChainId: quote.fromToken.chainId,
+    toChainId: quote.toToken.chainId,
     userAddress,
   }
+  
+  console.log('📋 Prepared swap params:', {
+    fromToken: swapParams.fromToken,
+    toToken: swapParams.toToken,
+    provider: swapParams.provider,
+    chainId: swapParams.chainId,
+    fromChainId: swapParams.fromChainId,
+    toChainId: swapParams.toChainId,
+    isCrossChain: swapParams.fromChainId !== swapParams.toChainId,
+    hasCallData: !!swapParams.callData,
+    value: swapParams.value
+  })
   
   return swapParams
 } 

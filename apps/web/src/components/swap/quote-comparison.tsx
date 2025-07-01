@@ -246,6 +246,23 @@ export function QuoteComparison({
                   : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
               )}
               onClick={() => {
+                console.log('🔄 Quote comparison: selecting quote', {
+                  id: quote.id,
+                  provider: quote.provider,
+                  hasCallData: !!quote.callData,
+                  hasValue: !!quote.value,
+                  hasFromToken: !!quote.fromToken?.address,
+                  hasToToken: !!quote.toToken?.address,
+                  fromAmount: quote.fromAmount,
+                  toAmount: quote.toAmount
+                })
+                
+                // Validate quote before selection
+                if (!quote.callData || !quote.fromToken?.address || !quote.toToken?.address) {
+                  console.error('❌ Attempting to select invalid quote:', quote)
+                  return
+                }
+                
                 onSelectQuote(quote)
                 onClose?.()
               }}
