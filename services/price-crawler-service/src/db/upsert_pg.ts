@@ -6,7 +6,7 @@ export async function upsertTokenPg(token: {
   token_type?: string; // 'top', 'trending'
   name?: string;
   symbol: string;
-  decimals?: number;
+  decimals?: number | null;
   logo_url?: string;
   contracts?: any; // JSONB
   socials?: any;   // JSONB

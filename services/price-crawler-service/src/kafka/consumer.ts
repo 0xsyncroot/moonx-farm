@@ -11,6 +11,7 @@ export interface KafkaJobPayload {
 }
 
 import { Kafka, Consumer } from "kafkajs";
+import configs from "../config";
 
 export class KafkaConsumer {
   private consumer: Consumer | null = null;
@@ -18,8 +19,8 @@ export class KafkaConsumer {
 
   async connect(topics: string[]): Promise<void> {
     this.kafka = new Kafka({
-      clientId: "price-crawler-consumer",
-      brokers: ["localhost:9092"], // TODO: lấy từ config
+      clientId: configs.kafka.consumerConfig.clientId || "price-crawler-consumer",
+      brokers: configs.kafka.consumerConfig.brokers || ["localhost:9092"],
     });
     this.consumer = this.kafka.consumer({ groupId: "price-crawler-group" });
     await this.consumer.connect();

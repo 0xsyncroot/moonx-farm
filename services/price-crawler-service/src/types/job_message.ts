@@ -1,7 +1,6 @@
 // Định nghĩa interface message Kafka cho worker
 
-export type JobType = "price" | "metadata" | "audit";
-export type TokenType = "top" | "trending";
+import { JobType, TokenType } from "../models";
 
 export interface JobMessage {
   job_type: JobType;

@@ -1,10 +1,12 @@
 // Main entrypoint - Khởi động đồng thời Scheduler và Worker để kiểm thử end-to-end
 
 import { Scheduler } from "./scheduler";
-import { triggerAllJobsOnStartup } from "./scheduler/trigger_on_startup";
 import { Worker } from "./worker";
 
 async function main() {
+  
+  console.log("[Main] Scheduler and Worker starting...");
+
   const scheduler = new Scheduler();
   const worker = new Worker();
 
@@ -15,9 +17,9 @@ async function main() {
   await scheduler.init();
 
   // Chạy tất cả các job ngay lập tức khi start app
-  await triggerAllJobsOnStartup();
+  await scheduler.runAllJobsOnStartup();
 
-  console.log("[Main] Scheduler and Worker started for end-to-end test.");
+  console.log("[Main] Scheduler and Worker started!");
 }
 
 main().catch((err) => {

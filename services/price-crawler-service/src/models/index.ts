@@ -8,7 +8,7 @@ export enum JobType {
 }
 
 export enum TokenType {
-  TOP100 = "top100",
+  TOP = "top",
   TRENDING = "trending",
 }
 

@@ -7,10 +7,12 @@ export interface KafkaJobMessage {
   symbols?: string[];
   contracts?: string[];
   timestamp: string;
+  chain_id?: string; // Chỉ sử dụng cho trending token
   [key: string]: any;
 }
 
 import { Kafka, Producer } from "kafkajs";
+import configs from "../config";
 
 export class KafkaProducer {
   private producer: Producer | null = null;
@@ -18,8 +20,8 @@ export class KafkaProducer {
 
   async connect(): Promise<void> {
     this.kafka = new Kafka({
-      clientId: "price-crawler-producer",
-      brokers: ["localhost:9092"], // TODO: lấy từ config
+      clientId: configs.kafka.producerConfig.clientId || "price-crawler-producer",
+      brokers: configs.kafka.producerConfig.brokers || ["localhost:9092"], // TODO: lấy từ config
     });
     this.producer = this.kafka.producer();
     await this.producer.connect();

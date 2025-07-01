@@ -1,6 +1,6 @@
 import axios from "axios";
 import { TokenProfile, MarketInfo, FetcherResult } from "./types";
-import configs = require("../../../../packages/configs");
+import configs = require("../config");
 
 // Lấy endpoint từ config
 const BINANCE_API = configs.api?.binance || "https://api.binance.com/api/v3";

@@ -11,7 +11,7 @@
     "outDir": "dist",
     "baseUrl": ".",
     "paths": {
-      "configs": ["../../packages/configs/index.ts"]
+      "configs": ["./config/index.ts"]
     }
   },
   "include": ["src/**/*"],

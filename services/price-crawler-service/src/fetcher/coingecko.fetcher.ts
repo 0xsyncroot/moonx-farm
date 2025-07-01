@@ -1,7 +1,7 @@
 import axios from "axios";
 import { TokenProfile, MarketInfo, FetcherResult, ContractsMap, SocialLinks } from "./types";
 
-import configs = require("../../../../packages/configs");
+import configs = require("../config");
 
 // Lấy endpoint từ config
 const COINGECKO_API = configs.api?.coingecko || "https://api.coingecko.com/api/v3";

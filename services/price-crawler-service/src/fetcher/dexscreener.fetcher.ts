@@ -1,6 +1,6 @@
 import axios from "axios";
 import { TokenProfile, MarketInfo, FetcherResult, ContractsMap, SocialLinks } from "./types";
-import configs = require("../../../../packages/configs");
+import configs = require("../config");
 
 // Lấy endpoint từ config
 const DEXSCREENER_API = configs.api?.dexscreener || "https://api.dexscreener.com/latest/dex/tokens";

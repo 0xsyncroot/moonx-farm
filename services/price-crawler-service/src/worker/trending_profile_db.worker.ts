@@ -1,11 +1,9 @@
-import { getTokenProfileDexscreener } from "../fetcher/dexscreener.fetcher";
-import { getTokenProfileGeckoTerminal } from "../fetcher/geckoterminal.fetcher";
-import { getCoinProfileCoingecko } from "../fetcher/coingecko.fetcher";
+import { TrendingTokenFetcher } from "../fetchers/trendingTokenFetcher";
 import { getTokenAuditGoPlus } from "../fetcher/goplus.fetcher";
 import { upsertTokenPg, upsertTokenPricePg, upsertTokenAuditPg } from "../db/upsert_pg";
 import { pool, connectPgDb } from "../db/pgdb";
 import { JobMessage } from "../types/job_message";
-import { logger } from "../../../packages/common/src";
+import { logger } from "../../../../packages/common/src/logger";
 
 // Hàm nhận diện stablecoin đơn giản (có thể mở rộng)
 function isStablecoin(symbol: string): boolean {
@@ -18,20 +16,20 @@ export async function handleTrendingJob(msg: JobMessage) {
   const { job_type, chain, address, coingeckoId, symbol } = msg;
   let profile = null;
   let audit = null;
+  const trendingTokenFetcher = new TrendingTokenFetcher();
 
   // Metadata & Price đều cần fetch profile
   if (job_type === "metadata" || job_type === "price") {
-    profile = await getTokenProfileDexscreener(address);
-    if (!profile) profile = await getTokenProfileGeckoTerminal(chain, address);
-    if (!profile && coingeckoId) profile = await getCoinProfileCoingecko(coingeckoId);
+    profile = await trendingTokenFetcher.getTokenProfile(chain, address);
 
-    logger.info({ job_type, token_type: "trending", address, step: "fetch_profile", status: !!profile });
+    logger.info("HandleTrendingJob - Start",{ job_type, token_type: "trending", address, step: "fetch_profile", status: !!profile });
+    
     if (!profile) {
       await pool.query(
         `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
         [job_type, "trending", address, "fail", "Không fetch được profile"]
       );
-      logger.error({ job_type, token_type: "trending", address, error: "Không fetch được profile" });
+      logger.error("HandleTrendingJob - Not Found Profile",{ job_type, token_type: "trending", address, error: "Không fetch được profile" });
       return;
     }
 
@@ -41,13 +39,11 @@ export async function handleTrendingJob(msg: JobMessage) {
         `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
         [job_type, "trending", address, "skip", "Stablecoin bị loại trừ"]
       );
-      logger.info({ job_type, token_type: "trending", address, status: "skip", reason: "Stablecoin bị loại trừ" });
       return;
     }
 
     // Upsert metadata
     if (job_type === "metadata") {
-      logger.info({ job_type, token_type: "trending", address, step: "upsert_metadata" });
       await upsertTokenPg({
         contract: address,
         token_type: "trending",
@@ -69,7 +65,6 @@ export async function handleTrendingJob(msg: JobMessage) {
 
     // Upsert price
     if (job_type === "price" && profile.mainPool && profile.mainPool.priceUsd) {
-      logger.info({ job_type, token_type: "trending", address, step: "upsert_price" });
       await upsertTokenPricePg({
         contract: address,
         token_type: "trending",
@@ -111,13 +106,12 @@ export async function handleTrendingJob(msg: JobMessage) {
         `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
         [job_type, "trending", address, "wait", "Chưa có metadata/price, delay audit"]
       );
-      logger.info({ job_type, token_type: "trending", address, status: "wait", reason: "Chưa có metadata/price, delay audit" });
       return;
     }
-    logger.info({ job_type, token_type: "trending", address, step: "fetch_audit" });
-    audit = await getTokenAuditGoPlus(chain, address);
+    
+    audit = await trendingTokenFetcher.getTokenAudit(chain, address);
+
     if (audit) {
-      logger.info({ job_type, token_type: "trending", address, step: "upsert_audit" });
       await upsertTokenAuditPg({
         contract: address,
         audit_score: audit.audit_score,
@@ -134,27 +128,10 @@ export async function handleTrendingJob(msg: JobMessage) {
         `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
         [job_type, "trending", address, "fail", "Không fetch được audit"]
       );
-      logger.error({ job_type, token_type: "trending", address, error: "Không fetch được audit" });
     }
   }
+  
+  logger.info("HandleTrendingJob - End",{ job_type, token_type: "trending", address, step: "fetch_profile", status: !!profile });
 }
 
-async function main() {
-  await connectPgDb();
-  // Test message mẫu
-  const testMsg: JobMessage = {
-    job_type: "metadata",
-    token_type: "trending",
-    chain: "base",
-    address: "0x4200000000000000000000000000000000000006",
-    coingeckoId: "weth",
-    timestamp: new Date().toISOString()
-  };
-  await handleTrendingJob(testMsg);
-  await pool.end();
-  process.exit(0);
-}
-
-if (require.main === module) {
-  main();
-}
+// 

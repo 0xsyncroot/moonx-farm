@@ -1,7 +1,8 @@
-import { getTopCoinProfiles } from "../fetcher/coingecko.fetcher";
+
 import { upsertTokenPg, upsertTokenPricePg } from "../db/upsert_pg";
 import { pool, connectPgDb } from "../db/pgdb";
 import { JobMessage } from "../types/job_message";
+import { JobType } from "src/models";
 
 // Hàm nhận diện stablecoin đơn giản (có thể mở rộng)
 function isStablecoin(symbol: string): boolean {
@@ -10,34 +11,31 @@ function isStablecoin(symbol: string): boolean {
 }
 
 // Xử lý từng loại job cho top token
-async function handleTopJob(msg: JobMessage) {
-  const { job_type, address, symbol, coingeckoId, timestamp } = msg;
-  // Lấy profile top token từ coingecko
-  const profiles = await getTopCoinProfiles(100);
-  // Tìm profile theo address (ưu tiên contract đầu tiên)
-  const profile = profiles.find(p =>
-    Object.values(p.contracts).some((c: string) => c.toLowerCase() === address.toLowerCase())
-  );
+export async function handleTopJob(msg: JobMessage, profile?: any) {
+  const { job_type, token_type, address, symbol, coingeckoId, timestamp } = msg;
+  
   if (!profile) {
     await pool.query(
       `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
-      [job_type, "top", address, "fail", "Không tìm thấy profile top token"]
+      [job_type, token_type, "", "fail", "Không tìm thấy profile top token"]
     );
     return;
   }
+
   // Loại trừ stablecoin
   if (isStablecoin(profile.symbol)) {
     await pool.query(
       `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
-      [job_type, "top", address, "skip", "Stablecoin bị loại trừ"]
+      [job_type, token_type || "top", address, "skip", "Stablecoin bị loại trừ"]
     );
     return;
   }
+
   // Upsert metadata
-  if (job_type === "metadata") {
+  if (job_type === JobType.METADATA) {
     await upsertTokenPg({
       contract: address,
-      token_type: "top",
+      token_type: token_type || "top",
       symbol: profile.symbol,
       name: profile.name,
       decimals: profile.decimals,
@@ -50,14 +48,14 @@ async function handleTopJob(msg: JobMessage) {
     });
     await pool.query(
       `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
-      [job_type, "top", address, "success", "Upsert metadata top token thành công"]
+      [job_type, token_type || "top", address, "success", "Upsert metadata top token thành công"]
     );
   }
   // Upsert price
-  if (job_type === "price" && profile.mainPool && profile.mainPool.priceUsd) {
+  if (job_type === JobType.PRICE && profile.mainPool && profile.mainPool.priceUsd) {
     await upsertTokenPricePg({
       contract: address,
-      token_type: "top",
+      token_type: token_type,
       chain: profile.mainPool.chain,
       dex: profile.mainPool.dex,
       pair_address: profile.mainPool.pairAddress,
@@ -77,27 +75,8 @@ async function handleTopJob(msg: JobMessage) {
     });
     await pool.query(
       `INSERT INTO job_logs (job_type, token_type, contract, status, message) VALUES ($1, $2, $3, $4, $5)`,
-      [job_type, "top", address, "success", "Upsert price top token thành công"]
+      [job_type, token_type, address, "success", "Upsert price top token thành công"]
     );
   }
 }
 
-async function main() {
-  await connectPgDb();
-  // Test message mẫu
-  const testMsg: JobMessage = {
-    job_type: "metadata",
-    token_type: "top",
-    chain: "ethereum",
-    address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
-    coingeckoId: "weth",
-    timestamp: new Date().toISOString()
-  };
-  await handleTopJob(testMsg);
-  await pool.end();
-  process.exit(0);
-}
-
-if (require.main === module) {
-  main();
-}
