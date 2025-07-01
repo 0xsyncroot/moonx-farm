@@ -7,7 +7,7 @@ import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useSwap } from '@/hooks/use-swap'
 import { cn } from '@/lib/utils'
 import type { Quote } from '@/lib/api-client'
-import React, { useCallback, useRef, useEffect } from 'react'
+import React, { useCallback, useRef, useEffect, useMemo } from 'react'
 
 // Global execution lock to prevent ANY duplicate calls
 const globalExecutionLock = {
@@ -250,8 +250,8 @@ export function SwapButton({
     // ✨ Countdown resume handled automatically by useEffect tracking swapState.step
   }, [resetSwapState])
 
-  // Determine button state and action
-  const getButtonState = () => {
+  // Memoize button state to prevent excessive re-computations
+  const buttonState = useMemo(() => {
     // Authentication states
     if (!user) {
       return {
@@ -375,9 +375,25 @@ export function SwapButton({
       disabled: disabled || !canSwap || isSwapping,
       loading: isSwapping
     }
-  }
-
-  const buttonState = getButtonState()
+  }, [
+    user,
+    smartWalletClient?.account?.address,
+    fromToken,
+    toToken,
+    fromAmount,
+    hasInsufficientBalance,
+    quote,
+    priceImpactTooHigh,
+    swapState.step,
+    swapState.error,
+    disabled,
+    canSwap,
+    isSwapping,
+    handleLogin,
+    handleCreateWallet,
+    handleSwap,
+    handleRetrySwap
+  ])
 
   return (
     <div className="space-y-4">

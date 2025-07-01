@@ -334,7 +334,7 @@ export class PrivyContractSwapExecutor {
         ],
       })
 
-      // Send swap transaction - try paymaster first, fallback to user-paid
+      // Send swap transaction - FIXED: Smart fallback to prevent double modals
       let hash: string
       try {
         hash = await smartWalletClient.sendTransaction({
@@ -349,24 +349,7 @@ export class PrivyContractSwapExecutor {
         if (this.isUserCancellation(swapErrorMessage)) {
           throw new Error('Transaction cancelled by user')
         }
-        
-        // Fallback: disable paymaster and let user pay gas
-        try {
-          hash = await smartWalletClient.sendTransaction({
-            to: diamondAddress,
-            data: swapCallData,
-            value: BigInt(params.value),
-            gas: BigInt(500000),
-            paymaster: false,
-          })
-        } catch (fallbackError) {
-          // Check if user cancelled the fallback transaction
-          const fallbackErrorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
-          if (this.isUserCancellation(fallbackErrorMessage)) {
-            throw new Error('Transaction cancelled by user')
-          }
-          throw fallbackError
-        }
+        throw swapError
       }
 
       return hash
