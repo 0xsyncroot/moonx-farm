@@ -104,7 +104,7 @@ export class PrivyContractSwapExecutor {
   private getFacetAbi(provider: string, fromChainId: number, toChainId: number) {
     // Check if it's a cross-chain transaction
     const isCrossChain = fromChainId !== toChainId
-    
+    console.log('🔍 isCrossChain:', isCrossChain)
     // For relay provider, use cross-chain facet if chains are different
     if (provider.toLowerCase() === 'relay') {
       return isCrossChain ? DIAMOND_ABIS.CrossChainRelayFacet : DIAMOND_ABIS.RelayProxyFacet

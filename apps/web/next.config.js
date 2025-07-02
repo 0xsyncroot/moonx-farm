@@ -4,12 +4,7 @@ const nextConfig = {
   output: 'standalone',
 
   swcMinify: true,           // bật SWC minification
-  compiler: {
-    // Xoá tất cả console.* calls khỏi client-side bundle
-    removeConsole: {
-      exclude: ['error']
-    }
-  },
+  
   // Disable ESLint during production builds
   eslint: {
     ignoreDuringBuilds: true,

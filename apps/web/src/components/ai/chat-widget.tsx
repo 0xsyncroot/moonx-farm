@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { MessageCircle, X, Send, User, Sparkles, TrendingUp, Wallet, HelpCircle, Settings, Square, RotateCcw, Sun, Moon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
@@ -25,74 +25,83 @@ const TypewriterText: React.FC<{
   onComplete?: () => void;
   isStreaming?: boolean;
   isDark?: boolean;
-}> = ({ text, speed = 20, onComplete, isStreaming = false, isDark = true }) => {
+}> = ({ text, speed = 40, onComplete, isStreaming = false, isDark = true }) => {
   const [displayedText, setDisplayedText] = useState('')
   const [showCursor, setShowCursor] = useState(false)
   
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const isTyping = useRef(false)
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const currentTextRef = useRef('')
+  const typingIndexRef = useRef(0)
 
-  useEffect(() => {
-    // Clear any existing timeout
-    if (intervalRef.current) {
-      clearTimeout(intervalRef.current)
-      intervalRef.current = null
+  // Clear any existing timeout
+  const clearTyping = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
     }
+  }, [])
 
-    if (!text) {
+  // Start typing animation
+  const startTyping = useCallback((targetText: string, fromIndex: number = 0) => {
+    clearTyping()
+    
+    if (!targetText) {
       setDisplayedText('')
       setShowCursor(false)
       return
     }
 
-    // If streaming, show text immediately (will be updated in real-time)
-    if (isStreaming) {
-      setDisplayedText(text)
-      setShowCursor(true)
+    typingIndexRef.current = fromIndex
+    setShowCursor(true)
+
+    const typeChar = () => {
+      if (typingIndexRef.current < targetText.length) {
+        typingIndexRef.current++
+        setDisplayedText(targetText.slice(0, typingIndexRef.current))
+        timeoutRef.current = setTimeout(typeChar, speed)
+      } else {
+        setShowCursor(false)
+        onComplete?.()
+      }
+    }
+
+    // Start immediately if at beginning, small delay if continuing
+    const delay = fromIndex === 0 ? 0 : speed
+    timeoutRef.current = setTimeout(typeChar, delay)
+  }, [speed, onComplete, clearTyping])
+
+  // Handle text changes
+  useEffect(() => {
+    if (!text) {
+      clearTyping()
+      setDisplayedText('')
+      setShowCursor(false)
+      currentTextRef.current = ''
+      typingIndexRef.current = 0
       return
     }
 
-    // If not streaming and text is different, start typing animation
-    if (!isStreaming && displayedText !== text && !isTyping.current) {
-      isTyping.current = true
-      setDisplayedText('')
-      setShowCursor(true)
-      
-      let charIndex = 0
-      
-      const typeChar = () => {
-        if (charIndex < text.length) {
-          setDisplayedText(prev => text.slice(0, charIndex + 1))
-          charIndex++
-          intervalRef.current = setTimeout(typeChar, speed)
-        } else {
-          setShowCursor(false)
-          isTyping.current = false
-          onComplete?.()
-        }
-      }
-      
-      // Start typing after a small delay
-      intervalRef.current = setTimeout(typeChar, 100)
-    }
+    const prevText = currentTextRef.current
+    currentTextRef.current = text
 
-    return () => {
-      if (intervalRef.current) {
-        clearTimeout(intervalRef.current)
-        intervalRef.current = null
-      }
+    // If completely new text or not streaming - start from beginning
+    if (!isStreaming || !prevText || !text.startsWith(prevText)) {
+      typingIndexRef.current = 0
+      setDisplayedText('')
+      startTyping(text, 0)
     }
-  }, [text, isStreaming, speed])
+    // If streaming and text is extended - continue from current position
+    else if (text.length > prevText.length && typingIndexRef.current >= prevText.length) {
+      startTyping(text, typingIndexRef.current)
+    }
+  }, [text, isStreaming, startTyping])
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (intervalRef.current) {
-        clearTimeout(intervalRef.current)
-      }
-      isTyping.current = false
-    }
-  }, [])
+    return clearTyping
+  }, [clearTyping])
+
+
 
   // If streaming and no text yet, show typing animation instead of empty markdown
   if (isStreaming && !displayedText) {
@@ -118,7 +127,7 @@ const TypewriterText: React.FC<{
   const hrBorder = isDark ? 'border-gray-600' : 'border-gray-300'
 
   return (
-    <div className={cn("prose prose-sm max-w-none text-xs", textColor)}>
+    <div className={cn("max-w-none text-xs", textColor)}>
       <ReactMarkdown
         components={{
           // Custom styles for markdown elements
@@ -159,10 +168,18 @@ interface ChatWidgetProps {
 export function ChatWidget({ className }: ChatWidgetProps) {
   const { messages, isLoading, isOpen, setIsOpen, sendMessage, isWalkerEnabled, setIsWalkerEnabled, conversationId, startNewConversation, stopGeneration } = useChat()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [inputValue, setInputValue] = useState('')
   const { theme, setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  
+  // Scroll state management
+  const [isUserScrolling, setIsUserScrolling] = useState(false)
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastScrollTop = useRef(0)
+  const isScrollingProgrammatically = useRef(false)
 
   // Wait until mounted to avoid hydration mismatch
   useEffect(() => {
@@ -172,24 +189,105 @@ export function ChatWidget({ className }: ChatWidgetProps) {
   // Get current theme (light/dark) - resolvedTheme handles 'system' automatically
   const isDarkMode = mounted ? resolvedTheme === 'dark' : true
 
-  const scrollToBottom = () => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  // Smooth scroll to bottom function
+  const scrollToBottom = useCallback((force = false) => {
+    if (!messagesEndRef.current || !messagesContainerRef.current) return
+    
+    // Check if user is near bottom (within 100px)
+    const container = messagesContainerRef.current
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+    
+    if (force || (!isUserScrolling && (shouldAutoScroll || isNearBottom))) {
+      isScrollingProgrammatically.current = true
+      
+      // Use smooth scrolling with proper behavior
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'end',
+        inline: 'nearest'
+      })
+      
+      // Reset programmatic scroll flag after animation
+      setTimeout(() => {
+        isScrollingProgrammatically.current = false
+      }, 500)
     }
-  }
+  }, [isUserScrolling, shouldAutoScroll])
 
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  // Additional scroll effect for when typing is happening
-  useEffect(() => {
-    if (isLoading) {
-      const intervalId = setInterval(scrollToBottom, 200)
-      return () => clearInterval(intervalId)
+  // Throttled scroll handler
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current || isScrollingProgrammatically.current) return
+    
+    const container = messagesContainerRef.current
+    const { scrollTop, scrollHeight, clientHeight } = container
+    
+    // Detect if user is scrolling manually
+    if (Math.abs(scrollTop - lastScrollTop.current) > 1) {
+      setIsUserScrolling(true)
+      
+      // Clear existing timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      
+      // Reset user scrolling after delay
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsUserScrolling(false)
+      }, 1000)
     }
-  }, [isLoading])
+    
+    // Update auto-scroll state based on position
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+    setShouldAutoScroll(isAtBottom)
+    
+    lastScrollTop.current = scrollTop
+  }, [])
 
+  // Debounced scroll event listener
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    let timeoutId: NodeJS.Timeout
+    const debouncedHandleScroll = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(handleScroll, 50)
+    }
+
+    container.addEventListener('scroll', debouncedHandleScroll, { passive: true })
+    
+    return () => {
+      container.removeEventListener('scroll', debouncedHandleScroll)
+      clearTimeout(timeoutId)
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    }
+  }, [handleScroll])
+
+  // Auto-scroll when messages change
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      scrollToBottom()
+    }, 100)
+    
+    return () => clearTimeout(timeoutId)
+  }, [messages, scrollToBottom])
+
+  // Smoother auto-scroll during loading with intervals
+  useEffect(() => {
+    if (!isLoading) return
+
+    const intervalId = setInterval(() => {
+      if (shouldAutoScroll) {
+        scrollToBottom()
+      }
+    }, 200)
+    
+    return () => clearInterval(intervalId)
+  }, [isLoading, shouldAutoScroll, scrollToBottom])
+
+  // Focus input when opened
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus()
@@ -372,7 +470,10 @@ export function ChatWidget({ className }: ChatWidgetProps) {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+          <div 
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent"
+          >
             {/* Welcome Message when no messages */}
             {messages.length === 0 && !isLoading && (
               <div className="text-center py-8">
@@ -438,7 +539,7 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                     ) : (
                       // Welcome messages và system messages hiển thị ngay, không cần animation
                       message.id.includes('welcome') || message.role === 'system' ? (
-                        <div className={cn("prose prose-sm max-w-none text-xs", isDarkMode ? "text-gray-100" : "text-gray-800")}>
+                        <div className={cn("max-w-none text-xs", isDarkMode ? "text-gray-100" : "text-gray-800")}>
                           <ReactMarkdown
                             components={{
                               p: ({ children }) => <p className={cn("mb-2 last:mb-0", isDarkMode ? "text-gray-100" : "text-gray-800")}>{children}</p>,
@@ -463,7 +564,7 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                           key={`${message.id}-${message.content.length}`}
                           text={message.content} 
                           isStreaming={isLastAssistantMessage && isLoading}
-                          speed={50}
+                          speed={30}
                           isDark={isDarkMode}
                         />
                       )

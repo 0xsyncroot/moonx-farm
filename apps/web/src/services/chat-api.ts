@@ -160,7 +160,15 @@ export class ChatApiService {
           return aiMessage?.content || null
         }
         // Handle direct content
-        if (event.data.chunk.content) return event.data.chunk.content
+        if (event.data.chunk.content) {
+          const content = event.data.chunk.content.trim()
+          // Filter out internal workflow signals
+          const internalSignals = ['continue', 'end', 'start', 'next', 'stop', 'error', 'success']
+          if (internalSignals.includes(content.toLowerCase())) {
+            return null
+          }
+          return event.data.chunk.content
+        }
       }
 
       // Handle final chain output
@@ -173,13 +181,47 @@ export class ChatApiService {
         }
         // Handle direct content
         if (event.data.output.content) return event.data.output.content
-        if (typeof event.data.output === 'string') return event.data.output
+        
+        // Filter out internal workflow signals
+        if (typeof event.data.output === 'string') {
+          const output = event.data.output.trim()
+          // Skip internal LangChain workflow signals
+          const internalSignals = ['continue', 'end', 'start', 'next', 'stop', 'error', 'success']
+          if (internalSignals.includes(output.toLowerCase())) {
+            return null
+          }
+          // Only return if it looks like actual content (not just a single word command)
+          if (output.length > 10 || /[.!?]/.test(output)) {
+            return output
+          }
+          return null
+        }
       }
 
       // Handle custom stream events  
       if (event.event === 'stream' && event.data) {
-        if (event.data.content) return event.data.content
-        if (typeof event.data === 'string') return event.data
+        if (event.data.content) {
+          const content = event.data.content.trim()
+          // Filter out internal workflow signals
+          const internalSignals = ['continue', 'end', 'start', 'next', 'stop', 'error', 'success']
+          if (internalSignals.includes(content.toLowerCase())) {
+            return null
+          }
+          return event.data.content
+        }
+        if (typeof event.data === 'string') {
+          const data = event.data.trim()
+          // Filter out internal workflow signals
+          const internalSignals = ['continue', 'end', 'start', 'next', 'stop', 'error', 'success']
+          if (internalSignals.includes(data.toLowerCase())) {
+            return null
+          }
+          // Only return if it looks like actual content
+          if (data.length > 10 || /[.!?]/.test(data)) {
+            return data
+          }
+          return null
+        }
       }
 
       return null
