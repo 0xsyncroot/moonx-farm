@@ -21,8 +21,13 @@ module.exports = {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
     },
+    'sepolia': {
+      url: process.env.SEPOLIA_RPC || "https://eth-sepolia.g.alchemy.com/v2/Ecb6PRdlznM-EzAkL9-H_gyvomlNYd6X",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: 11155111,
+    },
     "base-testnet": {
-      url: process.env.BASE_TESTNET_RPC || "https://sepolia.base.org",
+      url: process.env.BASE_TESTNET_RPC || "https://base-sepolia.g.alchemy.com/v2/Ecb6PRdlznM-EzAkL9-H_gyvomlNYd6X",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 84532,
     },

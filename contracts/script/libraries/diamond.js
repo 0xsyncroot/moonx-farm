@@ -7,7 +7,14 @@ function getSelectors(contract) {
     const functions = contract.interface.fragments.filter(f => f.type === 'function');
     const selectors = functions.reduce((acc, func) => {
         if (func.name !== 'init') {
-            acc.push(contract.interface.getFunction(func.name).selector);
+            try {
+                const selector = contract.interface.getSighash(func);
+                if (selector) {
+                    acc.push(selector);
+                }
+            } catch (error) {
+                console.warn(`Failed to get selector for function ${func.name}:`, error.message);
+            }
         }
         return acc;
     }, []);
@@ -19,8 +26,8 @@ function getSelectors(contract) {
 
 // get function selector from function signature
 function getSelector(func) {
-    const abiInterface = new ethers.Interface([func]);
-    return abiInterface.getFunction(func).selector;
+    const abiInterface = new ethers.utils.Interface([func]);
+    return abiInterface.getSighash(func);
 }
 
 // used with getSelectors to remove selectors from an array of selectors
@@ -28,8 +35,13 @@ function getSelector(func) {
 function remove(functionNames) {
     const selectors = this.filter((v) => {
         for (const functionName of functionNames) {
-            if (v === this.contract.interface.getFunction(functionName).selector) {
-                return false;
+            try {
+                const selector = this.contract.interface.getSighash(functionName);
+                if (v === selector) {
+                    return false;
+                }
+            } catch (error) {
+                console.warn(`Failed to get selector for function ${functionName}:`, error.message);
             }
         }
         return true;
@@ -45,8 +57,13 @@ function remove(functionNames) {
 function get(functionNames) {
     const selectors = this.filter((v) => {
         for (const functionName of functionNames) {
-            if (v === this.contract.interface.getFunction(functionName).selector) {
-                return true;
+            try {
+                const selector = this.contract.interface.getSighash(functionName);
+                if (v === selector) {
+                    return true;
+                }
+            } catch (error) {
+                console.warn(`Failed to get selector for function ${functionName}:`, error.message);
             }
         }
         return false;
@@ -59,8 +76,8 @@ function get(functionNames) {
 
 // remove selectors using an array of signatures
 function removeSelectors(selectors, signatures) {
-    const iface = new ethers.Interface(signatures.map(v => 'function ' + v));
-    const removeSelectors = signatures.map(v => iface.getFunction(v).selector);
+    const iface = new ethers.utils.Interface(signatures.map(v => 'function ' + v));
+    const removeSelectors = signatures.map(v => iface.getSighash(v));
     selectors = selectors.filter(v => !removeSelectors.includes(v));
     return selectors;
 }

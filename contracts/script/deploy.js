@@ -10,31 +10,41 @@ const AGGREGATOR_ADDRESSES = {
   1: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
     oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
-    relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
   },
   // Polygon
   137: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
     oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
-    relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
   },
   // BSC
   56: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
     oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
-    relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
   },
   // Base
   8453: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
     oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
-    relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
   },
   // Local
   31337: {
     lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
     oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
-    relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+  },
+  11155111: {
+    lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
+  },
+  84532: {
+    lifi: "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+    oneInch: "0x111111125421cA6dc452d289314280a0f8842A65",
+    // relay: "0xa5F565650890fBA1824Ee0F21EbBbF660a179934"
   }
 }
 
@@ -50,7 +60,7 @@ const FACET_CONFIG = {
   aggregator: {
     'LifiProxyFacet': (addresses) => [addresses.lifi],
     'OneInchProxyFacet': (addresses) => [addresses.oneInch],
-    'RelayProxyFacet': (addresses) => [addresses.relay]
+    //'RelayProxyFacet': (addresses) => [addresses.relay]
   }
 }
 
@@ -69,20 +79,20 @@ async function deployDiamond() {
     // Deploy DiamondCutFacet
     const DiamondCutFacet = await ethers.getContractFactory("DiamondCutFacet");
     const diamondCutFacet = await DiamondCutFacet.deploy();
-    await diamondCutFacet.waitForDeployment();
-    console.log("DiamondCutFacet deployed:", await diamondCutFacet.getAddress());
+    await diamondCutFacet.deployed();
+    console.log("DiamondCutFacet deployed:", diamondCutFacet.address);
 
     // Deploy DiamondInit
     const DiamondInit = await ethers.getContractFactory("DiamondInit");
     const diamondInit = await DiamondInit.deploy();
-    await diamondInit.waitForDeployment();
-    console.log("DiamondInit deployed:", await diamondInit.getAddress());
+    await diamondInit.deployed();
+    console.log("DiamondInit deployed:", diamondInit.address);
 
     // Deploy Diamond
     const Diamond = await ethers.getContractFactory("MoonXFarmRouter");
-    const diamond = await Diamond.deploy(await owner.getAddress(), await diamondCutFacet.getAddress());
-    await diamond.waitForDeployment();
-    console.log("MoonXFarmRouter deployed:", await diamond.getAddress());
+    const diamond = await Diamond.deploy(owner.address, diamondCutFacet.address);
+    await diamond.deployed();
+    console.log("MoonXFarmRouter deployed:", diamond.address);
 
     console.log('\nDeploying facets...');
     const cut = [];
@@ -91,11 +101,11 @@ async function deployDiamond() {
     for (const facetName of FACET_CONFIG.core) {
         const Facet = await ethers.getContractFactory(facetName);
         const facet = await Facet.deploy();
-        await facet.waitForDeployment();
-        console.log(`${facetName} deployed:`, await facet.getAddress());
+        await facet.deployed();
+        console.log(`${facetName} deployed:`, facet.address);
         
         cut.push({
-            facetAddress: await facet.getAddress(),
+            facetAddress: facet.address,
             action: FacetCutAction.Add,
             functionSelectors: getSelectors(facet)
         });
@@ -106,35 +116,35 @@ async function deployDiamond() {
         const constructorArgs = getConstructorArgs(aggregatorAddresses);
         const Facet = await ethers.getContractFactory(facetName);
         const facet = await Facet.deploy(...constructorArgs);
-        await facet.waitForDeployment();
-        console.log(`${facetName} deployed:`, await facet.getAddress());
+        await facet.deployed();
+        console.log(`${facetName} deployed:`, facet.address);
         
         cut.push({
-            facetAddress: await facet.getAddress(),
+            facetAddress: facet.address,
             action: FacetCutAction.Add,
             functionSelectors: getSelectors(facet)
         });
     }
 
     console.log('\nAdding facets to diamond...');
-    const diamondCut = await ethers.getContractAt("IDiamondCut", await diamond.getAddress());
+    const diamondCut = await ethers.getContractAt("IDiamondCut", diamond.address);
     
     // Encode init function call
     const initFunctionCall = diamondInit.interface.encodeFunctionData('init');
     
     // Add facets and initialize
-    await diamondCut.diamondCut(cut, await diamondInit.getAddress(), initFunctionCall);
+    await diamondCut.diamondCut(cut, diamondInit.address, initFunctionCall);
     console.log("Facets added to diamond and initialized");
 
     // Set fee recipient
-    const feeCollector = await ethers.getContractAt("FeeCollectorFacet", await diamond.getAddress());
+    const feeCollector = await ethers.getContractAt("FeeCollectorFacet", diamond.address);
     await feeCollector.setFeeRecipient(process.env.FEE_RECIPIENT);
     console.log("Fee recipient set to:", process.env.FEE_RECIPIENT);
 
     return {
-        diamond: await diamond.getAddress(),
-        diamondCutFacet: await diamondCutFacet.getAddress(),
-        diamondInit: await diamondInit.getAddress(),
+        diamond: diamond.address,
+        diamondCutFacet: diamondCutFacet.address,
+        diamondInit: diamondInit.address,
         facets: cut.map(c => ({
             address: c.facetAddress,
             selectors: c.functionSelectors

@@ -108,11 +108,11 @@ func (l *LiFiService) GetMultipleQuotes(ctx context.Context, req *models.QuoteRe
 			strategy string
 			order    string
 		}{
-			{"hop", "FASTEST_BRIDGE_1", "FASTEST"},       // ~400ms
-			{"thorswap", "FASTEST_BRIDGE_2", "CHEAPEST"}, // ~450ms
-			{"mayan", "FASTEST_BRIDGE_3", "FASTEST"},     // ~500ms
+			{"relay", "FASTEST_BRIDGE_1", "FASTEST"},      // ~400ms
+			{"across", "FASTEST_BRIDGE_2", "CHEAPEST"},    // ~450ms
+			{"stargateV2", "FASTEST_BRIDGE_3", "FASTEST"}, // ~500ms
 		}
-		logrus.WithField("fastestBridges", []string{"hop", "thorswap", "mayan"}).Info("🌉 Using 3 fastest bridges")
+		logrus.WithField("fastestBridges", []string{"relay", "across", "stargateV2"}).Info("🌉 Using 3 fastest bridges")
 	} else {
 		// Same-chain: Use 3 fastest DEXs
 		fastestTools = []struct {
