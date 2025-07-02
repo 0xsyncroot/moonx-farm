@@ -1,6 +1,5 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow, PoolConfig } from 'pg';
 import { createLogger, DatabaseError } from '@moonx-farm/common';
-import { isDevelopment } from '@moonx-farm/configs';
 
 const logger = createLogger('database-infrastructure');
 
