@@ -38,7 +38,7 @@ ALCHEMY_API_KEY=your-alchemy-api-key
 
 ### **Pre-configured (No changes needed)**
 ```bash
-# @moonx/configs provides defaults for these:
+# @moonx-farm/configs provides defaults for these:
 CORE_SERVICE_PORT=3007          # Default from ServicesConfigSchema
 CORE_SERVICE_HOST=0.0.0.0       # Default from ServicesConfigSchema  
 DATABASE_HOST=localhost         # Default from DatabaseConfigSchema
@@ -75,7 +75,7 @@ Code analysis shows these APIs are **NOT called** in Core Service:
 
 ## 🗄️ Database Setup (PostgreSQL)
 
-Core Service sử dụng `getDatabaseConfig('core-service')` từ `@moonx/configs`.
+Core Service sử dụng `getDatabaseConfig('core-service')` từ `@moonx-farm/configs`.
 
 ### **Quick Setup**
 ```bash
@@ -90,7 +90,7 @@ DATABASE_PASSWORD=your-password
 
 ## 🔴 Redis Setup
 
-Core Service sử dụng `getRedisConfig('core-service')` từ `@moonx/configs`.
+Core Service sử dụng `getRedisConfig('core-service')` từ `@moonx-farm/configs`.
 
 ### **Quick Setup**
 ```bash

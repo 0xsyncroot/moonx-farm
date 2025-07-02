@@ -2,18 +2,18 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import fastifyJwt from '@fastify/jwt';
+import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 
-import { createAuthServiceConfig } from '@moonx/configs';
-import { createLogger } from '@moonx/common';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
+import { createLogger } from '@moonx-farm/common';
 import { 
   DatabaseManager, 
   RedisManager, 
   createDatabaseConfig, 
   createRedisConfig 
-} from '@moonx/infrastructure';
+} from '@moonx-farm/infrastructure';
 
 import { authRoutes } from './controllers/authController';
 import { sessionRoutes } from './controllers/sessionController';
@@ -168,7 +168,7 @@ This service handles:
   });
 
   // JWT plugin
-  await server.register(fastifyJwt, {
+  await server.register(jwt, {
     secret: config.get('JWT_SECRET') as string,
     sign: {
       expiresIn: config.get('JWT_EXPIRES_IN') as string,

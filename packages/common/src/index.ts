@@ -8,8 +8,8 @@
  * - Utility functions
  * - Constants and configuration
  * 
- * Note: Environment validation is now handled by @moonx/configs package
- * Use createConfig() from @moonx/configs for environment management
+ * Note: Environment validation is now handled by @moonx-farm/configs package
+ * Use createConfig() from @moonx-farm/configs for environment management
  */
 
 // Logging

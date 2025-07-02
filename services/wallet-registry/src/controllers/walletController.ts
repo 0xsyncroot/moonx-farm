@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { createLogger } from '@moonx/common';
+import { createLogger } from '@moonx-farm/common';
 import { WalletService } from '../services/walletService';
 import { SessionKeyManager } from '../services/sessionKeyManager';
 import {

@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply, FastifyPluginCallback } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
-import { isDevelopment } from '@moonx/configs';
+import { createLogger, LogContext } from '@moonx-farm/common';
+import { isDevelopment } from '@moonx-farm/configs';
 
 const logger = createLogger('request-logger');
 

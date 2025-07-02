@@ -1,5 +1,5 @@
-import { RedisManager } from '@moonx/infrastructure';
-import { createLogger, LogContext } from '@moonx/common';
+import { RedisManager } from '@moonx-farm/infrastructure';
+import { createLogger, LogContext } from '@moonx-farm/common';
 
 const logger = createLogger('auth-redis-service');
 

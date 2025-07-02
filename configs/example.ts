@@ -79,7 +79,7 @@ export const exampleCommonRpcUtilities = () => {
   console.log('=== Common Package RPC Utilities ===');
   
   // Import networks from common package
-  // const { NETWORKS, RPC_UTILS } = require('@moonx/common');
+  // const { NETWORKS, RPC_UTILS } = require('@moonx-farm/common');
   
   // const baseNetwork = NETWORKS[8453]; // Base mainnet
   
@@ -205,17 +205,17 @@ export const exampleEnvironmentConfig = () => {
 // =============================================================================
 
 // Example 1: Using default logger configuration
-// import { createLogger } from '@moonx/common';
+// import { createLogger } from '@moonx-farm/common';
 // const defaultLogger = createLogger('auth-service');
 // defaultLogger.info('Service started', { port: 3001 });
 
 // Example 2: Using profile-based logger configuration
-// import { createLoggerForProfile } from '@moonx/common';
+// import { createLoggerForProfile } from '@moonx-farm/common';
 // const authLogger = createLoggerForProfile('auth-service');
 // authLogger.info('Auth service started', { port: 3001 });
 
 // Example 3: Using custom logger configuration
-// import { createLoggerWithConfig, LoggerConfig } from '@moonx/common';
+// import { createLoggerWithConfig, LoggerConfig } from '@moonx-farm/common';
 // const customLoggerConfig: LoggerConfig = {
 //   level: 'debug',
 //   service: 'quote-service',

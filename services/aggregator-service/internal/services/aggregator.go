@@ -24,6 +24,9 @@ type AggregatorService struct {
 	OnchainService     *OnchainService
 	MarketDataService  *MarketDataService
 
+	// Environment configuration
+	Environment string
+
 	// Performance and reliability optimizations
 	providerMetrics map[string]*ProviderMetrics
 	metricsMutex    sync.RWMutex
@@ -46,9 +49,10 @@ func NewAggregatorService(
 	relayService *RelayService,
 	cacheService *CacheService,
 	externalAPIService *ExternalAPIService,
+	environment string,
 ) *AggregatorService {
 	coinGeckoService := NewCoinGeckoService(cacheService)
-	onchainService := NewOnchainService(cacheService, "production")
+	onchainService := NewOnchainService(cacheService, environment)
 	marketDataService := NewMarketDataService(cacheService)
 
 	return &AggregatorService{
@@ -60,6 +64,7 @@ func NewAggregatorService(
 		CoinGeckoService:   coinGeckoService,
 		OnchainService:     onchainService,
 		MarketDataService:  marketDataService,
+		Environment:        environment,
 		providerMetrics:    make(map[string]*ProviderMetrics),
 		circuitBreakers:    make(map[string]*CircuitBreaker),
 

@@ -1,15 +1,15 @@
-# @moonx/configs Package - Centralized Configuration Management
+# @moonx-farm/configs Package - Centralized Configuration Management
 
 ## Tổng Quan
 
-`@moonx/configs` là centralized configuration management system cho toàn bộ MoonXFarm DEX monorepo, cung cấp profile-based loading và type-safe configuration management.
+`@moonx-farm/configs` là centralized configuration management system cho toàn bộ MoonXFarm DEX monorepo, cung cấp profile-based loading và type-safe configuration management.
 
 ## Kiến Trúc Package
 
 ### File Structure
 ```
 configs/
-├── package.json                # @moonx/configs package definition
+├── package.json                # @moonx-farm/configs package definition
 ├── tsconfig.json              # TypeScript configuration
 ├── README.md                  # Package documentation
 ├── index.ts                   # Main config manager with profiles
@@ -47,7 +47,7 @@ configs/
 #### Service-Specific Config Loading
 ```typescript
 // Auth Service - chỉ load database, Redis, JWT config
-import { createAuthServiceConfig } from '@moonx/configs';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
 const config = createAuthServiceConfig();
 
 // Access typed config values
@@ -60,7 +60,7 @@ const port = config.get('PORT');                    // number
 #### Quote Service Configuration
 ```typescript
 // Quote Service - cần Redis, external APIs, blockchain
-import { createQuoteServiceConfig } from '@moonx/configs';
+import { createQuoteServiceConfig } from '@moonx-farm/configs';
 const config = createQuoteServiceConfig();
 
 // Blockchain config
@@ -78,7 +78,7 @@ const redisUrl = config.get('REDIS_URL');           // string
 #### Full Config (Development)
 ```typescript
 // Load all schemas for development/testing
-import { createFullConfig } from '@moonx/configs';
+import { createFullConfig } from '@moonx-farm/configs';
 const config = createFullConfig();
 
 // Access any config value
@@ -487,7 +487,7 @@ describe('Configuration', () => {
 const dbUrl = process.env.DATABASE_URL || 'postgresql://localhost/db';
 
 // After
-import { createAuthServiceConfig } from '@moonx/configs';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
 const config = createAuthServiceConfig();
 const dbUrl = config.get('DATABASE_URL');
 ```
@@ -495,10 +495,10 @@ const dbUrl = config.get('DATABASE_URL');
 ### From packages/infrastructure
 ```typescript
 // Before
-import { databaseConfig } from '@moonx/infrastructure';
+import { databaseConfig } from '@moonx-farm/infrastructure';
 
 // After
-import { getDatabaseConfig } from '@moonx/configs';
+import { getDatabaseConfig } from '@moonx-farm/configs';
 const dbConfig = getDatabaseConfig('auth-service');
 ```
 

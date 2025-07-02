@@ -32,7 +32,7 @@ func (a *AggregatorService) getAllQuotesOptimizedMultiple(ctx context.Context, r
 	// Order providers by performance
 	providers := []string{
 		models.ProviderLiFi,
-		"relay",
+		// "relay",
 	}
 
 	// Only add 1inch for same-chain requests (1inch doesn't support cross-chain)

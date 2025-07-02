@@ -15,11 +15,18 @@ export class PnLService {
     try {
       const cacheKey = `pnl:${userId}:${request.timeframe}${request.walletAddress ? `:${request.walletAddress}` : ''}`;
       
-      // Try cache first
-      const cached = await this.cacheService.get<PnLSummary>(cacheKey);
-      if (cached && this.isCacheValid(cached.lastCalculated, request.timeframe)) {
-        console.log(`✅ P&L cache hit for user ${userId}, timeframe ${request.timeframe}`);
-        return cached;
+      // Try cache first with error handling
+      let cached: PnLSummary | null = null;
+      try {
+        cached = await this.cacheService.get<PnLSummary>(cacheKey);
+        if (cached && this.isCacheValid(cached.lastCalculated, request.timeframe)) {
+          console.log(`✅ P&L cache hit for user ${userId}, timeframe ${request.timeframe}`);
+          return cached;
+        }
+      } catch (cacheError) {
+        console.warn(`⚠️ Cache error for key ${cacheKey}, proceeding with fresh calculation:`, cacheError);
+        // Clear the problematic cache key
+        await this.cacheService.del(cacheKey);
       }
 
       console.log(`🔄 Calculating fresh P&L for user ${userId}, timeframe ${request.timeframe}`);
@@ -30,9 +37,15 @@ export class PnLService {
       
       const pnlSummary = await this.calculatePnLFromTrades(userId, trades, currentPortfolioValue, request.timeframe);
       
-      // Cache result with appropriate TTL
-      const cacheTTL = this.getCacheTTL(request.timeframe);
-      await this.cacheService.set(cacheKey, pnlSummary, cacheTTL);
+      // Cache result with appropriate TTL and error handling
+      try {
+        const cacheTTL = this.getCacheTTL(request.timeframe);
+        await this.cacheService.set(cacheKey, pnlSummary, cacheTTL);
+        console.log(`💾 P&L result cached for user ${userId} with TTL ${cacheTTL}s`);
+      } catch (setCacheError) {
+        console.warn(`⚠️ Failed to cache P&L result for user ${userId}:`, setCacheError);
+        // Don't throw - cache failure shouldn't break the API
+      }
       
       console.log(`✅ P&L calculated and cached for user ${userId}: ${pnlSummary.netPnlUSD} USD`);
       return pnlSummary;
@@ -113,12 +126,18 @@ export class PnLService {
     const completedTrades = trades.filter(trade => trade.status === 'completed');
 
     for (const trade of completedTrades) {
-      totalVolumeUSD += trade.fromToken.valueUSD;
-      totalFeesUSD += trade.gasFeeUSD + (trade.protocolFeeUSD || 0);
+      // Safely handle numeric values
+      const fromValueUSD = Number(trade.fromToken?.valueUSD) || 0;
+      const toValueUSD = Number(trade.toToken?.valueUSD) || 0;
+      const gasFeeUSD = Number(trade.gasFeeUSD) || 0;
+      const protocolFeeUSD = Number(trade.protocolFeeUSD) || 0;
+
+      totalVolumeUSD += fromValueUSD;
+      totalFeesUSD += gasFeeUSD + protocolFeeUSD;
 
       // Calculate trade P&L: received value - sent value
-      const tradePnl = trade.toToken.valueUSD - trade.fromToken.valueUSD;
-      const tradePnlAfterFees = tradePnl - trade.gasFeeUSD - (trade.protocolFeeUSD || 0);
+      const tradePnl = toValueUSD - fromValueUSD;
+      const tradePnlAfterFees = tradePnl - gasFeeUSD - protocolFeeUSD;
       
       realizedPnlUSD += tradePnl;
 
@@ -193,13 +212,16 @@ export class PnLService {
         
         if (costBasis && costBasis.totalAmount > 0) {
           const avgCost = costBasis.totalCost / costBasis.totalAmount;
-          const currentValue = parseFloat(holding.value_usd);
-          const holdingAmount = parseFloat(holding.balance_formatted);
+          const currentValue = Number(holding.value_usd) || 0;
+          const holdingAmount = Number(holding.balance_formatted) || 0;
           
           // Calculate unrealized P&L for this position
-          const unrealizedForToken = (currentValue / holdingAmount - avgCost) * holdingAmount;
-          if (isFinite(unrealizedForToken)) {
-            unrealizedPnL += unrealizedForToken;
+          if (holdingAmount > 0 && isFinite(avgCost) && isFinite(currentValue)) {
+            const currentPricePerToken = currentValue / holdingAmount;
+            const unrealizedForToken = (currentPricePerToken - avgCost) * holdingAmount;
+            if (isFinite(unrealizedForToken)) {
+              unrealizedPnL += unrealizedForToken;
+            }
           }
         }
       }
@@ -220,11 +242,15 @@ export class PnLService {
       
       // Try to get historical portfolio value
       const historyQuery = `
-        SELECT SUM(value_usd) as total_value
-        FROM user_token_holdings_history 
-        WHERE user_id = $1 AND created_at <= $2
-        ORDER BY created_at DESC
-        LIMIT 1
+        SELECT total_value
+        FROM (
+          SELECT SUM(value_usd) as total_value, created_at
+          FROM user_token_holdings_history 
+          WHERE user_id = $1 AND created_at <= $2
+          GROUP BY created_at
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) as latest_portfolio
       `;
       
       const result = await this.db.query(historyQuery, [userId, startDate]);
@@ -256,7 +282,7 @@ export class PnLService {
       
       // Sum up all investments (money in) during timeframe
       const investmentsQuery = `
-        SELECT SUM(from_token->'valueUSD') as total_invested
+        SELECT SUM((from_token->>'valueUSD')::numeric) as total_invested
         FROM user_trades 
         WHERE user_id = $1 AND timestamp >= $2 AND status = 'completed'
       `;
@@ -358,10 +384,10 @@ export class PnLService {
       timestamp: new Date(row.timestamp),
       type: row.type,
       status: row.status,
-      fromToken: JSON.parse(row.from_token),
-      toToken: JSON.parse(row.to_token),
-      gasFeeETH: parseFloat(row.gas_fee_eth),
-      gasFeeUSD: parseFloat(row.gas_fee_usd),
+      fromToken: JSON.parse(row.from_token || '{}'),
+      toToken: JSON.parse(row.to_token || '{}'),
+      gasFeeETH: parseFloat(row.gas_fee_eth || '0'),
+      gasFeeUSD: parseFloat(row.gas_fee_usd || '0'),
       pnl: row.pnl ? JSON.parse(row.pnl) : undefined
     };
 

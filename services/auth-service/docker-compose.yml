@@ -1,0 +1,158 @@
+# ================================
+# MoonXFarm Auth Service - Docker Compose
+# ================================
+# Uses pre-built Docker Hub image
+# Run: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ================================
+  # MoonXFarm Auth Service
+  # ================================
+  auth-service:
+    image: hiepht/moonx-farm:auth-service-latest
+    container_name: moonx-auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      # Application Configuration
+      - NODE_ENV=production
+      - AUTH_SERVICE_PORT=3001
+      - AUTH_SERVICE_HOST=0.0.0.0
+      - LOG_LEVEL=info
+      
+      # Frontend Configuration (CORS)
+      - FRONTEND_URL=https://your-domain.com
+      
+      # JWT Configuration (REQUIRED - Configure these)
+      - JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+      - JWT_REFRESH_SECRET=your-super-secret-refresh-key-min-32-chars
+      - JWT_EXPIRES_IN=15m
+      - JWT_REFRESH_EXPIRES_IN=7d
+      - JWT_ISSUER=moonx-farm-auth
+      - JWT_AUDIENCE=moonx-farm-users
+      
+      # Privy Configuration (REQUIRED - Configure these)
+      - PRIVY_APP_ID=your_privy_app_id_here
+      - PRIVY_APP_SECRET=your_privy_app_secret_here
+      - PRIVY_VERIFICATION_KEY=your_privy_verification_key_here
+      
+      # Database Configuration (REQUIRED - Configure these)
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=moonx_auth
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres_password
+      - DB_SSL=false
+      - DB_MAX_CONNECTIONS=20
+      - DB_IDLE_TIMEOUT=30000
+      - DB_CONNECTION_TIMEOUT=2000
+      
+      # Redis Configuration (REQUIRED - Configure these)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - REDIS_MAX_RETRIES_PER_REQUEST=3
+      - REDIS_RETRY_DELAY_ON_FAILOVER=100
+      
+      # Session Configuration
+      - SESSION_STORE_PREFIX=moonx:auth:session:
+      - SESSION_COOKIE_NAME=moonx-session
+      - SESSION_COOKIE_SECRET=your-session-cookie-secret-min-32-chars
+      - SESSION_COOKIE_SECURE=true
+      - SESSION_COOKIE_HTTP_ONLY=true
+      - SESSION_COOKIE_SAME_SITE=strict
+      - SESSION_EXPIRES_IN=86400
+      
+      # Rate Limiting
+      - RATE_LIMIT_MAX=1000
+      - RATE_LIMIT_WINDOW=900000
+      
+      # Security
+      - BCRYPT_ROUNDS=12
+      - CORS_ORIGINS=https://your-domain.com,https://www.your-domain.com
+      
+      # Development Flags (set to false in production)
+      - DEBUG_MODE=false
+      - SWAGGER_ENABLED=false
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      # Mount logs for debugging (optional)
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - auth-network
+
+  # ================================
+  # PostgreSQL Database
+  # ================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: moonx-auth-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=moonx_auth
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d moonx_auth"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - auth-network
+
+  # ================================
+  # Redis Cache
+  # ================================
+  redis:
+    image: redis:7-alpine
+    container_name: moonx-auth-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - auth-network
+
+# ================================
+# Networks
+# ================================
+networks:
+  auth-network:
+    driver: bridge
+    name: moonx-auth-network
+
+# ================================
+# Volumes
+# ================================
+volumes:
+  postgres_data:
+    name: moonx_auth_postgres_data
+  redis_data:
+    name: moonx_auth_redis_data 

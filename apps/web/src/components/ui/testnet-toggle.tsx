@@ -27,10 +27,11 @@ export function TestnetToggle({ className }: TestnetToggleProps) {
   // Save testnet preference to localStorage
   const toggleTestnet = () => {
     const newValue = !isTestnet
+    console.log('🔄 TestnetToggle: Switching to', newValue ? 'TESTNET' : 'MAINNET')
     setIsTestnet(newValue)
     localStorage.setItem('moonx-testnet-mode', newValue.toString())
     
-    // You can dispatch a custom event here if needed for other components
+    // Dispatch custom event for other components
     window.dispatchEvent(new CustomEvent('testnet-mode-changed', { 
       detail: { isTestnet: newValue } 
     }))
@@ -90,7 +91,7 @@ export function useTestnetMode() {
     return () => {
       window.removeEventListener('testnet-mode-changed', handleTestnetChange as EventListener)
     }
-  }, [])
+  }, [defaultTestnetMode])
 
   return isTestnet
 } 

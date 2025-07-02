@@ -10,82 +10,20 @@ import {LibFeeCollector} from "../libraries/LibFeeCollector.sol";
 contract AggregatorProxy is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    event FeeCollected(address token, address recipient, uint256 amount);
+
     uint256 private constant FEE_PERCENTAGE_BASE = 10000;
     address private immutable aggregator;
-    
-    event FeeCollected(address indexed token, address indexed recipient, uint256 amount);
-    event TokensTransferred(address indexed token, address indexed to, uint256 amount);
-    
-    error InvalidAggregator();
-    error InvalidFeePercentage(uint16 fee);
-    error TransferFailed();
 
     constructor(address _aggregator) {
-        if (_aggregator == address(0) || _aggregator.code.length <= 100) {
-            revert InvalidAggregator();
-        }
+        require(_aggregator != address(0) && _aggregator.code.length > 100, "AggregatorProxy: invalid aggregator");
         aggregator = _aggregator;
     }
 
-    function _parseAddressAndFee(uint256 tokenWithFee) 
-        internal 
-        pure 
-        returns (address token, uint16 fee) 
-    {
+    function _parseAddressAndFee(uint256 tokenWithFee) internal pure returns (address token, uint16 fee) {
         token = address(uint160(tokenWithFee));
         fee = uint16(tokenWithFee >> 160);
-        if (fee >= FEE_PERCENTAGE_BASE) {
-            revert InvalidFeePercentage(fee);
-        }
-    }
-
-    function _handleTokenTransfer(
-        address token,
-        address recipient, 
-        uint256 amount
-    ) internal returns (bool) {
-        if (amount == 0) return true;
-        
-        bool success = true;
-        if (token == address(0)) {
-            (success,) = recipient.call{value: amount}("");
-            if (!success) return false;
-        } else {
-            IERC20(token).safeTransfer(recipient, amount);
-        }
-
-        emit TokensTransferred(token, recipient, amount);
-        return true;
-    }
-
-    function _processFees(
-        address token,
-        uint256 amount,
-        uint16 fee,
-        bool isInput
-    ) internal returns (uint256 remainingAmount) {
-        if (fee == 0) return amount;
-        
-        address feeRecipient = LibFeeCollector.getRecipient();
-        uint256 feeAmount = (amount * fee) / FEE_PERCENTAGE_BASE;
-        remainingAmount = amount - feeAmount;
-        
-        if (isInput) {
-            if (token != address(0)) {
-                IERC20(token).safeTransferFrom(msg.sender, feeRecipient, feeAmount);
-            } else {
-                if (!_handleTokenTransfer(token, feeRecipient, feeAmount)) {
-                    revert TransferFailed();
-                }
-            }
-        } else {
-            if (!_handleTokenTransfer(token, feeRecipient, feeAmount)) {
-                revert TransferFailed();
-            }
-        }
-        
-        emit FeeCollected(token, feeRecipient, feeAmount);
-        return remainingAmount;
+        require(fee < FEE_PERCENTAGE_BASE, "AggregatorProxy: invalid fee");
     }
 
     function _callAggregator(
@@ -94,79 +32,88 @@ contract AggregatorProxy is ReentrancyGuard {
         uint256 toTokenWithFee,
         bytes calldata callData
     ) internal nonReentrant {
-        // Cache initial balances
-        uint256 initialEthBalance = address(this).balance - msg.value;
-        
-        // Parse token information
+        uint256 ethBalanceBefore = address(this).balance - msg.value;
         (address fromToken, uint16 fromFee) = _parseAddressAndFee(fromTokenWithFee);
-        (address toToken, uint16 toFee) = _parseAddressAndFee(toTokenWithFee);
-        
-        // Process input tokens and fees
-        uint256 processedAmount = fromAmount;
+        uint256 fromTokenBalanceBefore;
         uint256 msgValue = msg.value;
-        
+        address feeRecipient = LibFeeCollector.getRecipient();
         if (fromToken == address(0)) {
             if (fromFee > 0) {
-                msgValue = _processFees(fromToken, fromAmount, fromFee, true);
+                // Use feeAmount because cross-chain transactions charge an additional native token as bridge fee.
+                uint256 feeAmt = (fromAmount * fromFee) / FEE_PERCENTAGE_BASE;
+                msgValue -= feeAmt;
+                _callAndBubblingRevert(feeRecipient, "", feeAmt);
+                emit FeeCollected(fromToken, feeRecipient, feeAmt);
             }
         } else {
+            fromTokenBalanceBefore = IERC20(fromToken).balanceOf(address(this));
             if (fromFee > 0) {
-                processedAmount = _processFees(fromToken, fromAmount, fromFee, true);
+                uint256 feeAmt = (fromAmount * fromFee) / FEE_PERCENTAGE_BASE;
+                fromAmount -= feeAmt;
+                IERC20(fromToken).safeTransferFrom(msg.sender, feeRecipient, feeAmt);
+                emit FeeCollected(fromToken, feeRecipient, feeAmt);
             }
-            
-            IERC20(fromToken).safeTransferFrom(msg.sender, address(this), processedAmount);
-            if (!_makeCall(IERC20(fromToken), IERC20.approve.selector, aggregator, processedAmount)) {
+            IERC20(fromToken).safeTransferFrom(msg.sender, address(this), fromAmount);
+            if (!_makeCall(IERC20(fromToken), IERC20.approve.selector, aggregator, fromAmount)) {
                 revert RouterErrors.ApproveFailed();
             }
         }
 
-        // Call aggregator
-        (bool success, bytes memory result) = aggregator.call{value: msgValue}(callData);
+        (address toToken, uint16 toFee) = _parseAddressAndFee(toTokenWithFee);
+        uint256 toTokenBalanceBefore;
+        if (toFee > 0 && toToken != address(0)) {
+            toTokenBalanceBefore = IERC20(toToken).balanceOf(address(this));
+        }
+
+        _callAndBubblingRevert(aggregator, callData, msgValue);
+
+        if (fromToken != address(0)) {
+            uint256 balanceDiff = IERC20(fromToken).balanceOf(address(this)) - fromTokenBalanceBefore;
+            if (balanceDiff > 0) {
+                IERC20(fromToken).safeTransfer(msg.sender, balanceDiff);
+            }
+            if (!_makeCall(IERC20(fromToken), IERC20.approve.selector, aggregator, 0)) {
+                revert RouterErrors.ApproveFailed();
+            }
+        }
+
+        if (toToken == address(0)) {
+            uint256 balanceDiff = address(this).balance - ethBalanceBefore;
+            if (balanceDiff > 0) {
+                uint256 feeAmt = (balanceDiff * toFee) / FEE_PERCENTAGE_BASE;
+                _callAndBubblingRevert(msg.sender, "", balanceDiff - feeAmt);
+                if (feeAmt > 0) {
+                    _callAndBubblingRevert(feeRecipient, "", feeAmt);
+                }
+                emit FeeCollected(toToken, feeRecipient, feeAmt);
+            }
+        } else {
+            uint256 balanceDiff = IERC20(toToken).balanceOf(address(this)) - toTokenBalanceBefore;
+            if (balanceDiff > 0) {
+                uint256 feeAmt = (balanceDiff * toFee) / FEE_PERCENTAGE_BASE;
+                IERC20(toToken).safeTransfer(msg.sender, balanceDiff - feeAmt);
+                if (feeAmt > 0) {
+                    IERC20(toToken).safeTransfer(feeRecipient, feeAmt);
+                }
+                emit FeeCollected(toToken, feeRecipient, feeAmt);
+            }
+        }
+    }
+
+    function _callAndBubblingRevert(address to, bytes memory callData, uint256 value) private {
+        (bool success, bytes memory result) = to.call{value: value}(callData);
         if (!success) {
             assembly {
                 revert(add(result, 32), mload(result))
             }
         }
-
-        // Reset approvals and handle remaining balances
-        if (fromToken != address(0)) {
-            if (!_makeCall(IERC20(fromToken), IERC20.approve.selector, aggregator, 0)) {
-                revert RouterErrors.ApproveFailed();
-            }
-            
-            uint256 remainingBalance = IERC20(fromToken).balanceOf(address(this));
-            if (remainingBalance > 0) {
-                _handleTokenTransfer(fromToken, msg.sender, remainingBalance);
-            }
-        }
-
-        // Process output tokens
-        uint256 outputBalance;
-        if (toToken == address(0)) {
-            outputBalance = address(this).balance - initialEthBalance;
-        } else {
-            outputBalance = IERC20(toToken).balanceOf(address(this));
-        }
-
-        if (outputBalance > 0) {
-            uint256 finalAmount = toFee > 0 
-                ? _processFees(toToken, outputBalance, toFee, false)
-                : outputBalance;
-                
-            if (!_handleTokenTransfer(toToken, msg.sender, finalAmount)) {
-                revert TransferFailed();
-            }
-        }
     }
 
-    function _makeCall(
-        IERC20 token,
-        bytes4 selector,
-        address to,
-        uint256 amount
-    ) private returns (bool success) {
+    function _makeCall(IERC20 token, bytes4 selector, address to, uint256 amount) private returns (bool success) {
         assembly ("memory-safe") {
+            // solhint-disable-line no-inline-assembly
             let data := mload(0x40)
+
             mstore(data, selector)
             mstore(add(data, 0x04), to)
             mstore(add(data, 0x24), amount)

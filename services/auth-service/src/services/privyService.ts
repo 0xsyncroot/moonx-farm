@@ -1,5 +1,5 @@
 import { PrivyClient } from '@privy-io/server-auth';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 
 const logger = createLogger('privy-service');
 

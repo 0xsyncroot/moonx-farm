@@ -372,3 +372,4 @@ mem.prof
 trace.out 
 
 build-and-push.sh
+mcp.json

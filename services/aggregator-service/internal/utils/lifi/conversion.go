@@ -22,61 +22,105 @@ func NewConversionUtils() *ConversionUtils {
 
 // ConvertLiFiToQuote converts LiFi quote response to internal Quote model
 func (c *ConversionUtils) ConvertLiFiToQuote(lifiResp *lifi.LiFiQuoteResponse, req *models.QuoteRequest) *models.Quote {
-	// Parse amounts
+	logrus.WithFields(logrus.Fields{
+		"lifiId":      lifiResp.Id,
+		"tool":        lifiResp.Tool,
+		"hasEstimate": lifiResp.Estimate.ToAmount != "",
+	}).Debug("🔄 Converting LiFi response to Quote")
+
+	// ✅ FIXED: Use direct amounts from estimate (already in wei format per API docs)
 	toAmount, err := c.ParseAmountFromString(lifiResp.Estimate.ToAmount)
 	if err != nil {
-		logrus.WithError(err).Warn("Failed to parse toAmount from LiFi response")
+		logrus.WithFields(logrus.Fields{
+			"toAmount": lifiResp.Estimate.ToAmount,
+			"error":    err.Error(),
+		}).Error("❌ Failed to parse toAmount from LiFi estimate")
 		toAmount = decimal.Zero
 	}
 
 	toAmountMin, err := c.ParseAmountFromString(lifiResp.Estimate.ToAmountMin)
 	if err != nil {
-		logrus.WithError(err).Warn("Failed to parse toAmountMin from LiFi response")
+		logrus.WithFields(logrus.Fields{
+			"toAmountMin": lifiResp.Estimate.ToAmountMin,
+			"error":       err.Error(),
+		}).Error("❌ Failed to parse toAmountMin from LiFi estimate")
 		toAmountMin = decimal.Zero
 	}
 
-	// Calculate price
+	// ✅ FIXED: Proper price calculation using wei amounts
 	price := decimal.Zero
 	if !req.Amount.IsZero() && !toAmount.IsZero() {
 		price = toAmount.Div(req.Amount)
 	}
 
-	// Estimate gas cost
+	// ✅ IMPROVED: Calculate price impact from USD values if available
+	priceImpact := decimal.Zero
+	if lifiResp.Estimate.FromAmountUSD != "" && lifiResp.Estimate.ToAmountUSD != "" {
+		if fromUSD, err1 := decimal.NewFromString(lifiResp.Estimate.FromAmountUSD); err1 == nil {
+			if toUSD, err2 := decimal.NewFromString(lifiResp.Estimate.ToAmountUSD); err2 == nil && !fromUSD.IsZero() {
+				// Price impact = (fromUSD - toUSD) / fromUSD * 100
+				impactRatio := fromUSD.Sub(toUSD).Div(fromUSD)
+				priceImpact = impactRatio.Mul(decimal.NewFromInt(100))
+				logrus.WithFields(logrus.Fields{
+					"fromAmountUSD": lifiResp.Estimate.FromAmountUSD,
+					"toAmountUSD":   lifiResp.Estimate.ToAmountUSD,
+					"priceImpact":   priceImpact.String(),
+				}).Debug("📊 Calculated price impact from USD values")
+			}
+		}
+	}
+
+	// ✅ ENHANCED: Comprehensive gas estimation from all gas costs
 	var gasEstimate *models.GasEstimate
 	if len(lifiResp.Estimate.GasCosts) > 0 {
-		gasCost := lifiResp.Estimate.GasCosts[0]
-		gasLimit := uint64(0)
-		if limit, err := strconv.ParseUint(gasCost.Limit, 10, 64); err == nil {
-			gasLimit = limit
-		}
-		
+		// Sum all gas costs for total estimate
+		totalGasFee := decimal.Zero
+		totalGasFeeUSD := decimal.Zero
+		var gasLimit uint64
 		gasPrice := decimal.Zero
-		if price, err := decimal.NewFromString(gasCost.Price); err == nil {
-			gasPrice = price
-		}
-		
-		gasFee := decimal.Zero
-		if fee, err := decimal.NewFromString(gasCost.Amount); err == nil {
-			gasFee = fee
-		}
-		
-		gasFeeUSD := decimal.Zero
-		if feeUSD, err := decimal.NewFromString(gasCost.AmountUSD); err == nil {
-			gasFeeUSD = feeUSD
+
+		for _, gasCost := range lifiResp.Estimate.GasCosts {
+			// Parse gas limit (use highest)
+			if limit, err := strconv.ParseUint(gasCost.Limit, 10, 64); err == nil && limit > gasLimit {
+				gasLimit = limit
+			}
+
+			// Parse gas price (use latest)
+			if price, err := decimal.NewFromString(gasCost.Price); err == nil {
+				gasPrice = price
+			}
+
+			// Sum gas fees
+			if fee, err := decimal.NewFromString(gasCost.Amount); err == nil {
+				totalGasFee = totalGasFee.Add(fee)
+			}
+
+			// Sum gas fees USD
+			if feeUSD, err := decimal.NewFromString(gasCost.AmountUSD); err == nil {
+				totalGasFeeUSD = totalGasFeeUSD.Add(feeUSD)
+			}
 		}
 
 		gasEstimate = &models.GasEstimate{
 			GasLimit:  gasLimit,
 			GasPrice:  gasPrice,
-			GasFee:    gasFee,
-			GasFeeUSD: gasFeeUSD,
+			GasFee:    totalGasFee,
+			GasFeeUSD: totalGasFeeUSD,
 		}
+
+		logrus.WithFields(logrus.Fields{
+			"gasLimit":     gasLimit,
+			"gasPrice":     gasPrice.String(),
+			"totalGasFee":  totalGasFee.String(),
+			"totalGasUSD":  totalGasFeeUSD.String(),
+			"gasCostCount": len(lifiResp.Estimate.GasCosts),
+		}).Debug("⛽ Aggregated gas costs from LiFi response")
 	}
 
-	// Convert route steps and create Route struct
+	// ✅ ENHANCED: Convert route steps with proper step information
 	routeSteps := c.convertRouteSteps(lifiResp)
-	
-	// Calculate total fee from fee costs
+
+	// ✅ ENHANCED: Calculate total fee from fee costs
 	totalFee := decimal.Zero
 	if lifiResp.Estimate.FeeCosts != nil {
 		for _, feeCost := range lifiResp.Estimate.FeeCosts {
@@ -84,15 +128,19 @@ func (c *ConversionUtils) ConvertLiFiToQuote(lifiResp *lifi.LiFiQuoteResponse, r
 				totalFee = totalFee.Add(feeAmount)
 			}
 		}
+		logrus.WithFields(logrus.Fields{
+			"totalFee":     totalFee.String(),
+			"feeCostCount": len(lifiResp.Estimate.FeeCosts),
+		}).Debug("💰 Calculated total fees from LiFi response")
 	}
-	
+
 	route := &models.Route{
 		Steps:       routeSteps,
 		TotalFee:    totalFee,
 		GasEstimate: gasEstimate,
 	}
 
-	// Convert tokens
+	// ✅ ENHANCED: Convert tokens with price information
 	fromToken := &models.Token{
 		Address:  lifiResp.Action.FromToken.Address,
 		Symbol:   lifiResp.Action.FromToken.Symbol,
@@ -100,6 +148,13 @@ func (c *ConversionUtils) ConvertLiFiToQuote(lifiResp *lifi.LiFiQuoteResponse, r
 		Decimals: lifiResp.Action.FromToken.Decimals,
 		ChainID:  lifiResp.Action.FromToken.ChainId,
 		LogoURI:  lifiResp.Action.FromToken.LogoURI,
+	}
+
+	// Add price USD if available
+	if lifiResp.Action.FromToken.PriceUSD != "" {
+		if priceUSD, err := decimal.NewFromString(lifiResp.Action.FromToken.PriceUSD); err == nil {
+			fromToken.PriceUSD = priceUSD
+		}
 	}
 
 	toToken := &models.Token{
@@ -111,6 +166,14 @@ func (c *ConversionUtils) ConvertLiFiToQuote(lifiResp *lifi.LiFiQuoteResponse, r
 		LogoURI:  lifiResp.Action.ToToken.LogoURI,
 	}
 
+	// Add price USD if available
+	if lifiResp.Action.ToToken.PriceUSD != "" {
+		if priceUSD, err := decimal.NewFromString(lifiResp.Action.ToToken.PriceUSD); err == nil {
+			toToken.PriceUSD = priceUSD
+		}
+	}
+
+	// ✅ ENHANCED: Create quote with comprehensive metadata
 	quote := &models.Quote{
 		ID:                lifiResp.Id,
 		Provider:          "lifi",
@@ -120,6 +183,7 @@ func (c *ConversionUtils) ConvertLiFiToQuote(lifiResp *lifi.LiFiQuoteResponse, r
 		ToAmount:          toAmount,
 		ToAmountMin:       toAmountMin,
 		Price:             price,
+		PriceImpact:       priceImpact,
 		SlippageTolerance: req.SlippageTolerance,
 		GasEstimate:       gasEstimate,
 		Route:             route,
@@ -135,8 +199,24 @@ func (c *ConversionUtils) ConvertLiFiToQuote(lifiResp *lifi.LiFiQuoteResponse, r
 			"executionDuration":  lifiResp.Estimate.ExecutionDuration,
 			"fromAmountUSD":      lifiResp.Estimate.FromAmountUSD,
 			"toAmountUSD":        lifiResp.Estimate.ToAmountUSD,
+			"priceImpactPercent": priceImpact.String(),
+			"totalSteps":         len(routeSteps),
+			"crossChain":         lifiResp.Action.FromChainId != lifiResp.Action.ToChainId,
+			"slippage":           lifiResp.Action.Slippage,
 		},
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"quoteId":     quote.ID,
+		"fromSymbol":  fromToken.Symbol,
+		"toSymbol":    toToken.Symbol,
+		"toAmount":    toAmount.String(),
+		"toAmountMin": toAmountMin.String(),
+		"priceImpact": priceImpact.String(),
+		"steps":       len(routeSteps),
+		"crossChain":  quote.Metadata["crossChain"],
+		"tool":        lifiResp.Tool,
+	}).Info("✅ Successfully converted LiFi response to Quote")
 
 	return quote
 }
@@ -166,9 +246,15 @@ func (c *ConversionUtils) convertRouteSteps(lifiResp *lifi.LiFiQuoteResponse) []
 		fromAmount, _ := decimal.NewFromString(lifiResp.Estimate.FromAmount)
 		toAmount, _ := decimal.NewFromString(lifiResp.Estimate.ToAmount)
 
+		// Determine step type based on chain IDs
+		stepType := "swap"
+		if lifiResp.Action.FromChainId != lifiResp.Action.ToChainId {
+			stepType = "bridge"
+		}
+
 		return []*models.RouteStep{
 			{
-				Type:        "swap",
+				Type:        stepType,
 				FromToken:   fromToken,
 				ToToken:     toToken,
 				FromAmount:  fromAmount,
@@ -180,17 +266,134 @@ func (c *ConversionUtils) convertRouteSteps(lifiResp *lifi.LiFiQuoteResponse) []
 		}
 	}
 
-	// Convert actual steps
+	// ✅ ENHANCED: Convert actual detailed steps from API response
 	steps := make([]*models.RouteStep, 0, len(lifiResp.IncludedSteps))
-	for _, step := range lifiResp.IncludedSteps {
-		routeStep := &models.RouteStep{
-			Type:        "swap",
-			Protocol:    step.Tool,
-			Fee:         decimal.Zero,
-			PriceImpact: decimal.Zero,
+
+	logrus.WithFields(logrus.Fields{
+		"totalSteps": len(lifiResp.IncludedSteps),
+	}).Debug("🔄 Converting LiFi included steps")
+
+	for i, step := range lifiResp.IncludedSteps {
+		logrus.WithFields(logrus.Fields{
+			"stepIndex":   i,
+			"stepId":      step.Id,
+			"stepType":    step.Type,
+			"tool":        step.Tool,
+			"fromChainId": step.Action.FromChainId,
+			"toChainId":   step.Action.ToChainId,
+			"fromToken":   step.Action.FromToken.Symbol,
+			"toToken":     step.Action.ToToken.Symbol,
+		}).Debug("🎯 Processing LiFi step")
+
+		// Convert tokens for this step
+		fromToken := &models.Token{
+			Address:  step.Action.FromToken.Address,
+			Symbol:   step.Action.FromToken.Symbol,
+			Name:     step.Action.FromToken.Name,
+			Decimals: step.Action.FromToken.Decimals,
+			ChainID:  step.Action.FromToken.ChainId,
+			LogoURI:  step.Action.FromToken.LogoURI,
 		}
+
+		toToken := &models.Token{
+			Address:  step.Action.ToToken.Address,
+			Symbol:   step.Action.ToToken.Symbol,
+			Name:     step.Action.ToToken.Name,
+			Decimals: step.Action.ToToken.Decimals,
+			ChainID:  step.Action.ToToken.ChainId,
+			LogoURI:  step.Action.ToToken.LogoURI,
+		}
+
+		// Add price USD if available
+		if step.Action.FromToken.PriceUSD != "" {
+			if priceUSD, err := decimal.NewFromString(step.Action.FromToken.PriceUSD); err == nil {
+				fromToken.PriceUSD = priceUSD
+			}
+		}
+		if step.Action.ToToken.PriceUSD != "" {
+			if priceUSD, err := decimal.NewFromString(step.Action.ToToken.PriceUSD); err == nil {
+				toToken.PriceUSD = priceUSD
+			}
+		}
+
+		// Parse amounts (already in wei format from API)
+		fromAmount, err1 := decimal.NewFromString(step.Estimate.FromAmount)
+		if err1 != nil {
+			logrus.WithFields(logrus.Fields{
+				"stepIndex":  i,
+				"fromAmount": step.Estimate.FromAmount,
+				"error":      err1.Error(),
+			}).Warn("⚠️ Failed to parse step fromAmount")
+			fromAmount = decimal.Zero
+		}
+
+		toAmount, err2 := decimal.NewFromString(step.Estimate.ToAmount)
+		if err2 != nil {
+			logrus.WithFields(logrus.Fields{
+				"stepIndex": i,
+				"toAmount":  step.Estimate.ToAmount,
+				"error":     err2.Error(),
+			}).Warn("⚠️ Failed to parse step toAmount")
+			toAmount = decimal.Zero
+		}
+
+		// Calculate step fee from fee costs
+		stepFee := decimal.Zero
+		if step.Estimate.FeeCosts != nil {
+			for _, feeCost := range step.Estimate.FeeCosts {
+				if feeAmount, err := decimal.NewFromString(feeCost.Amount); err == nil {
+					stepFee = stepFee.Add(feeAmount)
+				}
+			}
+		}
+
+		// Calculate price impact for this step
+		stepPriceImpact := decimal.Zero
+		// For cross-chain steps, use slippage from action
+		if step.Type == "cross" && step.Action.Slippage > 0 {
+			stepPriceImpact = decimal.NewFromFloat(step.Action.Slippage * 100) // Convert to percentage
+		}
+
+		// Map step type from API response
+		stepType := "swap"
+		switch step.Type {
+		case "swap":
+			stepType = "swap"
+		case "cross":
+			stepType = "bridge"
+		default:
+			stepType = step.Type // Use as-is for unknown types
+		}
+
+		routeStep := &models.RouteStep{
+			Type:        stepType,
+			FromToken:   fromToken,
+			ToToken:     toToken,
+			FromAmount:  fromAmount,
+			ToAmount:    toAmount,
+			Protocol:    step.Tool,
+			Fee:         stepFee,
+			PriceImpact: stepPriceImpact,
+		}
+
 		steps = append(steps, routeStep)
+
+		logrus.WithFields(logrus.Fields{
+			"stepIndex":   i,
+			"stepType":    stepType,
+			"protocol":    step.Tool,
+			"fromAmount":  fromAmount.String(),
+			"toAmount":    toAmount.String(),
+			"fee":         stepFee.String(),
+			"priceImpact": stepPriceImpact.String(),
+			"crossChain":  step.Action.FromChainId != step.Action.ToChainId,
+		}).Debug("✅ Converted LiFi step")
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"convertedSteps": len(steps),
+		"totalSteps":     len(lifiResp.IncludedSteps),
+	}).Info("🎉 Successfully converted all LiFi route steps")
 
 	return steps
 }
@@ -230,7 +433,7 @@ func (c *ConversionUtils) ConvertLiFiToToken(lifiToken lifi.LiFiToken) *models.T
 		LogoURI:  lifiToken.LogoURI,
 		Tags:     []string{}, // LiFi doesn't provide tags
 		Metadata: map[string]interface{}{
-			"priceUSD":    lifiToken.PriceUSD,
+			"priceUSD": lifiToken.PriceUSD,
 		},
 	}
 }
@@ -288,8 +491,7 @@ func (c *ConversionUtils) FormatAmountForAPI(amount decimal.Decimal, decimals in
 	// Convert to base units (multiply by 10^decimals)
 	multiplier := decimal.New(1, int32(decimals))
 	baseAmount := amount.Mul(multiplier)
-	
+
 	// Return as integer string (no decimal places)
 	return baseAmount.StringFixed(0)
 }
-

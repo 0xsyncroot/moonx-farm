@@ -196,15 +196,20 @@ var PopularTokens = map[int]map[string]string{
 		"USDC": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
 		"BUSD": "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56",
 	},
-	// Base Sepolia (Testnet)
+	// Base Sepolia (Testnet) - Updated with accurate addresses
 	84532: {
 		"ETH":  "0x0000000000000000000000000000000000000000",
 		"WETH": "0x4200000000000000000000000000000000000006",
+		"USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Circle USDC testnet
+		"LINK": "0xE4aB69C077896252FAFBD49EFD26B5D171A32410", // Chainlink LINK testnet
 	},
-	// BSC Testnet
+	// BSC Testnet - Updated with accurate addresses
 	97: {
 		"BNB":  "0x0000000000000000000000000000000000000000",
 		"WBNB": "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
+		"LINK": "0x84b9B910527Ad5C03A9Ca831909E21e236EA7b06", // Chainlink LINK testnet
+		"USDT": "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd", // BSC testnet USDT (from faucet)
+		"USDC": "0x64544969ed7EBf5f083679233325356EbE738930", // BSC testnet USDC (from faucet)
 	},
 }
 

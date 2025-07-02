@@ -1,4 +1,4 @@
-import { DatabaseManager, createDatabaseConfig } from '@moonx/infrastructure';
+import { DatabaseManager, createDatabaseConfig } from '@moonx-farm/infrastructure';
 
 export class DatabaseService {
   private db: DatabaseManager;

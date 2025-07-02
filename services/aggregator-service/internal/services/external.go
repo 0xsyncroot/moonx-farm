@@ -1206,18 +1206,21 @@ func (s *ExternalAPIService) enhanceFromGeckoTerminal(ctx context.Context, token
 			ID         string `json:"id"`
 			Type       string `json:"type"`
 			Attributes struct {
-				Name           string `json:"name"`
-				Symbol         string `json:"symbol"`
-				Address        string `json:"address"`
-				LogoURI        string `json:"logo_uri"`
-				PriceUsd       string `json:"price_usd"`
-				PriceNative    string `json:"price_native"`
-				MarketCapUsd   string `json:"market_cap_usd"`
-				FdvUsd         string `json:"fdv_usd"`
-				TotalSupply    string `json:"total_supply"`
-				VolumeUsd24h   string `json:"volume_usd_24h"`
-				ReserveInUsd   string `json:"reserve_in_usd"`
-				PriceChange24h string `json:"price_change_24h"`
+				Name              string `json:"name"`
+				Symbol            string `json:"symbol"`
+				Address           string `json:"address"`
+				Decimals          int    `json:"decimals"`
+				ImageURL          string `json:"image_url"`
+				CoinGeckoID       string `json:"coingecko_coin_id"`
+				PriceUsd          string `json:"price_usd"`
+				FdvUsd            string `json:"fdv_usd"`
+				TotalSupply       string `json:"total_supply"`
+				NormalizedSupply  string `json:"normalized_total_supply"`
+				TotalReserveInUsd string `json:"total_reserve_in_usd"`
+				MarketCapUsd      string `json:"market_cap_usd"`
+				VolumeUsd         struct {
+					H24 string `json:"h24"`
+				} `json:"volume_usd"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -1234,13 +1237,19 @@ func (s *ExternalAPIService) enhanceFromGeckoTerminal(ctx context.Context, token
 
 	// Update token with market data
 	attrs := result.Data.Attributes
-	s.logger.Debugf("GeckoTerminal data for %s: price=$%s, volume=$%s", token.Symbol, attrs.PriceUsd, attrs.VolumeUsd24h)
+	s.logger.Debugf("GeckoTerminal data for %s: price=$%s, volume=$%s", token.Symbol, attrs.PriceUsd, attrs.VolumeUsd.H24)
 
-	s.parseAndSetMarketData(token, attrs.PriceUsd, attrs.VolumeUsd24h, attrs.MarketCapUsd, attrs.PriceChange24h)
+	// Use FdvUsd as market cap fallback if MarketCapUsd is null
+	marketCapUsd := attrs.MarketCapUsd
+	if marketCapUsd == "" || marketCapUsd == "null" {
+		marketCapUsd = attrs.FdvUsd
+	}
+
+	s.parseAndSetMarketData(token, attrs.PriceUsd, attrs.VolumeUsd.H24, marketCapUsd, "0")
 
 	// Also update logo if available
-	if attrs.LogoURI != "" && token.LogoURI == "" {
-		token.LogoURI = attrs.LogoURI
+	if attrs.ImageURL != "" && token.LogoURI == "" {
+		token.LogoURI = attrs.ImageURL
 	}
 
 	token.Source = "geckoterminal_enhanced"

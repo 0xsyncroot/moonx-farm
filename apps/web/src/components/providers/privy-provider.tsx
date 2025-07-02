@@ -18,6 +18,8 @@ import { PrivyProvider as PrivyProviderBase } from '@privy-io/react-auth'
 import { SmartWalletsProvider } from '@privy-io/react-auth/smart-wallets'
 import { WagmiProvider, createConfig, http } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useTheme } from 'next-themes'
+import { useEffect, useState } from 'react'
 import {
   getWagmiChains,
   DEFAULT_CHAIN,
@@ -47,25 +49,41 @@ interface PrivyProviderProps {
   children: React.ReactNode
 }
 
-export function PrivyProvider({ children }: PrivyProviderProps) {
+// Theme-aware Privy Provider
+function ThemedPrivyProvider({ children }: PrivyProviderProps) {
+  const { theme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  
   // Get chains for Privy config
   const mainnetChains = IS_TESTNET_ENABLED ? getAllChains() : getMainnetChains()
   const defaultChain = DEFAULT_CHAIN.wagmiChain
 
+  // Wait until mounted to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Use resolvedTheme which handles 'system' automatically
+  const privyTheme = mounted && resolvedTheme === 'light' ? 'light' : 'dark'
+
   return (
     <PrivyProviderBase
+      key={privyTheme} // ✅ FORCE re-render when theme changes
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || ''}
       config={{
         loginMethods: ['email', 'google', 'twitter', 'farcaster', 'telegram'],
         appearance: {
-          theme: 'light',
+          theme: privyTheme, // ✅ FIXED: Sync with app theme
           accentColor: '#ff7842',
-          logo: '/logo.png',
+          logo: '/icons/logo.png', // ✅ FIXED: Correct logo path
           showWalletLoginFirst: false,
         },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets', // Create AA wallet automatically
-          noPromptOnSignature: true, // Seamless UX
+          priceDisplay: {
+            primary: 'fiat-currency',
+            secondary: 'native-token',
+          }
         },
         mfa: {
           noPromptOnMfaRequired: false,
@@ -90,5 +108,13 @@ export function PrivyProvider({ children }: PrivyProviderProps) {
         </WagmiProvider>
       </SmartWalletsProvider>
     </PrivyProviderBase>
+  )
+}
+
+export function PrivyProvider({ children }: PrivyProviderProps) {
+  return (
+    <ThemedPrivyProvider>
+      {children}
+    </ThemedPrivyProvider>
   )
 } 

@@ -1,6 +1,6 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow, PoolConfig } from 'pg';
-import { createLogger, DatabaseError } from '@moonx/common';
-import { isDevelopment } from '@moonx/configs';
+import { createLogger, DatabaseError } from '@moonx-farm/common';
+import { isDevelopment } from '@moonx-farm/configs';
 
 const logger = createLogger('database-infrastructure');
 
@@ -167,7 +167,7 @@ export class DatabaseManager implements QueryBuilder {
       database: this.config.database,
       user: this.config.user,
       password: this.config.password,
-      ssl: this.config.ssl || (isDevelopment() ? false : { rejectUnauthorized: false }),
+      ssl: false,
       max: this.config.maxConnections || 20,
       min: this.config.minConnections || 2,
       idleTimeoutMillis: this.config.idleTimeoutMs || 30000,
@@ -176,6 +176,8 @@ export class DatabaseManager implements QueryBuilder {
       statement_timeout: this.config.statementTimeout || 60000,
       query_timeout: this.config.queryTimeout || 30000,
     };
+
+    logger.info('Pool config', { poolConfig });
 
     this.pool = new Pool(poolConfig);
   }
@@ -861,7 +863,18 @@ export function createDatabaseConfig(): DatabaseConfig {
         database: url.pathname.slice(1),
         user: url.username,
         password: url.password,
-        ssl: !isDevelopment() ? { rejectUnauthorized: false } : false,
+        ssl: false,
+        maxConnections: 200,
+        minConnections: 2,
+        idleTimeoutMs: 30000,
+        connectionTimeoutMs: 10000,
+        statementTimeout: 60000,
+        queryTimeout: 30000,
+        maxRetries: 3,
+        retryDelay: 1000,
+        applicationName: 'moonx-farm',
+        enableMetrics: true,
+        enableQueryLogging: false,
       };
     } catch (error) {
       logger.error('Invalid DATABASE_URL format, falling back to individual settings');

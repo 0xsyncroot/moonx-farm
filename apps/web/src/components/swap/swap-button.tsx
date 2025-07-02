@@ -7,7 +7,7 @@ import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useSwap } from '@/hooks/use-swap'
 import { cn } from '@/lib/utils'
 import type { Quote } from '@/lib/api-client'
-import React, { useCallback, useRef, useEffect } from 'react'
+import React, { useCallback, useRef, useEffect, useMemo } from 'react'
 
 // Global execution lock to prevent ANY duplicate calls
 const globalExecutionLock = {
@@ -121,6 +121,7 @@ interface SwapButtonProps {
   hasInsufficientBalance?: boolean
   onPauseCountdown?: (reason?: 'swap' | 'approval') => void
   onResumeCountdown?: (reason?: 'cancelled' | 'completed' | 'error') => void
+  smartWalletClient?: any // Smart wallet client from auto chain switch
 }
 
 export function SwapButton({
@@ -132,11 +133,13 @@ export function SwapButton({
   priceImpactTooHigh,
   hasInsufficientBalance = false,
   onPauseCountdown,
-  onResumeCountdown
+  onResumeCountdown,
+  smartWalletClient: customSmartWalletClient
 }: SwapButtonProps) {
   const { user, login, createWallet } = usePrivy()
-  const { client: smartWalletClient } = useSmartWallets()
-  const { executeSwap, swapState, canSwap, resetSwapState, isSwapping, setOnSwapComplete } = useSwap()
+  const { client: defaultSmartWalletClient } = useSmartWallets()
+  const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
+  const { executeSwap, swapState, canSwap, resetSwapState, isSwapping, setOnSwapComplete } = useSwap(smartWalletClient)
 
   // Prevent rapid consecutive clicks
   const lastClickTimeRef = useRef(0)
@@ -184,12 +187,51 @@ export function SwapButton({
   const handleSwap = useCallback(async () => {
     // Global lock check - prevents ALL duplicate calls  
     if (!globalExecutionLock.canExecute()) {
+      console.warn('🔒 Global execution lock prevents swap execution')
       return
     }
     
     if (!quote || isSwapping) {
+      console.warn('❌ Cannot execute swap:', { hasQuote: !!quote, isSwapping })
       return
     }
+    
+    // Validate quote has required fields before execution
+    const isQuoteValid = !!(
+      quote.callData &&
+      quote.fromToken?.address &&
+      quote.toToken?.address &&
+      quote.fromAmount &&
+      quote.toAmount &&
+      quote.provider &&
+      quote.value !== undefined
+    )
+    
+    if (!isQuoteValid) {
+      console.error('❌ Quote validation failed before swap execution:', {
+        id: quote.id,
+        provider: quote.provider,
+        hasCallData: !!quote.callData,
+        hasFromToken: !!quote.fromToken?.address,
+        hasToToken: !!quote.toToken?.address,
+        hasFromAmount: !!quote.fromAmount,
+        hasToAmount: !!quote.toAmount,
+        hasValue: quote.value !== undefined,
+        quote: quote
+      })
+      return
+    }
+    
+    console.log('🚀 Executing swap with validated quote:', {
+      id: quote.id,
+      provider: quote.provider,
+      fromToken: quote.fromToken?.symbol,
+      toToken: quote.toToken?.symbol,
+      fromAmount: quote.fromAmount,
+      toAmount: quote.toAmount,
+      callDataLength: quote.callData?.length,
+      value: quote.value
+    })
     
     // ✨ PAUSE countdown when starting swap (DEX behavior)
     if (onPauseCountdown) {
@@ -215,10 +257,47 @@ export function SwapButton({
   const handleRetrySwap = useCallback(async () => {
     // Global lock check - prevents ALL duplicate calls
     if (!globalExecutionLock.canExecute()) {
+      console.warn('🔒 Global execution lock prevents retry execution')
       return
     }
     
-    if (!quote || isSwapping) return
+    if (!quote || isSwapping) {
+      console.warn('❌ Cannot retry swap:', { hasQuote: !!quote, isSwapping })
+      return
+    }
+    
+    // Validate quote has required fields before retry
+    const isQuoteValid = !!(
+      quote.callData &&
+      quote.fromToken?.address &&
+      quote.toToken?.address &&
+      quote.fromAmount &&
+      quote.toAmount &&
+      quote.provider &&
+      quote.value !== undefined
+    )
+    
+    if (!isQuoteValid) {
+      console.error('❌ Quote validation failed before retry execution:', {
+        id: quote.id,
+        provider: quote.provider,
+        hasCallData: !!quote.callData,
+        hasFromToken: !!quote.fromToken?.address,
+        hasToToken: !!quote.toToken?.address,
+        hasFromAmount: !!quote.fromAmount,
+        hasToAmount: !!quote.toAmount,
+        hasValue: quote.value !== undefined,
+        quote: quote
+      })
+      return
+    }
+    
+    console.log('🔄 Retrying swap with validated quote:', {
+      id: quote.id,
+      provider: quote.provider,
+      fromToken: quote.fromToken?.symbol,
+      toToken: quote.toToken?.symbol
+    })
     
     // Reset state first
     resetSwapState()
@@ -250,8 +329,8 @@ export function SwapButton({
     // ✨ Countdown resume handled automatically by useEffect tracking swapState.step
   }, [resetSwapState])
 
-  // Determine button state and action
-  const getButtonState = () => {
+  // Memoize button state to prevent excessive re-computations
+  const buttonState = useMemo(() => {
     // Authentication states
     if (!user) {
       return {
@@ -375,9 +454,25 @@ export function SwapButton({
       disabled: disabled || !canSwap || isSwapping,
       loading: isSwapping
     }
-  }
-
-  const buttonState = getButtonState()
+  }, [
+    user,
+    smartWalletClient?.account?.address,
+    fromToken,
+    toToken,
+    fromAmount,
+    hasInsufficientBalance,
+    quote,
+    priceImpactTooHigh,
+    swapState.step,
+    swapState.error,
+    disabled,
+    canSwap,
+    isSwapping,
+    handleLogin,
+    handleCreateWallet,
+    handleSwap,
+    handleRetrySwap
+  ])
 
   return (
     <div className="space-y-4">

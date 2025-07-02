@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import axios from 'axios';
-import { createCoreServiceConfig, getServiceUrls } from '@moonx/configs';
+import { createCoreServiceConfig, getServiceUrls } from '@moonx-farm/configs';
 
 interface AuthenticatedRequest extends FastifyRequest {
   user?: {
@@ -36,13 +36,13 @@ export class AuthMiddleware {
       const token = authorization.replace('Bearer ', '');
 
       // Verify token with auth service
-      const response = await axios.post(`${this.authServiceUrl}/api/v1/auth/verify`, 
-        { token },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 5000
-        }
-      );
+      const response = await axios.get(`${this.authServiceUrl}/api/v1/auth/verify`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json' 
+        },
+        timeout: 5000
+      });
 
       if (!response.data.success || !response.data.data.user) {
         return reply.code(401).send({

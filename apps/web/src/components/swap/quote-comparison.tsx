@@ -80,20 +80,40 @@ export function QuoteComparison({
 }: QuoteComparisonProps) {
   const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set())
 
-  // Sort quotes by best value
+  // Helper function to safely format amounts - FIXED to prevent NaN display
+  const safeFormatAmount = (amount: string | number | undefined, decimals: number = 18): number => {
+    if (!amount) return 0
+    
+    try {
+      const formatted = formatTokenAmount(String(amount), decimals)
+      const parsed = parseFloat(formatted)
+      
+      // Return 0 if parsing failed or result is invalid
+      if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) return 0
+      
+      return parsed
+    } catch (error) {
+      console.warn('Failed to format amount:', error, { amount, decimals })
+      return 0
+    }
+  }
+
+  // Sort quotes by best value - FIXED to use safe amount formatting
   const sortedQuotes = useMemo(() => {
     return [...quotes].sort((a, b) => {
-      const aAmount = parseFloat(formatTokenAmount(a.toAmount, toToken?.decimals || 18))
-      const bAmount = parseFloat(formatTokenAmount(b.toAmount, toToken?.decimals || 18))
+      const aAmount = safeFormatAmount(a.toAmount, toToken?.decimals || 18)
+      const bAmount = safeFormatAmount(b.toAmount, toToken?.decimals || 18)
       if (bAmount !== aAmount) return bAmount - aAmount
       
-      const aImpact = parseFloat(a.priceImpact)
-      const bImpact = parseFloat(b.priceImpact)
+      const aImpact = parseFloat(a.priceImpact || '0')
+      const bImpact = parseFloat(b.priceImpact || '0')
       if (aImpact !== bImpact) return aImpact - bImpact
       
-      return a.gasEstimate.gasFeeUSD - b.gasEstimate.gasFeeUSD
+      const aGasFee = a.gasEstimate?.gasFeeUSD || 0
+      const bGasFee = b.gasEstimate?.gasFeeUSD || 0
+      return aGasFee - bGasFee
     })
-  }, [quotes, toToken])
+  }, [quotes, toToken, safeFormatAmount])
 
   const bestQuote = sortedQuotes[0]
 
@@ -206,10 +226,15 @@ export function QuoteComparison({
           const isBest = quote === bestQuote
           const config = getProviderConfig(quote.provider)
           const toAmountFormatted = toToken ? 
-            parseFloat(formatTokenAmount(quote.toAmount, toToken.decimals)).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
-            parseFloat(quote.toAmount || '0').toLocaleString('en-US', { maximumFractionDigits: 6 })
+            safeFormatAmount(quote.toAmount, toToken.decimals).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
+            safeFormatAmount(quote.toAmount, 18).toLocaleString('en-US', { maximumFractionDigits: 6 })
                       const savings = index > 0 && toToken ? 
-              ((parseFloat(formatTokenAmount(bestQuote.toAmount, toToken.decimals)) - parseFloat(formatTokenAmount(quote.toAmount, toToken.decimals))) / parseFloat(formatTokenAmount(quote.toAmount, toToken.decimals)) * 100) : 0
+              (() => {
+                const bestAmount = safeFormatAmount(bestQuote.toAmount, toToken.decimals)
+                const currentAmount = safeFormatAmount(quote.toAmount, toToken.decimals)
+                if (currentAmount === 0) return 0
+                return ((bestAmount - currentAmount) / currentAmount * 100)
+              })() : 0
           
           return (
             <div
@@ -221,6 +246,23 @@ export function QuoteComparison({
                   : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
               )}
               onClick={() => {
+                console.log('🔄 Quote comparison: selecting quote', {
+                  id: quote.id,
+                  provider: quote.provider,
+                  hasCallData: !!quote.callData,
+                  hasValue: !!quote.value,
+                  hasFromToken: !!quote.fromToken?.address,
+                  hasToToken: !!quote.toToken?.address,
+                  fromAmount: quote.fromAmount,
+                  toAmount: quote.toAmount
+                })
+                
+                // Validate quote before selection
+                if (!quote.callData || !quote.fromToken?.address || !quote.toToken?.address) {
+                  console.error('❌ Attempting to select invalid quote:', quote)
+                  return
+                }
+                
                 onSelectQuote(quote)
                 onClose?.()
               }}
@@ -300,12 +342,18 @@ export function QuoteComparison({
                       "font-medium flex-shrink-0",
                       (() => {
                         const impact = parseFloat(quote.priceImpact || '0')
-                        return impact < 1 ? 'text-green-600 dark:text-green-400' :
-                               impact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
+                        const absImpact = Math.abs(impact)
+                        return absImpact < 1 ? 'text-green-600 dark:text-green-400' :
+                               absImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
                                'text-red-600 dark:text-red-400'
                       })()
                     )}>
-                      {parseFloat(quote.priceImpact || '0').toFixed(1)}%
+                      {(() => {
+                        const impact = parseFloat(quote.priceImpact || '0')
+                        const absImpact = Math.abs(impact)
+                        const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+                        return `${sign}${absImpact.toFixed(1)}%`
+                      })()}
                     </span>
                   </div>
                   
@@ -382,7 +430,7 @@ export function QuoteComparison({
                                   <div>
                                     <div className="font-medium text-gray-900 dark:text-white">
                                       {step.fromToken && step.fromAmount ? 
-                                        parseFloat(formatTokenAmount(String(step.fromAmount), step.fromToken.decimals || 18)).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
+                                        safeFormatAmount(step.fromAmount, step.fromToken.decimals || 18).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
                                         '0'
                                       } {step.fromToken?.symbol || 'Unknown'}
                                     </div>
@@ -407,7 +455,7 @@ export function QuoteComparison({
                                   <div>
                                     <div className="font-medium text-gray-900 dark:text-white">
                                       {step.toToken && step.toAmount ? 
-                                        parseFloat(formatTokenAmount(String(step.toAmount), step.toToken.decimals || 18)).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
+                                        safeFormatAmount(step.toAmount, step.toToken.decimals || 18).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
                                         '0'
                                       } {step.toToken?.symbol || 'Unknown'}
                                     </div>
@@ -441,12 +489,12 @@ export function QuoteComparison({
                                     // Check if fee is in wei format (very large number) or percentage
                                     if (feeValue > 100) {
                                       // Fee is in wei format, need to format with token decimals
-                                      const feeAmountFormatted = parseFloat(formatTokenAmount(String(feeValue), step.fromToken.decimals || 18))
+                                      const feeAmountFormatted = safeFormatAmount(feeValue, step.fromToken.decimals || 18)
                                       return `${feeAmountFormatted.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${step.fromToken.symbol}`
                                     } else {
                                       // Fee is percentage, calculate actual amount
                                       if (step.fromAmount && feeValue > 0) {
-                                        const fromAmountFormatted = parseFloat(formatTokenAmount(String(step.fromAmount), step.fromToken.decimals || 18))
+                                        const fromAmountFormatted = safeFormatAmount(step.fromAmount, step.fromToken.decimals || 18)
                                         const feeAmount = fromAmountFormatted * (feeValue / 100)
                                         if (!isNaN(feeAmount) && feeAmount > 0) {
                                           return `${feeAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${step.fromToken.symbol}`
@@ -466,13 +514,19 @@ export function QuoteComparison({
                                   (() => {
                                     const impact = step.priceImpact ? 
                                       (typeof step.priceImpact === 'number' ? step.priceImpact : parseFloat(String(step.priceImpact))) : 0
-                                    return impact < 1 ? 'text-green-600 dark:text-green-400' :
-                                           impact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
+                                    const absImpact = Math.abs(impact)
+                                    return absImpact < 1 ? 'text-green-600 dark:text-green-400' :
+                                           absImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
                                            'text-red-600 dark:text-red-400'
                                   })()
                                 )}>
                                   {step.priceImpact ? 
-                                    (typeof step.priceImpact === 'number' ? step.priceImpact.toFixed(2) : parseFloat(String(step.priceImpact)).toFixed(2)) + '%' :
+                                    (() => {
+                                      const impact = typeof step.priceImpact === 'number' ? step.priceImpact : parseFloat(String(step.priceImpact))
+                                      const absImpact = Math.abs(impact)
+                                      const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+                                      return `${sign}${absImpact.toFixed(2)}%`
+                                    })() :
                                     '0.00%'
                                   }
                                 </div>
@@ -537,12 +591,12 @@ export function QuoteComparison({
                             // Check if fee is in wei format (very large number) or percentage
                             if (feeValue > 100) {
                               // Fee is in wei format, need to format with token decimals
-                              const feeAmountFormatted = parseFloat(formatTokenAmount(String(feeValue), fromToken.decimals))
+                              const feeAmountFormatted = safeFormatAmount(feeValue, fromToken.decimals)
                               return `${feeAmountFormatted.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${fromToken.symbol}`
                             } else {
                               // Fee is percentage, calculate actual amount
                               if (quote.fromAmount && feeValue > 0) {
-                                const fromAmountFormatted = parseFloat(formatTokenAmount(quote.fromAmount, fromToken.decimals))
+                                const fromAmountFormatted = safeFormatAmount(quote.fromAmount, fromToken.decimals)
                                 const feeAmount = fromAmountFormatted * (feeValue / 100)
                                 return `${feeAmount.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${fromToken.symbol}`
                               }
@@ -559,11 +613,20 @@ export function QuoteComparison({
                         </div>
                         <p className={cn(
                           "font-bold text-xs sm:text-sm",
-                          parseFloat(quote.priceImpact) < 1 ? 'text-green-600 dark:text-green-400' :
-                          parseFloat(quote.priceImpact) < 3 ? 'text-yellow-600 dark:text-yellow-400' :
-                          'text-red-600 dark:text-red-400'
+                          (() => {
+                            const impact = parseFloat(quote.priceImpact)
+                            const absImpact = Math.abs(impact)
+                            return absImpact < 1 ? 'text-green-600 dark:text-green-400' :
+                                   absImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
+                                   'text-red-600 dark:text-red-400'
+                          })()
                         )}>
-                          {parseFloat(quote.priceImpact).toFixed(1)}%
+                          {(() => {
+                            const impact = parseFloat(quote.priceImpact)
+                            const absImpact = Math.abs(impact)
+                            const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+                            return `${sign}${absImpact.toFixed(1)}%`
+                          })()}
                         </p>
                       </div>
                       
@@ -579,10 +642,14 @@ export function QuoteComparison({
                     </div>
 
                     {/* High Impact Warning */}
-                    {parseFloat(quote.priceImpact) > 5 && (
+                    {Math.abs(parseFloat(quote.priceImpact)) > 5 && (
                       <div className="flex items-center gap-2 px-3 py-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-lg text-xs sm:text-sm">
                         <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                        <span>High price impact - consider smaller amounts</span>
+                        <span>High price impact ({(() => {
+                          const impact = parseFloat(quote.priceImpact)
+                          const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+                          return `${sign}${Math.abs(impact).toFixed(1)}%`
+                        })()}) - consider smaller amounts</span>
                       </div>
                     )}
                   </div>

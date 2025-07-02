@@ -19,7 +19,7 @@ configs/
 ├── schemas.ts        # Zod schemas cho validation
 ├── utils.ts          # Utility functions & RPC management
 ├── example.ts        # Usage examples
-├── package.json      # @moonx/configs
+├── package.json      # @moonx-farm/configs
 ├── tsconfig.json     # TypeScript config
 └── README.md         # Documentation
 ```
@@ -40,7 +40,7 @@ nano .env
 
 #### Auth Service
 ```typescript
-import { createAuthServiceConfig, getDatabaseConfig, getRedisConfig, getJwtConfig } from '@moonx/configs';
+import { createAuthServiceConfig, getDatabaseConfig, getRedisConfig, getJwtConfig } from '@moonx-farm/configs';
 
 // Tạo config cho auth service
 const config = createAuthServiceConfig();
@@ -67,7 +67,7 @@ import {
   getNetworkConfigs,
   getRpcConfig,
   getBestRpcUrl 
-} from '@moonx/configs';
+} from '@moonx-farm/configs';
 
 const config = createAggregatorServiceConfig();
 
@@ -102,7 +102,7 @@ import {
   getKafkaConfig,
   getTradingConfig,
   getAllRpcUrls 
-} from '@moonx/configs';
+} from '@moonx-farm/configs';
 
 const config = createSwapOrchestratorConfig();
 
@@ -129,7 +129,7 @@ console.log('All Base RPCs:', baseAllRpcs); // [privateRpc, fallback1, fallback2
 
 #### Private RPC vs Fallback RPCs
 ```typescript
-import { getRpcConfig, hasPrivateRpc, getPublicRpcUrls } from '@moonx/configs';
+import { getRpcConfig, hasPrivateRpc, getPublicRpcUrls } from '@moonx-farm/configs';
 
 const rpcConfig = getRpcConfig('aggregator-service', 'base', 'mainnet');
 
@@ -149,7 +149,7 @@ console.log('Public RPCs:', publicRpcs);
 
 #### Fallback Implementation
 ```typescript
-import { getAllRpcUrls } from '@moonx/configs';
+import { getAllRpcUrls } from '@moonx-farm/configs';
 
 const networks = getNetworkConfigs('swap-orchestrator');
 const baseAllRpcs = getAllRpcUrls(networks.base.mainnet);
@@ -205,7 +205,7 @@ throw new Error('All RPC URLs failed');
 ### Profile Usage
 
 ```typescript
-import { createConfig } from '@moonx/configs';
+import { createConfig } from '@moonx-farm/configs';
 
 // Tạo config cho service cụ thể
 const authConfig = createConfig('auth-service');
@@ -217,7 +217,7 @@ import {
   createAuthServiceConfig,
   createAggregatorServiceConfig,
   createWebConfig 
-} from '@moonx/configs';
+} from '@moonx-farm/configs';
 
 const authConfig = createAuthServiceConfig();
 const aggregatorConfig = createAggregatorServiceConfig();
@@ -304,7 +304,7 @@ import {
   getCacheConfig,
   validateServiceConfig,
   getServerConfig,
-} from '@moonx/configs';
+} from '@moonx-farm/configs';
 
 // Lấy config cho từng service
 const dbConfig = getDatabaseConfig('auth-service');
@@ -320,7 +320,7 @@ import {
   getPublicRpcUrls,
   hasPrivateRpc,
   getRpcConfig,
-} from '@moonx/configs';
+} from '@moonx-farm/configs';
 
 // Lấy RPC URL tốt nhất
 const bestUrl = getBestRpcUrl(networkConfig);
@@ -342,7 +342,7 @@ const rpcConfig = getRpcConfig('aggregator-service', 'base', 'mainnet');
 
 ### Trước (Legacy)
 ```typescript
-import { validateEnv, BaseEnvSchema } from '@moonx/common';
+import { validateEnv, BaseEnvSchema } from '@moonx-farm/common';
 
 const AuthServiceEnvSchema = BaseEnvSchema.extend({
   PRIVY_APP_ID: z.string(),
@@ -354,7 +354,7 @@ export const env = validateEnv(AuthServiceEnvSchema);
 
 ### Sau (Configs Package)
 ```typescript
-import { createAuthServiceConfig } from '@moonx/configs';
+import { createAuthServiceConfig } from '@moonx-farm/configs';
 
 const config = createAuthServiceConfig();
 const privyAppId = config.get('PRIVY_APP_ID');
@@ -468,7 +468,7 @@ LOG_FORMAT=console
 ### Usage Examples
 
 ```typescript
-import { createLogger, createLoggerForProfile, createLoggerWithConfig, LoggerConfig } from '@moonx/common';
+import { createLogger, createLoggerForProfile, createLoggerWithConfig, LoggerConfig } from '@moonx-farm/common';
 
 // Basic usage with default configuration
 const logger = createLogger('auth-service');

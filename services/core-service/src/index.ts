@@ -1,17 +1,18 @@
 import Fastify from 'fastify';
-import { createCoreServiceConfig, getServerConfig } from '@moonx/configs';
-import { createLoggerForProfile } from '@moonx/common';
+import { createCoreServiceConfig, getServerConfig } from '@moonx-farm/configs';
+import { createLogger } from '@moonx-farm/common';
 import { DatabaseService } from './services/databaseService';
 import { CacheService } from './services/cacheService';
 import { AutoSyncService } from './services/autoSyncService';
 import { AuthMiddleware } from './middleware/authMiddleware';
 import { orderRoutes } from './routes/orders';
 import { portfolioRoutes } from './routes/portfolio';
+import { bitqueryRoutes } from './routes/bitquery';
 
-const logger = createLoggerForProfile('core-service');
+const logger = createLogger('core-service');
 
 const startServer = async () => {
-  // Load configuration from @moonx/configs
+  // Load configuration from @moonx-farm/configs
   const config = createCoreServiceConfig();
   const serverConfig = getServerConfig('core-service');
   
@@ -162,6 +163,11 @@ const startServer = async () => {
       // Register order routes
       await orderRoutes(fastify);
     });
+
+    // Bitquery API Routes (no authentication required)
+    fastify.register(async function (fastify) {
+      await bitqueryRoutes(fastify);
+    }, { prefix: '/bitquery' });
   }, { prefix: '/api/v1' });
 
   // Error handling

@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 
 const logger = createLogger('auth-middleware');
 
@@ -32,7 +32,8 @@ function cleanupCaches() {
   }
   
   // Clean auth attempt cache
-  for (const [key, value] of authAttemptCache.entries()) {
+  const cacheEntries = Array.from(authAttemptCache.entries());
+  for (const [key, value] of cacheEntries) {
     if (now > value.resetTime) {
       authAttemptCache.delete(key);
     }

@@ -6,7 +6,7 @@ import { AutoSyncService } from '../services/autoSyncService';
 import { AuthenticatedRequest, AuthMiddleware } from '../middleware/authMiddleware';
 import { PortfolioSyncRequest, PortfolioFilters, PnLRequest } from '../types';
 import { ApiResponse } from '../types';
-import { createLoggerForAnyService } from '@moonx/common';
+import { createLoggerForAnyService } from '@moonx-farm/common';
 
 const logger = createLoggerForAnyService('core-service');
 

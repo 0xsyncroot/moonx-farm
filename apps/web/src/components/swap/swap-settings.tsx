@@ -97,10 +97,10 @@ export function SwapSettings({
                     key={preset}
                     onClick={() => handlePresetSlippage(preset)}
                     className={cn(
-                      "px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
+                      "px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]",
                       slippage === preset && !customSlippage
-                        ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
-                        : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        ? "bg-gradient-to-r from-[#ff7842] to-[#ff4d00] text-white shadow-lg shadow-orange-500/25"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700"
                     )}
                   >
                     {preset}%
@@ -120,8 +120,8 @@ export function SwapSettings({
                   step="0.1"
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 
                            rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400
-                           focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 focus:outline-none
-                           transition-all duration-200
+                           focus:border-[#ff7842] focus:ring-4 focus:ring-orange-500/10 focus:outline-none
+                           transition-all duration-300 hover:border-gray-300 dark:hover:border-gray-600
                            [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 text-sm font-medium">
@@ -163,10 +163,10 @@ export function SwapSettings({
             </div>
 
             {/* Information Box */}
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-4">
               <div className="flex items-start gap-3">
-                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-blue-700 dark:text-blue-300">
+                <Info className="w-4 h-4 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-orange-700 dark:text-orange-300">
                   <div className="font-medium mb-1">About Slippage</div>
                   <div>
                     Slippage is the difference between expected and actual trade prices. 
@@ -181,8 +181,9 @@ export function SwapSettings({
           <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
             <button
               onClick={onClose}
-              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white 
-                       rounded-xl font-medium transition-colors duration-200 shadow-lg hover:shadow-xl"
+              className="w-full px-4 py-3 bg-gradient-to-r from-[#ff7842] to-[#ff4d00] hover:from-[#ff4d00] hover:to-[#e63900] text-white 
+                       rounded-xl font-medium transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] 
+                       shadow-lg shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-500/30"
             >
               Save Settings
             </button>

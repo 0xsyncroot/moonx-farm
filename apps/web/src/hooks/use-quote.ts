@@ -16,9 +16,12 @@ interface QuoteRequest {
   slippage?: number
 }
 
-export function useQuote() {
+export function useQuote(customSmartWalletClient?: any) {
   const { walletInfo } = useAuth()
-  const { client: smartWalletClient } = useSmartWallets()
+  const { client: defaultSmartWalletClient } = useSmartWallets()
+  
+  // Use custom smart wallet client if provided, otherwise use default
+  const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>({
     fromToken: null,
     toToken: null,
@@ -49,8 +52,12 @@ export function useQuote() {
     quoteRequest.toToken &&
     debouncedAmount &&
     parseFloat(debouncedAmount) > 0 &&
-    quoteRequest.fromToken.address !== quoteRequest.toToken.address &&
-    smartWalletAddress // ✅ SỬA: Yêu cầu Smart Wallet address
+    // Check if tokens are different OR if they're the same native token on different chains
+    (quoteRequest.fromToken.address !== quoteRequest.toToken.address ||
+     (quoteRequest.fromToken.isNative && 
+      quoteRequest.toToken.isNative && 
+      quoteRequest.fromToken.chainId !== quoteRequest.toToken.chainId)) &&
+    smartWalletAddress
 
   // Get quotes from aggregator service
   const {

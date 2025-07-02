@@ -12,7 +12,7 @@ import { getEntryPoint, KERNEL_V3_1 } from '@zerodev/sdk/constants';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { createPublicClient, http, Chain, Address, Hash, parseEther } from 'viem';
 import { base, baseSepolia, bsc, bscTestnet, sepolia, mainnet } from 'viem/chains';
-import { createLogger, LogContext } from '@moonx/common';
+import { createLogger, LogContext } from '@moonx-farm/common';
 import { ZeroDevClientConfig, SessionKeyPermissions, WalletRegistryError } from '../types';
 import { GasManager } from './gasManager';
 

@@ -4,14 +4,14 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
-import { createWalletRegistryConfig } from '@moonx/configs';
+import { createWalletRegistryConfig } from '@moonx-farm/configs';
 import { 
   DatabaseManager, 
   RedisManager, 
   createDatabaseConfig, 
   createRedisConfig 
-} from '@moonx/infrastructure';
-import { createLogger } from '@moonx/common';
+} from '@moonx-farm/infrastructure';
+import { createLogger } from '@moonx-farm/common';
 import { WalletController } from './controllers/walletController';
 import { WalletService } from './services/walletService';
 import { ZeroDevClientService } from './services/zeroDevClient';

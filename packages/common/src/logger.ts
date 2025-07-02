@@ -1,5 +1,5 @@
 import winston from 'winston';
-import { getLoggerConfig, getConfig, ConfigProfile, isDevelopment } from '@moonx/configs';
+import { getLoggerConfig, getConfig, ConfigProfile, isDevelopment } from '@moonx-farm/configs';
 
 /**
  * Logger configuration interface
@@ -41,7 +41,7 @@ function isValidProfile(profile: string): profile is ConfigProfile {
 }
 
 /**
- * Get logger configuration from @moonx/configs
+ * Get logger configuration from @moonx-farm/configs
  * Falls back to environment variables if configs package is not available
  */
 function getLoggerConfigFromConfigs(): LoggerConfig | null {
@@ -264,7 +264,7 @@ export function createLoggerWithConfig(config: LoggerConfig): Logger {
  * // Using service name (falls back to environment variables)
  * const logger = createLogger('auth-service');
  * 
- * // Using profile from @moonx/configs
+ * // Using profile from @moonx-farm/configs
  * const logger = createLogger('auth-service', 'debug');
  * 
  * logger.info('User authenticated', { userId: '123', traceId: 'abc' });
@@ -279,7 +279,7 @@ export function createLogger(service: string, level?: LogLevel): Logger {
   // Check if service is a valid profile
   if (isValidProfile(service)) {
     try {
-      // Try to get configuration from @moonx/configs
+      // Try to get configuration from @moonx-farm/configs
       const profileConfig = getConfig(service);
       
       config = {
@@ -313,7 +313,7 @@ export function createLogger(service: string, level?: LogLevel): Logger {
 }
 
 /**
- * Creates a logger for a specific profile from @moonx/configs
+ * Creates a logger for a specific profile from @moonx-farm/configs
  * @param profile - Profile name (e.g., 'auth-service', 'quote-service', 'full')
  * @param level - Log level (optional, overrides profile config)
  * @returns Logger instance

@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { OrderService } from '../services/orderService';
 import { ApiResponse } from '../types';
-import { createLoggerForAnyService } from '@moonx/common';
+import { createLogger } from '@moonx-farm/common';
 import { 
   CreateOrderRequestSchema, 
   UpdateOrderRequestSchema,
@@ -15,7 +15,7 @@ import {
   OrderParams
 } from '../schemas/orderSchemas';
 
-const logger = createLoggerForAnyService('core-service');
+const logger = createLogger('core-service');
 
 // Helper functions for standardized API responses
 function createSuccessResponse<T>(data: T, message?: string): ApiResponse<T> {

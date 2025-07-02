@@ -1,0 +1,107 @@
+# ================================
+# MoonXFarm Web App - Docker Compose
+# ================================
+# Uses pre-built Docker Hub image
+# Run: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ================================
+  # MoonXFarm Web Application
+  # ================================
+  moonx-web:
+    image: hiepht/moonx-farm:moonx-web-latest
+    container_name: moonx-web-app
+    ports:
+      - "3000:3000"
+    environment:
+      # Application Configuration
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - NEXT_PUBLIC_APP_URL=https://your-domain.com
+      - NEXT_TELEMETRY_DISABLED=1
+      
+      # Authentication & Web3 (REQUIRED - Configure these)
+      - NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id_here
+      - NEXT_PUBLIC_ZERODEV_PROJECT_ID=your_zerodev_project_id_here
+      
+      # Smart Contract Addresses (REQUIRED - Configure these)
+      - NEXT_PUBLIC_DIAMOND_CONTRACT_BASE=0x0000000000000000000000000000000000000000
+      - NEXT_PUBLIC_DIAMOND_CONTRACT_BSC=0x0000000000000000000000000000000000000000
+      - NEXT_PUBLIC_DIAMOND_CONTRACT_ETHEREUM=0x0000000000000000000000000000000000000000
+      - NEXT_PUBLIC_DIAMOND_CONTRACT_POLYGON=0x0000000000000000000000000000000000000000
+      - NEXT_PUBLIC_DIAMOND_CONTRACT_ARBITRUM=0x0000000000000000000000000000000000000000
+      - NEXT_PUBLIC_DIAMOND_CONTRACT_OPTIMISM=0x0000000000000000000000000000000000000000
+      
+      # Backend Services URLs (Optional - Configure if using backend services)
+      # - NEXT_PUBLIC_AUTH_API_URL=https://api.your-domain.com/auth/v1
+      # - NEXT_PUBLIC_AGGREGATOR_API_URL=https://api.your-domain.com/aggregator/v1
+      # - NEXT_PUBLIC_CORE_API_URL=https://api.your-domain.com/core/v1
+      # - NEXT_PUBLIC_API_BASE_URL=https://your-domain.com/api
+      
+      # RPC URLs (RECOMMENDED - Configure for better performance)
+      # - NEXT_PUBLIC_BASE_RPC=https://base-mainnet.g.alchemy.com/v2/YOUR-API-KEY
+      # - NEXT_PUBLIC_BSC_RPC=https://bsc-dataseed1.binance.org
+      # - NEXT_PUBLIC_ETHEREUM_RPC=https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY
+      # - NEXT_PUBLIC_POLYGON_RPC=https://polygon-mainnet.g.alchemy.com/v2/YOUR-API-KEY
+      # - NEXT_PUBLIC_ARBITRUM_RPC=https://arb-mainnet.g.alchemy.com/v2/YOUR-API-KEY
+      # - NEXT_PUBLIC_OPTIMISM_RPC=https://opt-mainnet.g.alchemy.com/v2/YOUR-API-KEY
+      
+      # Testnet RPC URLs (Optional - for development)
+      # - NEXT_PUBLIC_BASE_SEPOLIA_RPC=https://base-sepolia.g.alchemy.com/v2/YOUR-API-KEY
+      # - NEXT_PUBLIC_BSC_TESTNET_RPC=https://data-seed-prebsc-1-s1.binance.org:8545
+      
+      # External APIs
+      # - NEXT_PUBLIC_DEXSCREENER_API_URL=https://api.dexscreener.com
+      # - NEXT_PUBLIC_COINGECKO_API_URL=https://api.coingecko.com/api/v3
+      
+      # Feature Flags
+      # - NEXT_PUBLIC_ENABLE_TESTNETS=false
+      # - NEXT_PUBLIC_DEBUG_MODE=false
+      # - NEXT_PUBLIC_MAINTENANCE_MODE=false
+    volumes:
+      # Mount logs for debugging (optional)
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - moonx-web-network
+
+  # ================================
+  # Redis (for caching/sessions - optional)
+  # ================================
+  redis:
+    image: redis:7-alpine
+    container_name: moonx-web-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    networks:
+      - moonx-web-network
+    profiles:
+      - with-redis
+
+# ================================
+# Networks
+# ================================
+networks:
+  moonx-web-network:
+    driver: bridge
+    name: moonx-web-network
+
+# ================================
+# Volumes
+# ================================
+volumes:
+  redis_data:
+    name: moonx_web_redis_data 

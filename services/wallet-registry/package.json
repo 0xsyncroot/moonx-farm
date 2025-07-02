@@ -22,7 +22,7 @@
     "@fastify/swagger": "^9.1.0",
     "@fastify/swagger-ui": "^5.0.1",
     "@moonx/common": "workspace:*",
-    "@moonx/configs": "workspace:*",
+    "@moonx-farm/configs": "workspace:*",
     "@moonx/infrastructure": "workspace:*",
     "@zerodev/ecdsa-validator": "^5.4.9",
     "@zerodev/permissions": "^5.5.9",

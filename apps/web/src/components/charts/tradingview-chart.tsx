@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useTheme } from 'next-themes'
 import { 
   createChart, 
   ColorType, 
@@ -25,7 +26,6 @@ interface MarkerConfig {
 interface TradingViewChartProps {
   data: PriceDataPoint[]
   height?: number
-  theme?: 'light' | 'dark'
   showMarkers?: boolean
   onPriceClick?: (price: number) => void
   markers?: MarkerConfig[]
@@ -37,7 +37,6 @@ interface TradingViewChartProps {
 export function TradingViewChart({
   data,
   height = 400,
-  theme = 'dark',
   showMarkers = false,
   onPriceClick,
   markers = [],
@@ -49,30 +48,35 @@ export function TradingViewChart({
   const chart = useRef<IChartApi | null>(null)
   const candlestickSeries = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const [selectedPrice, setSelectedPrice] = useState<number | null>(null)
+  const { theme, systemTheme } = useTheme()
+
+  // Get current theme (light/dark)
+  const currentTheme = theme === 'system' ? systemTheme : theme
+  const isDark = currentTheme === 'dark'
 
   // Chart colors based on theme
   const chartColors = {
     light: {
       backgroundColor: '#ffffff',
       lineColor: '#2962FF',
-      textColor: '#191919',
+      textColor: '#1f2937',
       areaTopColor: '#2962FF',
       areaBottomColor: 'rgba(41, 98, 255, 0.28)',
-      gridColor: '#e1e1e1',
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderUpColor: '#26a69a',
-      borderDownColor: '#ef5350',
-      wickUpColor: '#26a69a',
-      wickDownColor: '#ef5350'
+      gridColor: '#e5e7eb',
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      borderUpColor: '#10b981',
+      borderDownColor: '#ef4444',
+      wickUpColor: '#10b981',
+      wickDownColor: '#ef4444'
     },
     dark: {
-      backgroundColor: '#1a1a1a',
+      backgroundColor: '#0f172a',
       lineColor: '#ff7842',
-      textColor: '#d1d4dc',
+      textColor: '#f1f5f9',
       areaTopColor: '#ff7842',
       areaBottomColor: 'rgba(255, 120, 66, 0.28)',
-      gridColor: '#2a2a2a',
+      gridColor: '#334155',
       upColor: '#10b981',
       downColor: '#ef4444',
       borderUpColor: '#10b981',
@@ -82,13 +86,13 @@ export function TradingViewChart({
     }
   }
 
-  const colors = chartColors[theme]
+  const colors = chartColors[isDark ? 'dark' : 'light']
 
   // Initialize chart
   useEffect(() => {
     if (!chartContainerRef.current) return
 
-    // Create chart with v5 API
+    // Create chart with theme-aware colors
     chart.current = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: colors.backgroundColor },
@@ -113,7 +117,7 @@ export function TradingViewChart({
       height: height,
     })
 
-    // Add candlestick series with v5 API
+    // Add candlestick series with theme-aware colors
     candlestickSeries.current = chart.current.addSeries(CandlestickSeries, {
       upColor: colors.upColor,
       downColor: colors.downColor,
@@ -153,13 +157,22 @@ export function TradingViewChart({
         chart.current.remove()
       }
     }
-  }, [height, theme, showMarkers, onPriceClick, colors])
+  }, [colors, height, showMarkers, onPriceClick])
 
   // Update chart data
   useEffect(() => {
     if (!candlestickSeries.current || !data.length) return
 
-    const chartData: CandlestickData[] = data.map(point => ({
+    // Sort data by timestamp in ascending order to fix TradingView assertion error
+    const sortedData = [...data].sort((a, b) => a.timestamp - b.timestamp)
+    
+    // Remove duplicate timestamps to prevent TradingView errors
+    const uniqueData = sortedData.filter((point, index, array) => {
+      if (index === 0) return true
+      return point.timestamp !== array[index - 1].timestamp
+    })
+
+    const chartData: CandlestickData[] = uniqueData.map(point => ({
       time: (point.timestamp / 1000) as Time,
       open: point.open,
       high: point.high,
@@ -173,15 +186,24 @@ export function TradingViewChart({
     chart.current?.timeScale().fitContent()
   }, [data])
 
-  // Update markers using series markers (v5 API)
+  // Update markers using series markers
   useEffect(() => {
     if (!candlestickSeries.current || !data.length) return
 
-    // Create markers for the series using v5 API
+    // Sort data by timestamp in ascending order (same as chart data)
+    const sortedData = [...data].sort((a, b) => a.timestamp - b.timestamp)
+    
+    // Remove duplicate timestamps (same as chart data)
+    const uniqueData = sortedData.filter((point, index, array) => {
+      if (index === 0) return true
+      return point.timestamp !== array[index - 1].timestamp
+    })
+
+    // Create markers for the series
     const seriesMarkers = markers.map(marker => {
       // Find the closest data point to place the marker
-      const closestDataIndex = Math.floor(data.length / 2)
-      const timeForMarker = data[closestDataIndex]?.timestamp || Date.now()
+      const closestDataIndex = Math.floor(uniqueData.length / 2)
+      const timeForMarker = uniqueData[closestDataIndex]?.timestamp || Date.now()
       
       return {
         time: (timeForMarker / 1000) as Time,
@@ -202,22 +224,22 @@ export function TradingViewChart({
 
   if (loading) {
     return (
-      <div className={cn("flex items-center justify-center bg-gray-900/50 rounded-2xl border border-gray-700/50", className)} style={{ height }}>
+      <div className={cn("flex items-center justify-center bg-card/50 backdrop-blur-sm border border-border rounded-2xl", className)} style={{ height }}>
         <div className="flex items-center space-x-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-          <span className="text-white/70">Loading chart data...</span>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <span className="text-muted-foreground">Loading chart data...</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className={cn("bg-gray-900/50 backdrop-blur-xl border border-gray-700/50 rounded-2xl p-4", className)}>
+    <div className={cn("bg-card/50 backdrop-blur-xl border border-border rounded-2xl p-6", className)}>
       {title && (
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
           {showMarkers && (
-            <div className="text-xs text-white/60">
+            <div className="text-xs text-muted-foreground">
               Click on chart to set price levels
             </div>
           )}
@@ -227,26 +249,26 @@ export function TradingViewChart({
       <div ref={chartContainerRef} className="w-full" />
       
       {selectedPrice && (
-        <div className="mt-2 text-sm text-white/70">
-          Selected Price: ${selectedPrice.toFixed(4)}
+        <div className="mt-3 text-sm text-muted-foreground">
+          Selected Price: <span className="text-foreground font-medium">${selectedPrice.toFixed(4)}</span>
         </div>
       )}
       
       {/* Price Levels Display */}
       {showMarkers && markers.length > 0 && (
-        <div className="mt-4 space-y-2">
-          <div className="text-sm font-medium text-white/80">Price Levels</div>
+        <div className="mt-6 space-y-3">
+          <div className="text-sm font-medium text-foreground">Price Levels</div>
           <div className="grid grid-cols-1 gap-2 text-xs">
             {markers.map((marker) => (
-              <div key={marker.id} className="flex items-center justify-between bg-gray-800/30 rounded-lg p-2">
+              <div key={marker.id} className="flex items-center justify-between bg-muted/30 border border-border rounded-lg p-3">
                 <div className="flex items-center space-x-2">
                   <div 
                     className="w-3 h-3 rounded-full" 
                     style={{ backgroundColor: marker.color }}
                   />
-                  <span className="text-white/80">{marker.type.toUpperCase()}</span>
+                  <span className="text-foreground font-medium">{marker.type.toUpperCase()}</span>
                 </div>
-                <span className="text-white font-medium">${marker.price.toFixed(4)}</span>
+                <span className="text-foreground font-semibold">${marker.price.toFixed(4)}</span>
               </div>
             ))}
           </div>
@@ -254,7 +276,7 @@ export function TradingViewChart({
       )}
 
       {/* Chart Legend */}
-      <div className="mt-4 flex items-center justify-center space-x-6 text-xs text-white/60">
+      <div className="mt-6 flex items-center justify-center space-x-6 text-xs text-muted-foreground">
         <div className="flex items-center space-x-2">
           <div className="w-3 h-2 bg-green-500 rounded"></div>
           <span>Bullish Candle</span>
@@ -265,7 +287,7 @@ export function TradingViewChart({
         </div>
         {showMarkers && (
           <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+            <div className="w-3 h-3 bg-primary rounded-full"></div>
             <span>Price Levels</span>
           </div>
         )}

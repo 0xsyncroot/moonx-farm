@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply, FastifyError } from 'fastify';
-import { createLogger, LogContext } from '@moonx/common';
-import { isDevelopment, isProduction } from '@moonx/configs';
+import { createLogger, LogContext } from '@moonx-farm/common';
+import { isDevelopment, isProduction } from '@moonx-farm/configs';
 
 const logger = createLogger('error-handler');
 
