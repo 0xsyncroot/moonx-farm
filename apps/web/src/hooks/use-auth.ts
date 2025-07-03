@@ -222,7 +222,7 @@ export function useAuth() {
 
     return {
       address: privyUser.wallet.address,
-      chainId: privyUser.wallet.chainId || 1,
+      chainId: 8453,
       walletClientType: privyUser.wallet.walletClientType,
     }
   }
