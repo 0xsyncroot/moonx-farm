@@ -1,14 +1,16 @@
 'use client'
 
 /**
- * QuoteComparison - Professional route comparison with optimized styling
+ * QuoteComparison - Jupiter-style route comparison with optimized styling
  * 
  * Features:
+ * - Correct price impact color coding (red = negative, green = positive)
  * - Responsive design with proper breakpoints
  * - Fixed styling conflicts and overlaps
  * - Optimized dark/light mode support
  * - Clean layout with proper spacing
  * - Mobile-first approach
+ * - Enhanced error handling and loading states
  */
 
 import { useState, useMemo } from 'react'
@@ -28,43 +30,49 @@ interface QuoteComparisonProps {
   onClose?: () => void
 }
 
-// Simplified provider configurations
+// Enhanced provider configurations with better branding
 const PROVIDER_CONFIG = {
   lifi: { 
     name: 'LiFi', 
     logo: '🌉', 
     color: 'from-purple-500 to-pink-500',
-    description: 'Cross-chain bridge'
+    description: 'Cross-chain bridge',
+    category: 'Bridge'
   },
   '1inch': { 
     name: '1inch', 
     logo: '🦄', 
     color: 'from-blue-500 to-cyan-500',
-    description: 'DEX aggregator'
+    description: 'DEX aggregator',
+    category: 'Aggregator'
   },
   relay: { 
     name: 'Relay', 
     logo: '⚡', 
     color: 'from-yellow-500 to-orange-500',
-    description: 'Fast swaps'
+    description: 'Fast swaps',
+    category: 'DEX'
   },
   jupiter: { 
     name: 'Jupiter', 
     logo: '🪐', 
     color: 'from-green-500 to-emerald-500',
-    description: 'Solana DEX'
+    description: 'Solana DEX',
+    category: 'Aggregator'
   },
   uniswap: {
     name: 'Uniswap',
     logo: '🦄',
     color: 'from-pink-500 to-purple-500',
-    description: 'Leading DEX'
+    description: 'Leading DEX',
+    category: 'DEX'
   },
   default: {
     name: 'DEX',
     logo: '⚡',
     color: 'from-gray-500 to-gray-600',
-    description: 'Exchange'
+    description: 'Exchange',
+    category: 'DEX'
   }
 }
 
@@ -80,7 +88,7 @@ export function QuoteComparison({
 }: QuoteComparisonProps) {
   const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set())
 
-  // Helper function to safely format amounts - FIXED to prevent NaN display
+  // 🚀 IMPROVED: Helper function to safely format amounts with better error handling
   const safeFormatAmount = (amount: string | number | undefined, decimals: number = 18): number => {
     if (!amount) return 0
     
@@ -98,6 +106,37 @@ export function QuoteComparison({
     }
   }
 
+  // 🚀 IMPROVED: Helper function for price impact color (Jupiter-style)
+  const getPriceImpactColor = (priceImpact: string | number): string => {
+    const impact = typeof priceImpact === 'string' ? parseFloat(priceImpact) : priceImpact
+    
+    if (isNaN(impact)) return 'text-gray-500 dark:text-gray-400'
+    
+    // Positive impact = good = green, Negative impact = bad = red
+    if (impact > 0) {
+      return impact > 1 ? 'text-green-600 dark:text-green-400' : 'text-green-500 dark:text-green-400'
+    } else if (impact < 0) {
+      const absImpact = Math.abs(impact)
+      return absImpact > 5 ? 'text-red-600 dark:text-red-400' :
+             absImpact > 1 ? 'text-orange-600 dark:text-orange-400' :
+             'text-yellow-600 dark:text-yellow-400'
+    } else {
+      return 'text-gray-500 dark:text-gray-400'
+    }
+  }
+
+  // 🚀 IMPROVED: Format price impact with proper sign and color
+  const formatPriceImpact = (priceImpact: string | number): string => {
+    const impact = typeof priceImpact === 'string' ? parseFloat(priceImpact) : priceImpact
+    
+    if (isNaN(impact)) return '0.00%'
+    
+    const absImpact = Math.abs(impact)
+    const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
+    
+    return `${sign}${absImpact.toFixed(2)}%`
+  }
+
   // Sort quotes by best value - FIXED to use safe amount formatting
   const sortedQuotes = useMemo(() => {
     return [...quotes].sort((a, b) => {
@@ -113,7 +152,7 @@ export function QuoteComparison({
       const bGasFee = b.gasEstimate?.gasFeeUSD || 0
       return aGasFee - bGasFee
     })
-  }, [quotes, toToken, safeFormatAmount])
+  }, [quotes, toToken?.decimals])
 
   const bestQuote = sortedQuotes[0]
 
@@ -133,6 +172,7 @@ export function QuoteComparison({
 
   const isCrossChain = fromToken && toToken && fromToken.chainId !== toToken.chainId
 
+  // 🚀 IMPROVED: Enhanced error handling UI
   if (error) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
@@ -145,49 +185,67 @@ export function QuoteComparison({
             <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
               {error.message || 'Please check your connection and try again'}
             </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-3 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors"
+            >
+              Retry
+            </button>
           </div>
         </div>
       </div>
     )
   }
 
+  // 🚀 IMPROVED: Enhanced loading state
   if (isLoading) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
-        <div className="animate-pulse space-y-3 sm:space-y-4">
+        <div className="animate-pulse space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-200 dark:bg-gray-700 rounded-lg" />
             <div className="flex-1 space-y-2">
-              <div className="h-3 sm:h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
-              <div className="h-2 sm:h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
             </div>
-            <div className="w-16 sm:w-20 h-4 sm:h-6 bg-gray-200 dark:bg-gray-700 rounded" />
+            <div className="w-20 h-6 bg-gray-200 dark:bg-gray-700 rounded" />
           </div>
-          {[...Array(2)].map((_, i) => (
+          {[...Array(3)].map((_, i) => (
             <div key={i} className="flex items-center gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
               <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-200 dark:bg-gray-700 rounded-lg" />
               <div className="flex-1 space-y-2">
-                <div className="h-2 sm:h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
                 <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
               </div>
-              <div className="w-12 sm:w-16 h-3 sm:h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+              <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
             </div>
           ))}
+        </div>
+        <div className="mt-4 flex items-center justify-center text-gray-500 dark:text-gray-400">
+          <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin mr-3" />
+          <span className="text-sm">Finding best routes...</span>
         </div>
       </div>
     )
   }
 
+  // 🚀 IMPROVED: Enhanced empty state
   if (quotes.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 sm:p-8 text-center">
-        <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+        <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
           <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" />
         </div>
         <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-2">No routes available</h3>
-        <p className="text-gray-500 dark:text-gray-400 text-sm max-w-sm mx-auto">
+        <p className="text-gray-500 dark:text-gray-400 text-sm max-w-sm mx-auto mb-4">
           No liquidity found for this trading pair. Try different tokens or amounts.
         </p>
+        <button
+          onClick={onClose}
+          className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm transition-colors"
+        >
+          Go Back
+        </button>
       </div>
     )
   }
@@ -228,13 +286,15 @@ export function QuoteComparison({
           const toAmountFormatted = toToken ? 
             safeFormatAmount(quote.toAmount, toToken.decimals).toLocaleString('en-US', { maximumFractionDigits: 6 }) :
             safeFormatAmount(quote.toAmount, 18).toLocaleString('en-US', { maximumFractionDigits: 6 })
-                      const savings = index > 0 && toToken ? 
-              (() => {
-                const bestAmount = safeFormatAmount(bestQuote.toAmount, toToken.decimals)
-                const currentAmount = safeFormatAmount(quote.toAmount, toToken.decimals)
-                if (currentAmount === 0) return 0
-                return ((bestAmount - currentAmount) / currentAmount * 100)
-              })() : 0
+
+          // 🚀 IMPROVED: Better savings calculation
+          const savings = index > 0 && toToken ? 
+            (() => {
+              const bestAmount = safeFormatAmount(bestQuote.toAmount, toToken.decimals)
+              const currentAmount = safeFormatAmount(quote.toAmount, toToken.decimals)
+              if (bestAmount === 0 || currentAmount === 0) return 0
+              return ((bestAmount - currentAmount) / bestAmount * 100)
+            })() : 0
           
           return (
             <div
@@ -301,6 +361,9 @@ export function QuoteComparison({
                     
                     <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                       <span className="truncate">{config.description}</span>
+                      <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                        {config.category}
+                      </span>
                       {quote.route.steps.length > 1 && (
                         <span className="flex items-center gap-1 flex-shrink-0">
                           <Target className="w-3 h-3" />
@@ -338,29 +401,19 @@ export function QuoteComparison({
                         '$0.00'
                       }
                     </span>
+                    {/* 🚀 FIXED: Proper price impact color coding */}
                     <span className={cn(
                       "font-medium flex-shrink-0",
-                      (() => {
-                        const impact = parseFloat(quote.priceImpact || '0')
-                        const absImpact = Math.abs(impact)
-                        return absImpact < 1 ? 'text-green-600 dark:text-green-400' :
-                               absImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
-                               'text-red-600 dark:text-red-400'
-                      })()
+                      getPriceImpactColor(quote.priceImpact || '0')
                     )}>
-                      {(() => {
-                        const impact = parseFloat(quote.priceImpact || '0')
-                        const absImpact = Math.abs(impact)
-                        const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
-                        return `${sign}${absImpact.toFixed(1)}%`
-                      })()}
+                      {formatPriceImpact(quote.priceImpact || '0')}
                     </span>
                   </div>
                   
                   {/* Savings Badge */}
-                  {index > 0 && savings > 0 && (
+                  {index > 0 && savings > 0.01 && (
                     <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full text-xs font-medium">
-                      -{savings.toFixed(1)}%
+                      -{savings.toFixed(1)}% less
                     </div>
                   )}
                 </div>
@@ -382,7 +435,7 @@ export function QuoteComparison({
               {isExpanded && (
                 <div className="px-4 sm:px-6 pb-3 sm:pb-4 border-t border-gray-100 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30">
                   <div className="pt-3 sm:pt-4 space-y-3 sm:space-y-4">
-                                        {/* Route Steps */}
+                    {/* Route Steps */}
                     <div>
                       <h5 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white mb-2 sm:mb-3 flex items-center gap-2">
                         <ArrowRight className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500" />
@@ -511,24 +564,9 @@ export function QuoteComparison({
                                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Impact</div>
                                 <div className={cn(
                                   "font-medium text-xs",
-                                  (() => {
-                                    const impact = step.priceImpact ? 
-                                      (typeof step.priceImpact === 'number' ? step.priceImpact : parseFloat(String(step.priceImpact))) : 0
-                                    const absImpact = Math.abs(impact)
-                                    return absImpact < 1 ? 'text-green-600 dark:text-green-400' :
-                                           absImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
-                                           'text-red-600 dark:text-red-400'
-                                  })()
+                                  getPriceImpactColor(step.priceImpact || '0')
                                 )}>
-                                  {step.priceImpact ? 
-                                    (() => {
-                                      const impact = typeof step.priceImpact === 'number' ? step.priceImpact : parseFloat(String(step.priceImpact))
-                                      const absImpact = Math.abs(impact)
-                                      const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
-                                      return `${sign}${absImpact.toFixed(2)}%`
-                                    })() :
-                                    '0.00%'
-                                  }
+                                  {formatPriceImpact(step.priceImpact || '0')}
                                 </div>
                               </div>
 
@@ -613,20 +651,9 @@ export function QuoteComparison({
                         </div>
                         <p className={cn(
                           "font-bold text-xs sm:text-sm",
-                          (() => {
-                            const impact = parseFloat(quote.priceImpact)
-                            const absImpact = Math.abs(impact)
-                            return absImpact < 1 ? 'text-green-600 dark:text-green-400' :
-                                   absImpact < 3 ? 'text-yellow-600 dark:text-yellow-400' :
-                                   'text-red-600 dark:text-red-400'
-                          })()
+                          getPriceImpactColor(quote.priceImpact || '0')
                         )}>
-                          {(() => {
-                            const impact = parseFloat(quote.priceImpact)
-                            const absImpact = Math.abs(impact)
-                            const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
-                            return `${sign}${absImpact.toFixed(1)}%`
-                          })()}
+                          {formatPriceImpact(quote.priceImpact || '0')}
                         </p>
                       </div>
                       
@@ -641,17 +668,17 @@ export function QuoteComparison({
                       </div>
                     </div>
 
-                    {/* High Impact Warning */}
-                    {Math.abs(parseFloat(quote.priceImpact)) > 5 && (
-                      <div className="flex items-center gap-2 px-3 py-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-lg text-xs sm:text-sm">
-                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                        <span>High price impact ({(() => {
-                          const impact = parseFloat(quote.priceImpact)
-                          const sign = impact > 0 ? '+' : impact < 0 ? '-' : ''
-                          return `${sign}${Math.abs(impact).toFixed(1)}%`
-                        })()}) - consider smaller amounts</span>
-                      </div>
-                    )}
+                    {/* 🚀 IMPROVED: High Impact Warning with correct logic */}
+                    {(() => {
+                      const impact = parseFloat(quote.priceImpact || '0')
+                      const absImpact = Math.abs(impact)
+                      return absImpact > 5 && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-lg text-xs sm:text-sm">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                          <span>High price impact ({formatPriceImpact(impact)}) - consider smaller amounts</span>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               )}

@@ -1068,16 +1068,29 @@ function TokenRow({
     }
   }
 
-  // Format large numbers with K, M, B suffixes
+  // 🚀 IMPROVED: Format currency with full amount and proper formatting
   const formatCompactCurrency = (amount: number | undefined | null) => {
     // Handle invalid or missing values
     if (amount === undefined || amount === null || isNaN(amount) || !isFinite(amount) || amount <= 0) {
       return '-'
     }
     
-    if (amount >= 1e9) return `$${(amount / 1e9).toFixed(2)}B`
-    if (amount >= 1e6) return `$${(amount / 1e6).toFixed(2)}M`
-    if (amount >= 1e3) return `$${(amount / 1e3).toFixed(2)}K`
+    // For very large numbers (billions+), show abbreviated format for space
+    if (amount >= 1e9) {
+      return `$${(amount / 1e9).toFixed(1)}B`
+    }
+    // For millions, show abbreviated format for space
+    if (amount >= 1e6) {
+      return `$${(amount / 1e6).toFixed(1)}M`
+    }
+    // For thousands+, show full amount with comma separators
+    if (amount >= 1000) {
+      return `$${amount.toLocaleString('en-US', { 
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0 
+      })}`
+    }
+    
     return formatCurrency(amount)
   }
 

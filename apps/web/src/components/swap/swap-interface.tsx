@@ -31,14 +31,15 @@ import { cn, formatTokenAmount } from '@/lib/utils'
 import { getChainConfig } from '@/config/chains'
 
 /**
- * SwapInterface Component - Refactored Version
+ * SwapInterface Component - Jupiter-style Enhanced Version
  * 
- * Clean architecture with separated concerns:
- * - URL state management via useUrlSync hook
- * - Quote countdown logic via useQuoteCountdown hook  
- * - Chain info calculations via useChainInfo hook
- * - Share functionality via useShare hook
- * - UI components split into smaller, focused components
+ * Key improvements:
+ * - Better state management and clearing logic
+ * - Enhanced error handling and recovery
+ * - Proper loading state synchronization
+ * - Auto-reset states when tokens/amounts change
+ * - Improved URL synchronization
+ * - Better countdown management
  */
 export function SwapInterface() {
   const { walletInfo } = useAuth()
@@ -52,13 +53,21 @@ export function SwapInterface() {
   const [selectedQuote, setSelectedQuote] = useState<any>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   
-  // Track if component has been initialized from URL
-  const isInitializedRef = useRef(false)
+  // 🚀 IMPROVEMENT: Enhanced state tracking for better management
+  const lastValidParamsRef = useRef<{
+    fromToken?: string
+    toToken?: string
+    amount?: string
+  }>({})
+  
+  // 🚀 FIXED: Track initialization with state (reactive) instead of ref for proper dependencies
+  const [isInitialized, setIsInitialized] = useState(false)
+  const [isTestnetReady, setIsTestnetReady] = useState(false)
   const lastSearchParamsRef = useRef<string>('')
   const urlLoadAttemptsRef = useRef(0)
   const maxRetryAttempts = 3
   
-  const { getTokenBySymbol, searchToken } = useTokens()
+  const { getTokenBySymbol, searchToken, isTestnet } = useTokens()
 
   // Main quote hook - initially without auto chain switch
   const {
@@ -81,7 +90,7 @@ export function SwapInterface() {
     refetch,
   } = useQuote()
 
-  // Auto chain switch when fromToken changes
+  // 🚀 FIXED: Auto chain switch only AFTER URL initialization to prevent race conditions  
   const {
     isLoading: isChainSwitching,
     isSuccess: chainSwitchSuccess,
@@ -89,7 +98,10 @@ export function SwapInterface() {
     smartWalletClient,
     switchToChain,
     currentChain
-  } = useAutoChainSwitch(fromToken)
+  } = useAutoChainSwitch(
+    // 🔧 FIX: Only pass fromToken AFTER URL params are loaded AND testnet is ready
+    (isInitialized && isTestnetReady) ? fromToken : null
+  )
 
   // URL synchronization
   const { markInitialized } = useUrlSync({
@@ -99,9 +111,14 @@ export function SwapInterface() {
     slippage: slippage || 0.5
   })
 
-  // Memoize auto-refresh function to prevent infinite loops
+  // 🚀 IMPROVEMENT: Enhanced auto-refresh with better error handling
   const handleAutoRefresh = useCallback(async () => {
-    await refetch()
+    try {
+      await refetch()
+    } catch (error) {
+      console.warn('Auto-refresh failed:', error)
+      // Don't throw, just log for auto-refresh failures
+    }
   }, [refetch])
 
   // Quote countdown management
@@ -133,12 +150,72 @@ export function SwapInterface() {
   const fromTokenBalance = useTokenBalance(fromToken, smartWalletClient)
   const toTokenBalance = useTokenBalance(toToken, smartWalletClient)
 
+  // 🚀 IMPROVEMENT: Enhanced state clearing logic
+  const clearDependentStates = useCallback(() => {
+    console.log('🧹 Clearing dependent states')
+    setSelectedQuote(null)
+    setIsRefreshing(false)
+    setShowQuoteComparison(false)
+  }, [])
+
+  // 🚀 IMPROVEMENT: Auto-clear states when tokens or amounts change significantly
+  useEffect(() => {
+    const currentParams = {
+      fromToken: fromToken?.address,
+      toToken: toToken?.address,
+      amount: amount
+    }
+    
+    // Check if we should clear states
+    const shouldClear = (
+      // Token changes
+      (lastValidParamsRef.current.fromToken && lastValidParamsRef.current.fromToken !== currentParams.fromToken) ||
+      (lastValidParamsRef.current.toToken && lastValidParamsRef.current.toToken !== currentParams.toToken) ||
+      // Amount changes significantly (more than just typing)
+      (lastValidParamsRef.current.amount && 
+       currentParams.amount && 
+       lastValidParamsRef.current.amount !== currentParams.amount &&
+       Math.abs(parseFloat(lastValidParamsRef.current.amount) - parseFloat(currentParams.amount)) > parseFloat(lastValidParamsRef.current.amount) * 0.1)
+    )
+    
+    if (shouldClear && isInitialized) {
+      console.log('🔄 Auto-clearing states due to significant changes:', {
+        old: lastValidParamsRef.current,
+        new: currentParams
+      })
+      clearDependentStates()
+    }
+    
+    // Update last valid params only if we have meaningful values
+    if (currentParams.fromToken || currentParams.toToken || currentParams.amount) {
+      lastValidParamsRef.current = currentParams
+    }
+  }, [fromToken?.address, toToken?.address, amount, clearDependentStates, isInitialized])
+
+  // 🚀 NEW: Wait for testnet mode to be ready before loading URL params
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔧 Testnet mode changed, resetting ready state. New mode:', isTestnet)
+    }
+    
+    // Reset ready state when testnet mode changes
+    setIsTestnetReady(false)
+    
+    // Small delay to ensure localStorage has been read and testnet mode is stable
+    const timeoutId = setTimeout(() => {
+      setIsTestnetReady(true)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ Testnet mode ready:', isTestnet)
+      }
+    }, 100)
+    
+    return () => clearTimeout(timeoutId)
+  }, [isTestnet])
+
   // ✅ Check if balance is sufficient - ONLY after URL params are fully loaded
-  // Tránh false positive khi amount chưa được load từ URL
-  // 🔧 FIX: Use real-time amount calculation to prevent race condition
   const hasInsufficientBalance = useMemo(() => {
     // Only check balance if we have all required data AND component is initialized
-    if (!fromToken || !amount || !fromTokenBalance.balance || !isInitializedRef.current) {
+    if (!fromToken || !amount || !fromTokenBalance.balance || !isInitialized) {
       return false
     }
     
@@ -155,7 +232,7 @@ export function SwapInterface() {
         token: fromToken.symbol,
         requestedAmount: amount,
         availableBalance: fromTokenBalance.balanceFormatted,
-        isInitialized: isInitializedRef.current
+        isInitialized: isInitialized
       })
     }
     
@@ -176,7 +253,7 @@ export function SwapInterface() {
     return !hasSufficientBalance(fromTokenBalance.balance, currentAmount, fromToken.decimals)
   }, [fromToken, fromTokenBalance.balance])
 
-  // 🔧 FIX: Enhanced amount change handler that provides immediate feedback
+  // 🚀 IMPROVEMENT: Enhanced amount change handler with state clearing
   const handleAmountChange = useCallback((newAmount: string) => {
     console.log('💰 Amount changing:', {
       oldAmount: amount,
@@ -185,6 +262,14 @@ export function SwapInterface() {
       hasBalance: !!fromTokenBalance.balance,
       balanceFormatted: fromTokenBalance.balanceFormatted
     })
+    
+    // Clear dependent states on significant amount change
+    const oldAmountNum = parseFloat(amount || '0')
+    const newAmountNum = parseFloat(newAmount || '0')
+    
+    if (amount && newAmount && Math.abs(oldAmountNum - newAmountNum) > oldAmountNum * 0.1) {
+      clearDependentStates()
+    }
     
     // Update the amount immediately
     setAmount(newAmount)
@@ -200,7 +285,7 @@ export function SwapInterface() {
         })
       }
     }
-  }, [amount, fromToken, fromTokenBalance.balance, fromTokenBalance.balanceFormatted, setAmount, checkInsufficientBalanceRealtime])
+  }, [amount, fromToken, fromTokenBalance.balance, fromTokenBalance.balanceFormatted, setAmount, checkInsufficientBalanceRealtime, clearDependentStates])
 
   // 🔧 FIX: Improved defaultChainId logic - only fallback when NO URL params exist
   const defaultChainId = useMemo(() => {
@@ -217,19 +302,57 @@ export function SwapInterface() {
     return 8453 // Base as last resort
   }, [searchParams, currentChain?.id])
 
+  // 🚀 IMPROVEMENT: Enhanced error recovery
+  const handleErrorRecovery = useCallback(() => {
+    console.log('🔄 Attempting error recovery')
+    clearDependentStates()
+    
+    // Try to refetch if we have valid request params
+    if (fromToken && toToken && amount && parseFloat(amount) > 0) {
+      setTimeout(() => {
+        refetch().catch(console.warn)
+      }, 1000)
+    }
+  }, [clearDependentStates, fromToken, toToken, amount, refetch])
+
+  // 🚀 NEW: Trigger manual chain switch after initialization completes
+  useEffect(() => {
+    // When initialization completes and we have a fromToken that requires chain switch
+    if (isInitialized && isTestnetReady && fromToken && smartWalletClient?.chain?.id !== fromToken.chainId) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 Post-initialization chain switch check:', {
+          fromTokenChain: fromToken.chainId,
+          currentChain: smartWalletClient?.chain?.id,
+          needsSwitch: smartWalletClient?.chain?.id !== fromToken.chainId,
+          isTestnet: isTestnet,
+          isTestnetReady: isTestnetReady
+        })
+      }
+      // The useAutoChainSwitch hook will now receive fromToken and handle the switch
+    }
+  }, [isInitialized, isTestnetReady, fromToken?.chainId, smartWalletClient?.chain?.id, isTestnet])
+
   // 🔧 FIX: Comprehensive URL params loading with proper error handling and retry
   useEffect(() => {
+    // 🚀 CRITICAL: Don't load URL params until testnet mode is ready
+    if (!isTestnetReady) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('⏳ Waiting for testnet mode to be ready before loading URL params')
+      }
+      return
+    }
+
     const currentSearchParams = searchParams.toString()
     
     // Skip if already initialized and params haven't changed
-    if (isInitializedRef.current && currentSearchParams === lastSearchParamsRef.current) {
+    if (isInitialized && currentSearchParams === lastSearchParamsRef.current) {
       return
     }
     
     // Skip if no params to load
     if (!currentSearchParams) {
-      if (!isInitializedRef.current) {
-        isInitializedRef.current = true
+      if (!isInitialized) {
+        setIsInitialized(true)
         markInitialized()
         console.log('✅ No URL params to load, marked as initialized')
       }
@@ -246,15 +369,15 @@ export function SwapInterface() {
       if (isAddress) {
         // For addresses: ONLY search by address, no fallback
         try {
-          const apiToken = await searchToken(param, chainId)
+          const apiToken = await searchToken(param, chainId, isTestnet)
           if (apiToken) {
-            console.log('✅ Found token by address:', param, '→', apiToken.symbol, 'on chain', chainId)
+            console.log('✅ Found token by address:', param, '→', apiToken.symbol, 'on chain', chainId, 'testnet:', isTestnet)
             return apiToken
           }
-          console.warn('⚠️ Token not found by address:', param, 'on chain', chainId)
+          console.warn('⚠️ Token not found by address:', param, 'on chain', chainId, 'testnet:', isTestnet)
           return null
         } catch (error) {
-          console.warn('❌ Failed to find token by address:', param, 'on chain', chainId, error)
+          console.warn('❌ Failed to find token by address:', param, 'on chain', chainId, 'testnet:', isTestnet, error)
           return null
         }
       } else {
@@ -270,15 +393,15 @@ export function SwapInterface() {
         
         // 2. Search via API if not found locally
         try {
-          const apiToken = await searchToken(param, chainId)
+          const apiToken = await searchToken(param, chainId, isTestnet)
           if (apiToken) {
-            console.log('✅ Found token by symbol via API:', param, '→', apiToken.symbol, 'on chain', chainId)
+            console.log('✅ Found token by symbol via API:', param, '→', apiToken.symbol, 'on chain', chainId, 'testnet:', isTestnet)
             return apiToken
           }
-          console.warn('⚠️ Token not found by symbol:', param, 'on chain', chainId)
+          console.warn('⚠️ Token not found by symbol:', param, 'on chain', chainId, 'testnet:', isTestnet)
           return null
         } catch (error) {
-          console.warn('❌ Failed to find token by symbol:', param, 'on chain', chainId, error)
+          console.warn('❌ Failed to find token by symbol:', param, 'on chain', chainId, 'testnet:', isTestnet, error)
           return null
         }
       }
@@ -293,7 +416,9 @@ export function SwapInterface() {
           hasFromToken: !!fromToken,
           hasToToken: !!toToken,
           hasAmount: !!amount,
-          hasSlippage: !!slippage
+          hasSlippage: !!slippage,
+          isTestnet: isTestnet,
+          isTestnetReady: isTestnetReady
         })
       }
 
@@ -395,8 +520,8 @@ export function SwapInterface() {
         }
 
         // 3. Mark as initialized after successful attempt
-        if (!isInitializedRef.current) {
-          isInitializedRef.current = true
+        if (!isInitialized) {
+          setIsInitialized(true)
           markInitialized()
           urlLoadAttemptsRef.current = 0 // Reset attempts on success
           
@@ -406,7 +531,8 @@ export function SwapInterface() {
               fromToken: fromToken?.symbol,
               toToken: toToken?.symbol,
               amount,
-              slippage
+              slippage,
+              isTestnet: isTestnet
             })
           }
         }
@@ -424,8 +550,8 @@ export function SwapInterface() {
         } else {
           // Give up after max attempts
           console.error('❌ Max retry attempts reached, marking as initialized anyway')
-          if (!isInitializedRef.current) {
-            isInitializedRef.current = true
+          if (!isInitialized) {
+            setIsInitialized(true)
             markInitialized()
             urlLoadAttemptsRef.current = 0
           }
@@ -439,6 +565,8 @@ export function SwapInterface() {
     }
   }, [
     searchParams.toString(),
+    isTestnetReady,
+    isTestnet,
     setAmount,
     setSlippage,
     setFromToken,
@@ -459,12 +587,12 @@ export function SwapInterface() {
           newChainId: chainId,
           fromToken: fromToken?.symbol,
           fromTokenChain: fromToken?.chainId,
-          isInitialized: isInitializedRef.current
+          isInitialized: isInitialized
         })
       }
       
       // Force URL update if we have fromToken and it matches the switched chain
-      if (fromToken && fromToken.chainId === chainId && isInitializedRef.current) {
+      if (fromToken && fromToken.chainId === chainId && isInitialized) {
         // Trigger URL sync by temporarily updating a ref and forcing re-render
         const urlParams: Record<string, string | null> = {}
         
@@ -523,10 +651,10 @@ export function SwapInterface() {
           console.log('🔗 Skipping URL update after chain switch:', {
             hasFromToken: !!fromToken,
             chainMatch: fromToken?.chainId === chainId,
-            isInitialized: isInitializedRef.current,
+            isInitialized: isInitialized,
             reason: !fromToken ? 'No fromToken' : 
                    fromToken.chainId !== chainId ? 'Chain mismatch' : 
-                   !isInitializedRef.current ? 'Not initialized' : 'Unknown'
+                   !isInitialized ? 'Not initialized' : 'Unknown'
           })
         }
       }
@@ -544,19 +672,19 @@ export function SwapInterface() {
 
   // 🔧 FIX: Also listen to direct chain switch completion via state change
   useEffect(() => {
-    if (chainSwitchSuccess && fromToken && currentChain && fromToken.chainId === currentChain.id) {
+    if (chainSwitchSuccess && fromToken && currentChain && fromToken.chainId === currentChain?.id) {
       if (process.env.NODE_ENV === 'development') {
         console.log('🔗 Chain switch success state detected, ensuring URL sync:', {
           fromTokenChain: fromToken.chainId,
-          currentChain: currentChain.id,
-          chainName: currentChain.name,
-          isInitialized: isInitializedRef.current
+          currentChain: currentChain?.id,
+          chainName: currentChain?.name,
+          isInitialized: isInitialized
         })
       }
       
       // Small delay to ensure all state is settled, then trigger URL sync
       const timeoutId = setTimeout(() => {
-        if (fromToken && isInitializedRef.current) {
+        if (fromToken && isInitialized) {
           // Force trigger URL sync by creating a new object reference
           // This will trigger the useUrlSync effect without changing the actual token
           const newFromToken = { ...fromToken }
@@ -614,23 +742,28 @@ export function SwapInterface() {
     return active
   }, [selectedQuote, quote, allQuotes, quoteResponse?.timestamp])
 
-  // Clear manually selected quote when new quotes arrive
-  // BUT preserve selection if user explicitly chose it recently
+  // 🚀 IMPROVEMENT: Clear manually selected quote with smarter logic
   const lastUserSelectTimeRef = useRef(0)
   
   useEffect(() => {
     if (quoteResponse?.timestamp && selectedQuote) {
-      // Only clear if it's been more than 10 seconds since user selection
-      // This prevents clearing when user just selected a quote
+      // Only clear if it's been more than 15 seconds since user selection
+      // And if the quote ID has changed significantly
       const timeSinceSelection = Date.now() - lastUserSelectTimeRef.current
-      if (timeSinceSelection > 10000) {
-        console.log('⏰ Clearing manually selected quote after 10 seconds')
+      const shouldClear = timeSinceSelection > 15000 || 
+                         !allQuotes?.some(q => q.id === selectedQuote.id)
+      
+      if (shouldClear) {
+        console.log('⏰ Clearing manually selected quote:', {
+          reason: timeSinceSelection > 15000 ? 'timeout' : 'quote_not_available',
+          timeSinceSelection: (timeSinceSelection / 1000).toFixed(1) + 's'
+        })
         setSelectedQuote(null)
       } else {
         console.log('📌 Preserving manually selected quote (selected', (timeSinceSelection / 1000).toFixed(1), 'seconds ago)')
       }
     }
-  }, [quoteResponse?.timestamp, selectedQuote])
+  }, [quoteResponse?.timestamp, selectedQuote, allQuotes])
 
   // Calculate minimum received after slippage
   const minReceived = useMemo(() => {
@@ -664,7 +797,7 @@ export function SwapInterface() {
     }
   }, [activeQuote?.toAmountMin, activeQuote?.toAmount, activeQuote?.id, toToken, slippage])
 
-  // Throttled refresh to prevent API spam  
+  // 🚀 IMPROVEMENT: Enhanced refresh with error recovery
   const lastRefreshRef = useRef(0)
   const handleRefresh = useCallback(async () => {
     const now = Date.now()
@@ -674,21 +807,37 @@ export function SwapInterface() {
     setIsRefreshing(true)
     try {
       await refetch()
+    } catch (error) {
+      console.error('Manual refresh failed:', error)
+      // Trigger error recovery
+      handleErrorRecovery()
     } finally {
       setTimeout(() => setIsRefreshing(false), 500)
     }
-  }, [refetch])
+  }, [refetch, handleErrorRecovery])
 
-  // Token selection handlers
+  // 🚀 IMPROVEMENT: Enhanced token selection with state clearing
   const handleFromTokenSelect = useCallback((token: Token) => {
     setShowFromTokenSelector(false)
+    
+    // Clear dependent states when changing from token
+    if (fromToken && fromToken.address !== token.address) {
+      clearDependentStates()
+    }
+    
     setFromToken(token)
-  }, [setFromToken])
+  }, [setFromToken, fromToken, clearDependentStates])
 
   const handleToTokenSelect = useCallback((token: Token) => {
     setShowToTokenSelector(false)
+    
+    // Clear dependent states when changing to token
+    if (toToken && toToken.address !== token.address) {
+      clearDependentStates()
+    }
+    
     setToToken(token)
-  }, [setToToken])
+  }, [setToToken, toToken, clearDependentStates])
 
   const handleSelectQuote = useCallback((quote: any) => {
     console.log('📌 User manually selected quote:', {
@@ -798,7 +947,7 @@ export function SwapInterface() {
                 </div>
               </div>
               <button
-                onClick={() => window.location.reload()}
+                onClick={handleErrorRecovery}
                 className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
               >
                 Retry
@@ -897,14 +1046,27 @@ export function SwapInterface() {
             </div>
           )}
 
-          {/* Error Display */}
+          {/* 🚀 IMPROVEMENT: Enhanced Error Display with recovery options */}
           {error && (
-            <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 
+            <div className="flex items-center justify-between gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 
                            rounded-2xl text-red-700 dark:text-red-400">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-              <span className="text-sm font-medium">
-                {error instanceof Error ? error.message : 'Failed to get quote'}
-              </span>
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                <div>
+                  <div className="text-sm font-medium">
+                    {error instanceof Error ? error.message : 'Failed to get quote'}
+                  </div>
+                  <div className="text-xs text-red-600 dark:text-red-300 mt-1">
+                    Try refreshing or adjusting your amount
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={handleErrorRecovery}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
+              >
+                Retry
+              </button>
             </div>
           )}
 
@@ -920,6 +1082,29 @@ export function SwapInterface() {
             onPauseCountdown={pauseCountdown}
             onResumeCountdown={resumeCountdown}
             smartWalletClient={smartWalletClient}
+            // 🚀 NEW: Jupiter-style post-swap callbacks
+            onBalanceReload={() => {
+              // Trigger balance reload for both tokens
+              if (fromToken) {
+                fromTokenBalance.refetch()
+              }
+              if (toToken) {
+                toTokenBalance.refetch()
+              }
+            }}
+            onInputReset={() => {
+              // Reset input amount like Jupiter does
+              setAmount('')
+            }}
+            onSwapSuccess={(hash, quote) => {
+              console.log('🎉 Swap successful!', {
+                hash,
+                fromToken: quote.fromToken?.symbol,
+                toToken: quote.toToken?.symbol,
+                fromAmount: quote.fromAmount,
+                toAmount: quote.toAmount
+              })
+            }}
           />
         </div>
       </div>

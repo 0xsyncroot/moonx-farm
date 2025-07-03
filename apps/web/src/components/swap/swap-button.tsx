@@ -7,22 +7,26 @@ import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useSwap } from '@/hooks/use-swap'
 import { cn } from '@/lib/utils'
 import type { Quote } from '@/lib/api-client'
-import React, { useCallback, useRef, useEffect, useMemo } from 'react'
+import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react'
 
 // Global execution lock to prevent ANY duplicate calls
 const globalExecutionLock = {
   isExecuting: false,
   lastExecutionTime: 0,
-  setLock: function() {
+  currentQuoteId: null as string | null,
+  setLock: function(quoteId: string) {
     this.isExecuting = true
     this.lastExecutionTime = Date.now()
+    this.currentQuoteId = quoteId
   },
   releaseLock: function() {
     this.isExecuting = false
+    this.currentQuoteId = null
   },
-  canExecute: function() {
+  canExecute: function(quoteId: string) {
     const now = Date.now()
-    return !this.isExecuting && (now - this.lastExecutionTime) > 1000
+    // Allow if not executing, or if enough time has passed, or if it's a different quote
+    return !this.isExecuting || (now - this.lastExecutionTime) > 3000 || this.currentQuoteId !== quoteId
   }
 }
 
@@ -43,7 +47,7 @@ const Button = ({ children, onClick, disabled, variant, size, className, loading
     if (disabled || loading) return
     
     const now = Date.now()
-    if (now - lastClickRef.current < 500) return // 500ms debounce
+    if (now - lastClickRef.current < 1000) return // 1s debounce for safety
     
     lastClickRef.current = now
     onClick?.()
@@ -122,6 +126,10 @@ interface SwapButtonProps {
   onPauseCountdown?: (reason?: 'swap' | 'approval') => void
   onResumeCountdown?: (reason?: 'cancelled' | 'completed' | 'error') => void
   smartWalletClient?: any // Smart wallet client from auto chain switch
+  // 🚀 NEW: Jupiter-style post-swap callbacks
+  onBalanceReload?: () => void
+  onInputReset?: () => void
+  onSwapSuccess?: (hash: string, quote: Quote) => void
 }
 
 export function SwapButton({
@@ -134,42 +142,127 @@ export function SwapButton({
   hasInsufficientBalance = false,
   onPauseCountdown,
   onResumeCountdown,
-  smartWalletClient: customSmartWalletClient
+  smartWalletClient: customSmartWalletClient,
+  // 🚀 NEW: Jupiter-style post-swap callbacks
+  onBalanceReload,
+  onInputReset,
+  onSwapSuccess
 }: SwapButtonProps) {
   const { user, login, createWallet } = usePrivy()
   const { client: defaultSmartWalletClient } = useSmartWallets()
   const smartWalletClient = customSmartWalletClient || defaultSmartWalletClient
-  const { executeSwap, swapState, canSwap, resetSwapState, isSwapping, setOnSwapComplete } = useSwap(smartWalletClient)
+  const { 
+    executeSwap, 
+    swapState, 
+    canSwap, 
+    resetSwapState, 
+    isSwapping, 
+    setOnSwapComplete,
+    setOnSwapSuccess,
+    setOnBalanceReload,
+    setOnInputReset,
+    setUserInteracting
+  } = useSwap(smartWalletClient)
 
-  // Prevent rapid consecutive clicks
-  const lastClickTimeRef = useRef(0)
+  // Track current quote ID for state management
+  const currentQuoteIdRef = useRef<string | null>(null)
+  
+  // 🚀 JUPITER-STYLE: Track user interaction with success state
+  const [isSuccessInteracting, setIsSuccessInteracting] = useState(false)
+  const successInteractionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // 🚀 KEY IMPROVEMENT: Auto-reset states when tokens or amounts change (Jupiter-style)
+  const resetStateKey = useMemo(() => {
+    return `${fromToken?.address || ''}_${toToken?.address || ''}_${fromAmount || ''}`
+  }, [fromToken?.address, toToken?.address, fromAmount])
 
-  // Set up cleanup callback for global lock  
+  const lastResetKeyRef = useRef<string>('')
+  
   useEffect(() => {
-    setOnSwapComplete(() => {
-      // Release global lock when swap completes (success, error, or cancel)
-      if (globalExecutionLock.isExecuting) {
-        globalExecutionLock.releaseLock() // Release immediately
+    // Reset swap state when tokens or amounts change (like Jupiter)
+    if (resetStateKey !== lastResetKeyRef.current && lastResetKeyRef.current !== '') {
+      console.log('🔄 Auto-resetting swap state due to token/amount change:', {
+        old: lastResetKeyRef.current,
+        new: resetStateKey,
+        swapStep: swapState.step
+      })
+      
+      // 🚀 JUPITER-STYLE: NEVER reset during active states or success display
+      // Allow user to see success message and transaction details
+      if (swapState.step !== 'approving' && 
+          swapState.step !== 'swapping' && 
+          swapState.step !== 'success') { // 🔧 FIX: Don't reset success state
+        resetSwapState()
+        // Release global lock if held
+        if (globalExecutionLock.isExecuting) {
+          globalExecutionLock.releaseLock()
+        }
+      } else if (swapState.step === 'success') {
+        // 🚀 JUPITER-STYLE: For success state, only update the reset key
+        // The success state will auto-clear after its own timeout
+        console.log('📌 Preserving success state, will auto-clear after timeout')
       }
-      // ✨ Countdown resume handled automatically by useEffect tracking swapState.step
+    }
+    lastResetKeyRef.current = resetStateKey
+  }, [resetStateKey, swapState.step, resetSwapState])
+
+  // 🚀 ENHANCED: Setup post-swap callbacks
+  useEffect(() => {
+    // General cleanup callback
+    setOnSwapComplete(() => {
+      console.log('🏁 Swap completed:', { quoteId: currentQuoteIdRef.current })
+      
+      // Always release global lock when swap completes
+      if (globalExecutionLock.isExecuting) {
+        globalExecutionLock.releaseLock()
+      }
+      
+      currentQuoteIdRef.current = null
     })
     
-    // Cleanup callback on unmount
+    // Balance reload callback
+    if (onBalanceReload) {
+      setOnBalanceReload(onBalanceReload)
+    }
+    
+    // Input reset callback
+    if (onInputReset) {
+      setOnInputReset(onInputReset)
+    }
+    
+    // Success callback
+    if (onSwapSuccess) {
+      setOnSwapSuccess(onSwapSuccess)
+    }
+    
     return () => {
       setOnSwapComplete(null)
+      setOnBalanceReload(null)
+      setOnInputReset(null)
+      setOnSwapSuccess(null)
+      
+      // 🚀 CLEANUP: Clear interaction timeout to prevent memory leaks
+      if (successInteractionTimeoutRef.current) {
+        clearTimeout(successInteractionTimeoutRef.current)
+      }
     }
-  }, [setOnSwapComplete])
+  }, [setOnSwapComplete, setOnBalanceReload, setOnInputReset, setOnSwapSuccess, onBalanceReload, onInputReset, onSwapSuccess])
 
-  // ✨ Track swap state changes for countdown control
+  // 🚀 KEY IMPROVEMENT: Jupiter-style state tracking for countdown control
   useEffect(() => {
     if (swapState.step === 'approving' && onPauseCountdown) {
       onPauseCountdown('approval')
+    } else if (swapState.step === 'swapping' && onPauseCountdown) {
+      onPauseCountdown('swap')
     } else if (swapState.step === 'cancelled' && onResumeCountdown) {
       onResumeCountdown('cancelled')
     } else if (swapState.step === 'error' && onResumeCountdown) {
       onResumeCountdown('error')
     } else if (swapState.step === 'success' && onResumeCountdown) {
       onResumeCountdown('completed')
+    } else if (swapState.step === 'idle' && onResumeCountdown) {
+      // Resume countdown when returning to idle state
+      onResumeCountdown('cancelled')
     }
   }, [swapState.step, onPauseCountdown, onResumeCountdown])
 
@@ -185,19 +278,14 @@ export function SwapButton({
   }, [createWallet, isSwapping])
 
   const handleSwap = useCallback(async () => {
-    // Global lock check - prevents ALL duplicate calls  
-    if (!globalExecutionLock.canExecute()) {
-      console.warn('🔒 Global execution lock prevents swap execution')
-      return
-    }
-    
     if (!quote || isSwapping) {
       console.warn('❌ Cannot execute swap:', { hasQuote: !!quote, isSwapping })
       return
     }
-    
-    // Validate quote has required fields before execution
+
+    // Enhanced quote validation
     const isQuoteValid = !!(
+      quote.id &&
       quote.callData &&
       quote.fromToken?.address &&
       quote.toToken?.address &&
@@ -208,7 +296,7 @@ export function SwapButton({
     )
     
     if (!isQuoteValid) {
-      console.error('❌ Quote validation failed before swap execution:', {
+      console.error('❌ Quote validation failed:', {
         id: quote.id,
         provider: quote.provider,
         hasCallData: !!quote.callData,
@@ -216,9 +304,14 @@ export function SwapButton({
         hasToToken: !!quote.toToken?.address,
         hasFromAmount: !!quote.fromAmount,
         hasToAmount: !!quote.toAmount,
-        hasValue: quote.value !== undefined,
-        quote: quote
+        hasValue: quote.value !== undefined
       })
+      return
+    }
+
+    // Global lock check with quote ID tracking
+    if (!globalExecutionLock.canExecute(quote.id)) {
+      console.warn('🔒 Global execution lock prevents swap execution for quote:', quote.id)
       return
     }
     
@@ -228,46 +321,33 @@ export function SwapButton({
       fromToken: quote.fromToken?.symbol,
       toToken: quote.toToken?.symbol,
       fromAmount: quote.fromAmount,
-      toAmount: quote.toAmount,
-      callDataLength: quote.callData?.length,
-      value: quote.value
+      toAmount: quote.toAmount
     })
     
-    // ✨ PAUSE countdown when starting swap (DEX behavior)
-    if (onPauseCountdown) {
-      onPauseCountdown('swap')
-    }
-    
-    // Set global lock
-    globalExecutionLock.setLock()
-    lastClickTimeRef.current = Date.now()
+    // Set tracking vars
+    currentQuoteIdRef.current = quote.id
+    globalExecutionLock.setLock(quote.id)
     
     try {
       await executeSwap(quote)
     } catch (error) {
-      // Error handling is done in the hook
       console.error('Swap execution error:', error)
       // Release lock on immediate error
       globalExecutionLock.releaseLock()
-      // ✨ Countdown resume handled automatically by useEffect tracking swapState.step
+      currentQuoteIdRef.current = null
     }
-  }, [quote, executeSwap, isSwapping, onPauseCountdown, onResumeCountdown])
+  }, [quote, executeSwap, isSwapping])
 
-  // Simplified retry - just reset and try again with same function
+  // 🚀 KEY IMPROVEMENT: Enhanced retry with better error handling
   const handleRetrySwap = useCallback(async () => {
-    // Global lock check - prevents ALL duplicate calls
-    if (!globalExecutionLock.canExecute()) {
-      console.warn('🔒 Global execution lock prevents retry execution')
-      return
-    }
-    
     if (!quote || isSwapping) {
       console.warn('❌ Cannot retry swap:', { hasQuote: !!quote, isSwapping })
       return
     }
-    
-    // Validate quote has required fields before retry
+
+    // Enhanced quote validation for retry
     const isQuoteValid = !!(
+      quote.id &&
       quote.callData &&
       quote.fromToken?.address &&
       quote.toToken?.address &&
@@ -278,17 +358,24 @@ export function SwapButton({
     )
     
     if (!isQuoteValid) {
-      console.error('❌ Quote validation failed before retry execution:', {
+      console.error('❌ Quote validation failed for retry:', {
         id: quote.id,
         provider: quote.provider,
-        hasCallData: !!quote.callData,
-        hasFromToken: !!quote.fromToken?.address,
-        hasToToken: !!quote.toToken?.address,
-        hasFromAmount: !!quote.fromAmount,
-        hasToAmount: !!quote.toAmount,
-        hasValue: quote.value !== undefined,
-        quote: quote
+        missingFields: {
+          callData: !quote.callData,
+          fromToken: !quote.fromToken?.address,
+          toToken: !quote.toToken?.address,
+          fromAmount: !quote.fromAmount,
+          toAmount: !quote.toAmount,
+          value: quote.value === undefined
+        }
       })
+      return
+    }
+
+    // Global lock check for retry
+    if (!globalExecutionLock.canExecute(quote.id)) {
+      console.warn('🔒 Global execution lock prevents retry for quote:', quote.id)
       return
     }
     
@@ -302,34 +389,34 @@ export function SwapButton({
     // Reset state first
     resetSwapState()
     
-    // ✨ PAUSE countdown when retrying swap
-    if (onPauseCountdown) {
-      onPauseCountdown('swap')
-    }
+    // Small delay to ensure state is reset
+    await new Promise(resolve => setTimeout(resolve, 100))
     
-    // Set global lock
-    globalExecutionLock.setLock()
-    lastClickTimeRef.current = Date.now()
+    // Set tracking vars
+    currentQuoteIdRef.current = quote.id
+    globalExecutionLock.setLock(quote.id)
     
     try {
       await executeSwap(quote)
     } catch (error) {
-      // Error handling is done in the hook
       console.error('Retry swap execution error:', error)
       // Release lock on immediate error
       globalExecutionLock.releaseLock()
-      // ✨ Countdown resume handled automatically by useEffect tracking swapState.step
+      currentQuoteIdRef.current = null
     }
-  }, [quote, resetSwapState, executeSwap, isSwapping, onPauseCountdown, onResumeCountdown])
-
-
+  }, [quote, resetSwapState, executeSwap, isSwapping])
 
   const handleResetError = useCallback(() => {
+    console.log('🔄 Resetting error state')
     resetSwapState()
-    // ✨ Countdown resume handled automatically by useEffect tracking swapState.step
+    // Release global lock if held
+    if (globalExecutionLock.isExecuting) {
+      globalExecutionLock.releaseLock()
+    }
+    currentQuoteIdRef.current = null
   }, [resetSwapState])
 
-  // Memoize button state to prevent excessive re-computations
+  // 🚀 KEY IMPROVEMENT: Enhanced button state logic (Jupiter-style)
   const buttonState = useMemo(() => {
     // Authentication states
     if (!user) {
@@ -403,7 +490,7 @@ export function SwapButton({
       }
     }
 
-    // Swap states
+    // Swap execution states
     if (swapState.step === 'approving') {
       return {
         text: 'Approving Token...',
@@ -424,24 +511,42 @@ export function SwapButton({
       }
     }
 
-    // Cancelled state - allow retry immediately
-    if (swapState.step === 'cancelled') {
-      return {
-        text: 'Try Again',
-        variant: 'default' as const,
-        action: handleSwap,
-        disabled: disabled, // Don't check global lock for cancelled state
-        loading: false
-      }
-    }
-
-    // Error state - allow retry immediately
+    // Error states - allow immediate retry
     if (swapState.step === 'error') {
       return {
         text: 'Retry Swap',
         variant: 'default' as const,
         action: handleRetrySwap,
-        disabled: disabled, // Don't check global lock for error state
+        disabled: false,
+        loading: false
+      }
+    }
+
+    // Cancelled state - allow immediate retry
+    if (swapState.step === 'cancelled') {
+      return {
+        text: 'Try Again',
+        variant: 'default' as const,
+        action: handleSwap,
+        disabled: false,
+        loading: false
+      }
+    }
+
+    // Success state - Jupiter-style with manual reset option
+    if (swapState.step === 'success') {
+      return {
+        text: 'New Swap',
+        variant: 'default' as const,
+        action: () => {
+          console.log('🔄 Manual success state reset (Jupiter-style)')
+          resetSwapState()
+          // Also trigger input reset immediately for new swap
+          if (onInputReset) {
+            onInputReset()
+          }
+        },
+        disabled: false,
         loading: false
       }
     }
@@ -464,7 +569,6 @@ export function SwapButton({
     quote,
     priceImpactTooHigh,
     swapState.step,
-    swapState.error,
     disabled,
     canSwap,
     isSwapping,
@@ -496,27 +600,27 @@ export function SwapButton({
 
       {/* Swap Transaction Progress */}
       {swapState.step !== 'idle' && swapState.step !== 'success' && swapState.step !== 'error' && swapState.step !== 'cancelled' && (
-        <div className="relative overflow-hidden rounded-xl border border-blue-500/30 bg-gradient-to-r from-blue-500/10 to-purple-500/10 backdrop-blur-sm">
+        <div className="relative overflow-hidden rounded-xl border border-blue-200 dark:border-blue-500/30 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-500/10 dark:to-purple-500/10 backdrop-blur-sm">
           {/* Animated background */}
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-blue-500/5 animate-pulse" />
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-100/50 via-purple-100/50 to-blue-100/50 dark:from-blue-500/5 dark:via-purple-500/5 dark:to-blue-500/5 animate-pulse" />
           
           <div className="relative flex items-center gap-4 p-4">
             <div className="relative">
-              <Loader className="h-6 w-6 text-blue-400" />
-              <div className="absolute inset-0 rounded-full bg-blue-400/20 animate-ping" />
+              <Loader className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              <div className="absolute inset-0 rounded-full bg-blue-400/20 dark:bg-blue-500/20 animate-ping" />
             </div>
             
             <div className="flex-1">
-              <div className="font-semibold text-blue-400">
+              <div className="font-semibold text-blue-700 dark:text-blue-400">
                 {swapState.step === 'approving' && '🔐 Approving Token Spending'}
                 {swapState.step === 'swapping' && '🔄 Processing Swap Transaction'}
               </div>
-              <div className="text-sm text-blue-300/80 mt-1">
+              <div className="text-sm text-blue-600 dark:text-blue-300/80 mt-1">
                 {swapState.step === 'approving' && 'Please confirm the approval in your wallet'}
                 {swapState.step === 'swapping' && 'Your swap is being processed on the blockchain'}
               </div>
               {swapState.swapHash && (
-                <div className="text-xs text-blue-300/60 mt-2 font-mono bg-blue-500/10 px-2 py-1 rounded-lg inline-block">
+                <div className="text-xs text-blue-600 dark:text-blue-300/60 mt-2 font-mono bg-blue-100 dark:bg-blue-500/10 px-2 py-1 rounded-lg inline-block">
                   Tx: {swapState.swapHash.slice(0, 10)}...{swapState.swapHash.slice(-8)}
                 </div>
               )}
@@ -525,48 +629,105 @@ export function SwapButton({
         </div>
       )}
 
-      {/* Success State */}
+      {/* Success State - Jupiter-style with hover protection */}
       {swapState.step === 'success' && swapState.swapHash && (
-        <div className="relative overflow-hidden rounded-xl border border-green-500/30 bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-sm">
+        <div 
+          className="relative overflow-hidden rounded-xl border border-green-200 dark:border-green-500/30 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-500/10 dark:to-emerald-500/10 backdrop-blur-sm transition-all duration-300 hover:border-green-300 dark:hover:border-green-500/50 hover:shadow-lg hover:shadow-green-500/20"
+          onMouseEnter={() => {
+            console.log('🎯 User interacting with success state')
+            setIsSuccessInteracting(true)
+            setUserInteracting(true) // 🚀 Notify hook about user interaction
+            if (successInteractionTimeoutRef.current) {
+              clearTimeout(successInteractionTimeoutRef.current)
+            }
+          }}
+          onMouseLeave={() => {
+            console.log('👋 User stopped interacting with success state')
+            // Delay before setting to false to prevent rapid toggling
+            successInteractionTimeoutRef.current = setTimeout(() => {
+              setIsSuccessInteracting(false)
+              setUserInteracting(false) // 🚀 Notify hook when interaction ends
+            }, 1000)
+          }}
+        >
           {/* Success sparkle effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-green-500/5 via-emerald-500/5 to-green-500/5" />
+          <div className="absolute inset-0 bg-gradient-to-r from-green-100/50 via-emerald-100/50 to-green-100/50 dark:from-green-500/5 dark:via-emerald-500/5 dark:to-green-500/5" />
           
           <div className="relative flex items-center gap-4 p-4">
             <div className="relative">
-              <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+              <div className="w-6 h-6 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center">
                 <Check className="h-4 w-4 text-white" />
               </div>
-              <div className="absolute inset-0 rounded-full bg-green-400/30 animate-ping" />
+              <div className="absolute inset-0 rounded-full bg-green-400/30 dark:bg-green-500/30 animate-ping" />
             </div>
             
-            <div className="flex-1">
-              <div className="font-semibold text-green-400">🎉 Swap Completed Successfully!</div>
-              <div className="text-sm text-green-300/80 mt-1">
-                Your tokens have been swapped and are now in your wallet
+                          <div className="flex-1">
+                <div className="font-semibold text-green-700 dark:text-green-400">🎉 Swap Completed Successfully!</div>
+                <div className="text-sm text-green-600 dark:text-green-300/80 mt-1">
+                {swapState.completedQuote ? (
+                  <>
+                    Swapped {swapState.completedQuote.fromToken?.symbol} → {swapState.completedQuote.toToken?.symbol}
+                  </>
+                ) : (
+                  'Your tokens have been swapped and are now in your wallet'
+                )}
               </div>
               {swapState.swapHash && (
-                <div className="text-xs text-green-300/60 mt-2 font-mono bg-green-500/10 px-2 py-1 rounded-lg inline-block">
-                  Tx: {swapState.swapHash.slice(0, 10)}...{swapState.swapHash.slice(-8)}
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(swapState.swapHash!)
+                      console.log('📋 Transaction hash copied')
+                    }}
+                    className="text-xs text-green-600 dark:text-green-300/60 font-mono bg-green-100 dark:bg-green-500/10 hover:bg-green-200 dark:hover:bg-green-500/20 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                    title="Click to copy transaction hash"
+                  >
+                    Tx: {swapState.swapHash.slice(0, 10)}...{swapState.swapHash.slice(-8)}
+                  </button>
+                  {/* 🚀 ENHANCED: Transaction link button with better styling */}
+                  {swapState.explorerUrl && (
+                    <a
+                      href={swapState.explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs bg-green-100 dark:bg-green-500/20 hover:bg-green-200 dark:hover:bg-green-500/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-lg transition-all duration-200 border border-green-200 dark:border-green-500/30 hover:border-green-300 dark:hover:border-green-500/50 hover:scale-105"
+                      onClick={() => console.log('🔗 Opening transaction in explorer')}
+                    >
+                      View ↗
+                    </a>
+                  )}
                 </div>
               )}
             </div>
+            
+            {/* 🚀 NEW: Manual dismiss button (Jupiter-style) */}
+            <button
+              onClick={() => {
+                console.log('❌ Manual dismiss success state')
+                resetSwapState()
+              }}
+                             className="w-6 h-6 flex items-center justify-center rounded-full bg-green-100 dark:bg-green-500/10 hover:bg-green-200 dark:hover:bg-green-500/20 text-green-600 dark:text-green-300 hover:text-green-700 dark:hover:text-green-200 transition-colors group"
+              title="Dismiss"
+            >
+              <X className="w-3 h-3 group-hover:scale-110 transition-transform" />
+            </button>
           </div>
         </div>
       )}
 
       {/* Cancelled State */}
       {swapState.step === 'cancelled' && (
-        <div className="relative overflow-hidden rounded-xl border border-gray-500/30 bg-gradient-to-r from-gray-500/10 to-slate-500/10 backdrop-blur-sm">
+        <div className="relative overflow-hidden rounded-xl border border-gray-300 dark:border-gray-500/30 bg-gradient-to-r from-gray-100 to-slate-100 dark:from-gray-500/10 dark:to-slate-500/10 backdrop-blur-sm">
           <div className="relative flex items-center gap-4 p-4">
             <div className="relative">
-              <div className="w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center">
+              <div className="w-6 h-6 bg-gray-500 dark:bg-gray-600 rounded-full flex items-center justify-center">
                 <X className="h-4 w-4 text-white" />
               </div>
             </div>
             
             <div className="flex-1">
-              <div className="font-semibold text-gray-400">Transaction Cancelled</div>
-              <div className="text-sm text-gray-500 mt-1">
+              <div className="font-semibold text-gray-700 dark:text-gray-400">Transaction Cancelled</div>
+              <div className="text-sm text-gray-600 dark:text-gray-500 mt-1">
                 You can try again when ready
               </div>
             </div>
@@ -576,26 +737,26 @@ export function SwapButton({
 
       {/* Error State */}
       {swapState.step === 'error' && swapState.error && (
-        <div className="relative overflow-hidden rounded-xl border border-red-500/30 bg-gradient-to-r from-red-500/10 to-pink-500/10 backdrop-blur-sm">
+        <div className="relative overflow-hidden rounded-xl border border-red-200 dark:border-red-500/30 bg-gradient-to-r from-red-50 to-pink-50 dark:from-red-500/10 dark:to-pink-500/10 backdrop-blur-sm">
           <div className="relative flex items-center gap-4 p-4">
             <div className="relative">
-              <div className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+              <div className="w-6 h-6 bg-red-500 dark:bg-red-600 rounded-full flex items-center justify-center">
                 <X className="h-4 w-4 text-white" />
               </div>
             </div>
             
             <div className="flex-1">
-              <div className="font-semibold text-red-400">❌ Swap Failed</div>
-              <div className="text-sm text-red-300/80 mt-1 break-words">
+              <div className="font-semibold text-red-700 dark:text-red-400">❌ Swap Failed</div>
+              <div className="text-sm text-red-600 dark:text-red-300/80 mt-1 break-words">
                 {swapState.error}
               </div>
             </div>
             
             <button
               onClick={handleResetError}
-              className="px-4 py-2 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-all duration-200 hover:scale-105"
+              className="px-4 py-2 text-sm bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/30 text-red-700 dark:text-red-400 rounded-lg transition-all duration-200 hover:scale-105"
             >
-              Try Again
+              Dismiss
             </button>
           </div>
         </div>
@@ -614,12 +775,34 @@ export function SwapButton({
       </Button>
 
       {/* Provider Info */}
-      {quote && (
-        <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <span>Quote from <span className="font-semibold text-gray-300">{quote.provider}</span></span>
-          <span>•</span>
-          <span>Expires in <span className="font-mono text-gray-300">{Math.max(0, Math.floor((new Date(quote.expiresAt).getTime() - Date.now()) / 1000))}s</span></span>
+      {(quote || swapState.completedQuote) && (
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          {swapState.step === 'success' && swapState.completedQuote ? (
+            <>
+              <div className="w-2 h-2 bg-green-400 rounded-full" />
+              <span>Swapped via <span className="font-semibold text-green-700 dark:text-green-300">{swapState.completedQuote.provider}</span></span>
+              {swapState.explorerUrl && (
+                <>
+                  <span>•</span>
+                                      <a
+                      href={swapState.explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-green-700 dark:text-green-300 hover:text-green-800 dark:hover:text-green-200 underline"
+                    >
+                      View Transaction
+                    </a>
+                </>
+              )}
+            </>
+          ) : quote ? (
+            <>
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+              <span>Quote from <span className="font-semibold text-gray-800 dark:text-gray-300">{quote.provider}</span></span>
+              <span>•</span>
+              <span>Expires in <span className="font-mono text-gray-800 dark:text-gray-300">{Math.max(0, Math.floor((new Date(quote.expiresAt).getTime() - Date.now()) / 1000))}s</span></span>
+            </>
+          ) : null}
         </div>
       )}
     </div>
