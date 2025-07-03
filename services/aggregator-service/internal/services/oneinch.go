@@ -42,8 +42,8 @@ func NewOneInchService(apiConfig *config.APIConfig, cacheService *CacheService) 
 
 // 1inch API response structures
 type OneInchQuoteResponse struct {
-	DstAmount      string `json:"dstAmount"`
-	SrcToken       struct {
+	DstAmount string `json:"dstAmount"`
+	SrcToken  struct {
 		Address  string `json:"address"`
 		Symbol   string `json:"symbol"`
 		Name     string `json:"name"`
@@ -58,8 +58,8 @@ type OneInchQuoteResponse struct {
 		LogoURI  string `json:"logoURI"`
 	} `json:"dstToken"`
 	Protocols [][]struct {
-		Name           string `json:"name"`
-		Part           int    `json:"part"`
+		Name             string `json:"name"`
+		Part             int    `json:"part"`
 		FromTokenAddress string `json:"fromTokenAddress"`
 		ToTokenAddress   string `json:"toTokenAddress"`
 	} `json:"protocols"`
@@ -67,8 +67,8 @@ type OneInchQuoteResponse struct {
 }
 
 type OneInchSwapResponse struct {
-	DstAmount      string `json:"dstAmount"`
-	SrcToken       struct {
+	DstAmount string `json:"dstAmount"`
+	SrcToken  struct {
 		Address  string `json:"address"`
 		Symbol   string `json:"symbol"`
 		Name     string `json:"name"`
@@ -91,8 +91,8 @@ type OneInchSwapResponse struct {
 		Gas      string `json:"gas"`
 	} `json:"tx"`
 	Protocols [][]struct {
-		Name           string `json:"name"`
-		Part           int    `json:"part"`
+		Name             string `json:"name"`
+		Part             int    `json:"part"`
 		FromTokenAddress string `json:"fromTokenAddress"`
 		ToTokenAddress   string `json:"toTokenAddress"`
 	} `json:"protocols"`
@@ -228,7 +228,7 @@ func (o *OneInchService) getSwapData(ctx context.Context, req *models.QuoteReque
 // GetTokenList gets supported tokens from 1inch with optimized caching and speed
 func (o *OneInchService) GetTokenList(ctx context.Context, chainID int) ([]*models.Token, error) {
 	// Multi-layer cache strategy for maximum speed
-	
+
 	// 1. Check primary cache (30min TTL for stable tokens)
 	if cachedList, err := o.cacheService.GetTokenList(ctx, chainID); err == nil && cachedList != nil {
 		// Check if cache is recent enough (less than 3 minutes for active trading)
@@ -321,24 +321,9 @@ func (o *OneInchService) processTokenListWithPrioritization(oneInchResp OneInchT
 	var stablecoins []*models.Token
 	var otherTokens []*models.Token
 
-	// Define token categories for optimal ordering
-	popularAddresses := map[string]bool{
-		"0x0000000000000000000000000000000000000000": true, // ETH
-		"0x4200000000000000000000000000000000000006": true, // WETH (Base)
-		"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": true, // WETH (Ethereum)
-	}
-
-	stablecoinAddresses := map[string]bool{
-		"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": true, // USDC (Base)
-		"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": true, // USDC (Ethereum)
-		"0x6b175474e89094c44da98b954eedeac495271d0f": true, // DAI
-		"0xdac17f958d2ee523a2206206994597c13d831ec7": true, // USDT
-		"0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca": true, // USDbC (Base)
-	}
+	// Use config-based detection instead of hardcoded addresses
 
 	for address, token := range oneInchResp.Tokens {
-		normalizedAddr := strings.ToLower(address)
-		
 		modelToken := &models.Token{
 			Address:     address,
 			Symbol:      token.Symbol,
@@ -348,17 +333,23 @@ func (o *OneInchService) processTokenListWithPrioritization(oneInchResp OneInchT
 			LogoURI:     token.LogoURI,
 			LastUpdated: time.Now(),
 			Metadata: map[string]interface{}{
-				"source":      "oneinch",
-				"isPopular":   popularAddresses[normalizedAddr],
-				"isStable":    stablecoinAddresses[normalizedAddr],
-				"hasLogo":     token.LogoURI != "",
+				"source":  "oneinch",
+				"hasLogo": token.LogoURI != "",
 			},
 		}
 
+		// Use config-based detection for categorization
+		isPopular := config.IsPopularTokenAdvanced(address, token.Symbol, chainID)
+		isStable := config.IsStablecoin(token.Symbol)
+
+		// Add metadata
+		modelToken.Metadata["isPopular"] = isPopular
+		modelToken.Metadata["isStable"] = isStable
+
 		// Categorize for prioritization
-		if popularAddresses[normalizedAddr] {
+		if isPopular {
 			popularTokens = append(popularTokens, modelToken)
-		} else if stablecoinAddresses[normalizedAddr] {
+		} else if isStable {
 			stablecoins = append(stablecoins, modelToken)
 		} else {
 			otherTokens = append(otherTokens, modelToken)
@@ -369,11 +360,11 @@ func (o *OneInchService) processTokenListWithPrioritization(oneInchResp OneInchT
 	sort.Slice(popularTokens, func(i, j int) bool {
 		return popularTokens[i].Symbol < popularTokens[j].Symbol
 	})
-	
+
 	sort.Slice(stablecoins, func(i, j int) bool {
 		return stablecoins[i].Symbol < stablecoins[j].Symbol
 	})
-	
+
 	sort.Slice(otherTokens, func(i, j int) bool {
 		return otherTokens[i].Symbol < otherTokens[j].Symbol
 	})
@@ -394,7 +385,7 @@ func (o *OneInchService) cacheTokensByAddress(ctx context.Context, tokens []*mod
 				"symbol":  token.Symbol,
 			}).Debug("1inch token cached by address")
 		}
-		
+
 		// Cache by symbol (5min TTL for symbol searches)
 		symbolKey := fmt.Sprintf("oneinch:token:symbol:%d:%s", chainID, strings.ToLower(token.Symbol))
 		if err := o.cacheService.Set(ctx, symbolKey, token, 5*time.Minute); err == nil {
@@ -628,4 +619,4 @@ func (o *OneInchService) convertQuoteToQuote(oneInchResp *OneInchQuoteResponse, 
 	}
 
 	return quote, nil
-} 
+}

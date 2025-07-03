@@ -12,6 +12,7 @@ export interface TokenSearchParams {
   q: string
   chainId?: number
   limit?: number
+  testnet?: boolean
 }
 
 export interface TokenListResponse {
@@ -386,6 +387,9 @@ class ApiClient {
     if (params.limit) {
       searchParams.append('limit', params.limit.toString())
     }
+    if (params.testnet !== undefined) {
+      searchParams.append('testnet', params.testnet.toString())
+    }
 
     const response = await this.aggregatorClient.get(`/tokens/search?${searchParams}`)
     return response.data
@@ -409,17 +413,21 @@ class ApiClient {
     return response.data
   }
 
-  public async getPopularTokens(chainId?: number): Promise<TokenListResponse> {
-    const response = await this.aggregatorClient.get('/tokens/popular')
-    const data = response.data
+  public async getPopularTokens(params?: { chainId?: number; testnet?: boolean }): Promise<TokenListResponse> {
+    const searchParams = new URLSearchParams()
     
-    // Filter by chainId if specified
-    if (chainId && data.tokens) {
-      data.tokens = data.tokens.filter((token: Token) => token.chainId === chainId)
-      data.total = data.tokens.length
+    if (params?.chainId) {
+      searchParams.append('chainId', params.chainId.toString())
     }
-
-    return data
+    
+    if (params?.testnet !== undefined) {
+      searchParams.append('testnet', params.testnet.toString())
+    }
+    
+    const url = `/tokens/popular${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.aggregatorClient.get(url)
+    
+    return response.data
   }
 
   // ============ HEALTH CHECKS ============
@@ -610,7 +618,7 @@ export const authApi = {
 export const aggregatorApi = {
   searchTokens: (params: TokenSearchParams) => apiClient.searchTokens(params),
   getQuote: (params: QuoteRequest) => apiClient.getQuote(params),
-  getPopularTokens: (chainId?: number) => apiClient.getPopularTokens(chainId),
+  getPopularTokens: (params?: { chainId?: number; testnet?: boolean }) => apiClient.getPopularTokens(params),
   checkAggregatorHealth: () => apiClient.checkAggregatorHealth(),
 }
 

@@ -182,11 +182,11 @@ func GetTestnetChains(environment string) map[int]*ChainConfig {
 var PopularTokens = map[int]map[string]string{
 	// Base Mainnet
 	8453: {
-		"ETH":   "0x0000000000000000000000000000000000000000",
-		"WETH":  "0x4200000000000000000000000000000000000006",
-		"USDC":  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-		"USDbC": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
-		"DAI":   "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",
+		"ETH":  "0x0000000000000000000000000000000000000000",
+		"WETH": "0x4200000000000000000000000000000000000006",
+		"USDC": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+		// Removed USDbC due to low liquidity
+		"DAI": "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",
 	},
 	// BSC Mainnet
 	56: {
@@ -194,7 +194,7 @@ var PopularTokens = map[int]map[string]string{
 		"WBNB": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
 		"USDT": "0x55d398326f99059fF775485246999027B3197955",
 		"USDC": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
-		"BUSD": "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56",
+		// Note: BUSD removed due to Binance deprecation
 	},
 	// Base Sepolia (Testnet) - Updated with accurate addresses
 	84532: {

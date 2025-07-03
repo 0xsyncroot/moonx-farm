@@ -2,6 +2,8 @@ package config
 
 import (
 	"strings"
+
+	"github.com/moonx-farm/aggregator-service/internal/models"
 )
 
 // PopularTokenMetadata contains complete metadata for popular tokens
@@ -275,6 +277,56 @@ func IsPopularToken(address string, chainID int) bool {
 		return isPopular
 	}
 	return false
+}
+
+// IsPopularTokenAdvanced checks if a token is popular by address or symbol (most comprehensive)
+func IsPopularTokenAdvanced(address, symbol string, chainID int) bool {
+	popularTokensMap := GetAllPopularTokensForChain(chainID)
+	if len(popularTokensMap) == 0 {
+		return false
+	}
+
+	// Check by address first (exact match)
+	if _, exists := popularTokensMap[strings.ToLower(address)]; exists {
+		return true
+	}
+
+	// Check by symbol (case insensitive)
+	for _, metadata := range popularTokensMap {
+		if strings.EqualFold(metadata.Symbol, symbol) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsPopularTokenByToken checks if a Token struct is popular (for compatibility)
+func IsPopularTokenByToken(token *models.Token) bool {
+	if token == nil {
+		return false
+	}
+
+	// First check metadata if available
+	if token.Metadata != nil {
+		if popular, ok := token.Metadata["isPopular"].(bool); ok {
+			return popular
+		}
+	}
+
+	// Use the advanced check as fallback
+	return IsPopularTokenAdvanced(token.Address, token.Symbol, token.ChainID)
+}
+
+// IsStablecoin checks if a token is a stablecoin based on symbol
+func IsStablecoin(symbol string) bool {
+	stableSymbols := map[string]bool{
+		"USDC": true, "USDT": true, "DAI": true, "FRAX": true,
+		"USDB": true, "FDUSD": true,
+		// Note: USDbC removed due to low liquidity
+		// Note: BUSD removed due to Binance deprecation
+	}
+	return stableSymbols[strings.ToUpper(symbol)]
 }
 
 // GetPopularTokenMetadata returns metadata for a popular token

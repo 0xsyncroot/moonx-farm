@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { aggregatorApi } from '@/lib/api-client'
 import { useDebounce } from './use-debounce'
+import { useTestnetMode } from '@/components/ui/testnet-toggle'
 
 export interface Token {
   address: string
@@ -20,6 +21,10 @@ export interface Token {
   popular?: boolean
   tags?: string[]
   isNative?: boolean
+  // Security & Audit fields - will be populated by API in the future
+  auditStatus?: 'audited' | 'unaudited' | 'risk'
+  securityScore?: number // 0-100
+  trustScore?: number // 1-5 rating
 }
 
 interface TokenListResponse {
@@ -105,6 +110,9 @@ export function useTokens(selectedChainId?: number) {
   const [searchQuery, setSearchQuery] = useState('')
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const debouncedQuery = useDebounce(searchQuery, 800) // Increased to 800ms - only trigger when user stops typing
+  
+  // Get current testnet mode
+  const isTestnet = useTestnetMode()
 
   // Load favorites from localStorage
   useEffect(() => {
@@ -132,7 +140,7 @@ export function useTokens(selectedChainId?: number) {
     isLoading: isSearching,
     error: searchError,
   } = useQuery<TokenListResponse>({
-    queryKey: ['tokens', 'search', debouncedQuery, 'all-chains'],
+    queryKey: ['tokens', 'search', debouncedQuery, 'all-chains', isTestnet],
     queryFn: async ({ signal }) => {
       const query = debouncedQuery.trim()
       
@@ -143,14 +151,16 @@ export function useTokens(selectedChainId?: number) {
       
       // React Query provides AbortSignal automatically, no need for manual AbortController
       try {
-        console.log('🔍 Triggering API search for:', query)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔍 useTokens: Triggering API search for:', query, 'testnet:', isTestnet)
+        }
         
         // Don't pass chainId to search across all supported chains
-        // Note: We'll need to modify aggregatorApi.searchTokens to accept AbortSignal
         const result = await aggregatorApi.searchTokens({
           q: query,
           // chainId: undefined, // Search all chains
           limit: 50,
+          testnet: isTestnet, // Pass current testnet mode
         })
         
         // Check if request was aborted
@@ -159,7 +169,9 @@ export function useTokens(selectedChainId?: number) {
           throw new Error('AbortError')
         }
         
-        console.log('✅ API search completed for:', query, 'Found:', result.tokens?.length || 0)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('✅ useTokens: API search completed for:', query, 'Found:', result.tokens?.length || 0, 'testnet:', isTestnet)
+        }
         return result
       } catch (error) {
         // Don't throw for aborted requests
@@ -313,29 +325,37 @@ export function useTokens(selectedChainId?: number) {
   // Search specific token with memoization to prevent duplicate calls
   const searchTokenCache = useMemo(() => new Map<string, { result: Promise<Token | null>, timestamp: number }>(), [])
   
-  const searchToken = useCallback(async (query: string, chainId?: number): Promise<Token | null> => {
+  const searchToken = useCallback(async (query: string, chainId?: number, testnet?: boolean): Promise<Token | null> => {
     if (!query.trim()) return null
     
-    // Create cache key
-    const cacheKey = `${query.trim().toLowerCase()}_${chainId || 'all'}`
+    // Use current testnet mode if not specified
+    const useTestnet = testnet !== undefined ? testnet : isTestnet
+    
+    // Create cache key including testnet mode
+    const cacheKey = `${query.trim().toLowerCase()}_${chainId || 'all'}_${useTestnet ? 'testnet' : 'mainnet'}`
     const now = Date.now()
     const CACHE_DURATION = 10000 // 10 seconds cache
     
     // Check cache first
     const cached = searchTokenCache.get(cacheKey)
     if (cached && (now - cached.timestamp) < CACHE_DURATION) {
-      console.log('🎯 Using cached searchToken result for:', query)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🎯 useTokens: Using cached searchToken result for:', query)
+      }
       return await cached.result
     }
     
     // Create promise for the API call
     const searchPromise = (async () => {
       try {
-        console.log('🔍 Calling aggregatorApi.searchTokens for:', query, 'chainId:', chainId)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔍 useTokens: Calling aggregatorApi.searchTokens for:', query, 'chainId:', chainId, 'testnet:', useTestnet)
+        }
         const result = await aggregatorApi.searchTokens({
           q: query.trim(),
           chainId,
           limit: 1,
+          testnet: useTestnet,
         })
         return result.tokens?.[0] || null
       } catch (error) {
@@ -362,12 +382,27 @@ export function useTokens(selectedChainId?: number) {
     }
     
     return await searchPromise
-  }, [searchTokenCache])
+  }, [searchTokenCache, isTestnet])
 
   // Add function to manually load popular tokens
-  const loadPopularTokens = async (): Promise<TokenListResponse | null> => {
+  const loadPopularTokens = async (options?: { chainId?: number; testnet?: boolean }): Promise<TokenListResponse | null> => {
     try {
-      const result = await aggregatorApi.getPopularTokens()
+      // Use provided options or default to current testnet mode
+      const params = {
+        chainId: options?.chainId || selectedChainId,
+        testnet: options?.testnet !== undefined ? options.testnet : isTestnet
+      }
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 useTokens: Loading popular tokens with params:', params)
+      }
+      
+      const result = await aggregatorApi.getPopularTokens(params)
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ useTokens: Loaded', result.tokens?.length || 0, 'popular tokens')
+      }
+      
       return result
     } catch (error) {
       console.error('❌ [Manual] Popular tokens load failed:', error)
@@ -406,6 +441,7 @@ export function useTokens(selectedChainId?: number) {
     hasResults,
     isShowingLocalResults,
     isShowingAPIResults,
+    isTestnet, // Expose testnet mode
     
     // Search queries - separate for better control
     searchQuery, // Real-time query (for input field)

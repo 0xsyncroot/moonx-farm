@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Search, Star, TrendingUp, Zap, ArrowUpRight, Filter, CheckCircle, AlertCircle } from 'lucide-react'
+import { X, Search, Star, TrendingUp, Zap, Filter, CheckCircle, AlertCircle, Clock, Copy, Coins, Shield, ArrowUpDown, BarChart3, Eye, EyeOff, Wallet } from 'lucide-react'
 import { useTokens, Token } from '@/hooks/use-tokens'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { formatCurrency, formatNumber, cn } from '@/lib/utils'
@@ -201,13 +201,19 @@ export function TokenSelector({
   currentToken,
   title = 'Select a token'
 }: TokenSelectorProps) {
-  const [activeTab, setActiveTab] = useState<'all' | 'popular' | 'favorites'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'popular' | 'favorites' | 'recent'>('all')
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  const [recentTokens, setRecentTokens] = useState<Token[]>([])
   const [showFilters, setShowFilters] = useState(false)
+  const [showBalances, setShowBalances] = useState(true)
+  const [sortBy, setSortBy] = useState<'name' | 'price' | 'marketCap' | 'volume' | 'change'>('name')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [filterRisk, setFilterRisk] = useState<'all' | 'verified' | 'unverified'>('all')
   const [apiTokens, setApiTokens] = useState<Token[]>([])
   const [apiLoading, setApiLoading] = useState(false)
   const [apiError, setApiError] = useState<Error | null>(null)
   const [isMounted, setIsMounted] = useState(false)
+  const [favoritesLoaded, setFavoritesLoaded] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const loadingRef = useRef(false)
   const hasLoadedRef = useRef(false)
@@ -296,32 +302,57 @@ export function TokenSelector({
     }
   }, [isOpen])
 
-  // Load favorites from localStorage with migration support - CACHED
+  // ✅ FIXED: Load favorites from localStorage with proper migration and sync
   useEffect(() => {
+    if (favoritesLoaded) return // Prevent double loading
+    
     const savedFavorites = localStorage.getItem('tokenFavorites')
     if (savedFavorites) {
       try {
         const parsed = JSON.parse(savedFavorites)
         
-        // Migration: Convert old address-only format to chainId-address format
+        // ✅ FIXED: Migration logic - Convert old address-only format to chainId-address format
         const migratedFavorites = parsed.map((item: string) => {
           // If already in chainId-address format, keep as is
           if (item.includes('-') && item.split('-')[0].match(/^\d+$/)) {
             return item
           }
-          // If it's an address only, we can't determine the exact chain
-          // but we'll keep it for backward compatibility
+          // For address-only format, we can't migrate properly without knowing the chain
+          // Keep the old format for backward compatibility but mark for cleanup
           return item
         })
         
+        // ✅ FIXED: Set favorites and mark as loaded
         setFavorites(new Set(migratedFavorites))
+        setFavoritesLoaded(true)
+        
+        // Update localStorage with migrated data
+        localStorage.setItem('tokenFavorites', JSON.stringify(migratedFavorites))
       } catch (error) {
         console.error('Failed to parse favorites:', error)
-        // Clear invalid data
+        // Clear invalid data and mark as loaded
         localStorage.removeItem('tokenFavorites')
+        setFavorites(new Set())
+        setFavoritesLoaded(true)
+      }
+    } else {
+      setFavoritesLoaded(true)
+    }
+  }, [favoritesLoaded]) // Only run when not loaded
+
+  // Load recent tokens from localStorage
+  useEffect(() => {
+    const savedRecent = localStorage.getItem('recentTokens')
+    if (savedRecent) {
+      try {
+        const parsed = JSON.parse(savedRecent)
+        setRecentTokens(parsed.slice(0, 10)) // Keep only last 10
+      } catch (error) {
+        console.error('Failed to parse recent tokens:', error)
+        localStorage.removeItem('recentTokens')
       }
     }
-  }, []) // Only run once
+  }, [])
 
   // Helper to check if chain is testnet
   const isTestnetChain = (chainId: number) => {
@@ -374,7 +405,7 @@ export function TokenSelector({
     })
   }, [searchHasQuery, searchTokens, hookSearchQuery, apiTokens, isTestnet])
 
-  // OPTIMIZED smart filtering - reduced complexity
+  // Enhanced filtering with sorting and risk filtering
   const filteredTokens = useMemo(() => {
     let tokens: Token[] = []
     
@@ -386,12 +417,19 @@ export function TokenSelector({
                    Object.values(EMERGENCY_FALLBACK).flat().filter((token: Token) => token.popular)
           break
         case 'favorites':
-          tokens = hookFavoriteTokens.length > 0 ? hookFavoriteTokens :
-                   availableTokens.filter((token: Token) => {
-                     const tokenKey = `${token.chainId}-${token.address}`
-                     // Check both new format (chainId-address) and old format (address only)
-                     return favorites.has(tokenKey) || favorites.has(token.address)
-                   })
+          // ✅ FIXED: Strict chain-specific favorites filtering
+          tokens = availableTokens.filter((token: Token) => {
+            const tokenKey = `${token.chainId}-${token.address}`
+            return favorites.has(tokenKey)
+          })
+          break
+        case 'recent':
+          // Filter recent tokens that are still available
+          tokens = recentTokens.filter(recent => 
+            availableTokens.some(available => 
+              available.address === recent.address && available.chainId === recent.chainId
+            )
+          )
           break
         default:
           tokens = availableTokens
@@ -425,12 +463,58 @@ export function TokenSelector({
       })
     }
 
-    // Simplified chain sorting based on testnet mode
+    // Apply risk filter
+    if (filterRisk !== 'all') {
+      tokens = tokens.filter(token => {
+        if (filterRisk === 'verified') return token.verified
+        if (filterRisk === 'unverified') return !token.verified
+        return true
+      })
+    }
+
+    // Apply sorting
+    tokens = tokens.sort((a, b) => {
+      let comparison = 0
+      
+      switch (sortBy) {
+        case 'name':
+          comparison = a.symbol.localeCompare(b.symbol)
+          break
+        case 'price':
+          const aPrice = a.priceUSD && !isNaN(a.priceUSD) ? a.priceUSD : 0
+          const bPrice = b.priceUSD && !isNaN(b.priceUSD) ? b.priceUSD : 0
+          comparison = aPrice - bPrice
+          break
+        case 'marketCap':
+          const aMarketCap = a.marketCap && !isNaN(a.marketCap) ? a.marketCap : 0
+          const bMarketCap = b.marketCap && !isNaN(b.marketCap) ? b.marketCap : 0
+          comparison = aMarketCap - bMarketCap
+          break
+        case 'volume':
+          const aVolume = a.volume24h && !isNaN(a.volume24h) ? a.volume24h : 0
+          const bVolume = b.volume24h && !isNaN(b.volume24h) ? b.volume24h : 0
+          comparison = aVolume - bVolume
+          break
+        case 'change':
+          const aChange = a.change24h && !isNaN(a.change24h) ? a.change24h : 0
+          const bChange = b.change24h && !isNaN(b.change24h) ? b.change24h : 0
+          comparison = aChange - bChange
+          break
+      }
+      
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+
+    // Chain priority sorting (secondary sort)
     const chainPriority = isTestnet 
       ? [84532, 97] // Base Sepolia, BSC Testnet
       : [8453, 1, 56, 137] // Base, Ethereum, BSC, Polygon
     
     return tokens.sort((a, b) => {
+      // Primary sort by user selection
+      if (sortBy !== 'name') return 0
+      
+      // Secondary sort by chain priority
       const aPriority = chainPriority.indexOf(a.chainId)
       const bPriority = chainPriority.indexOf(b.chainId)
       
@@ -440,38 +524,40 @@ export function TokenSelector({
         return aPriority - bPriority
       }
       
-      return a.symbol.localeCompare(b.symbol)
+      return 0
     })
-  }, [availableTokens, hookSearchQuery, activeTab, popularTokens, hookFavoriteTokens, favorites, isTestnet])
+  }, [availableTokens, hookSearchQuery, activeTab, popularTokens, hookFavoriteTokens, favorites, recentTokens, isTestnet, filterRisk, sortBy, sortDirection])
 
-  // Local favorite management with chainId support
+  // ✅ FIXED: Chain-specific favorite management to avoid conflicts with same addresses
   const handleToggleFavorite = (tokenKey: string) => {
-    // Extract address from tokenKey (chainId-address format)
-    const tokenAddress = tokenKey.includes('-') ? tokenKey.split('-')[1] : tokenKey
+    // Always use chainId-address format for consistency
+    const newFavorites = favorites.has(tokenKey)
+      ? new Set(Array.from(favorites).filter(key => key !== tokenKey))
+      : new Set([...Array.from(favorites), tokenKey])
     
-    if (toggleFavorite) {
-      // Use original address for useTokens hook compatibility
-      toggleFavorite(tokenAddress)
-    } else {
-      // Use full tokenKey for local storage to support multi-chain
-      const newFavorites = favorites.has(tokenKey)
-        ? new Set(Array.from(favorites).filter(key => key !== tokenKey))
-        : new Set([...Array.from(favorites), tokenKey])
-      
-      setFavorites(newFavorites)
+    setFavorites(newFavorites)
+    
+    // Save to localStorage immediately
+    try {
       localStorage.setItem('tokenFavorites', JSON.stringify(Array.from(newFavorites)))
+    } catch (error) {
+      console.error('Failed to save favorites:', error)
+    }
+    
+    // Sync with useTokens hook (address only for compatibility)
+    if (toggleFavorite) {
+      try {
+        const tokenAddress = tokenKey.includes('-') ? tokenKey.split('-')[1] : tokenKey
+        toggleFavorite(tokenAddress)
+      } catch (error) {
+        console.error('Failed to sync with useTokens hook:', error)
+      }
     }
   }
 
+  // ✅ FIXED: Strict chain-specific favorite checking
   const checkIsFavorite = (tokenKey: string) => {
-    // Extract address from tokenKey for useTokens hook compatibility
-    const tokenAddress = tokenKey.includes('-') ? tokenKey.split('-')[1] : tokenKey
-    
-    if (isFavorite) {
-      // Check useTokens hook first (uses address only)
-      return isFavorite(tokenAddress)
-    }
-    // Check local favorites (uses chainId-address key)
+    // Only check the exact chainId-address key to avoid cross-chain conflicts
     return favorites.has(tokenKey)
   }
 
@@ -485,8 +571,30 @@ export function TokenSelector({
   }, [isOpen, setHookSearchQuery])
 
   const handleSelectToken = (token: Token) => {
+    // Add to recent tokens
+    const newRecent = [token, ...recentTokens.filter(t => !(t.address === token.address && t.chainId === token.chainId))].slice(0, 10)
+    setRecentTokens(newRecent)
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem('recentTokens', JSON.stringify(newRecent))
+    } catch (error) {
+      console.error('Failed to save recent tokens:', error)
+    }
+    
     onSelectToken(token)
     onClose()
+  }
+
+  // Copy address to clipboard
+  const handleCopyAddress = async (address: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(address)
+      // You could add a toast notification here
+    } catch (error) {
+      console.error('Failed to copy address:', error)
+    }
   }
 
   // ✅ FIXED: Use hook search query for all logic
@@ -495,40 +603,92 @@ export function TokenSelector({
   const error = apiError || tokensError
   const showEmptyState = !isLoading && !hasResults
 
+  // ✅ FIXED: Calculate accurate tab counts based on actual filtered results
+  const getTabCounts = useMemo(() => {
+    // Base tokens for counting (same as availableTokens but we need to calculate each category)
+    let baseTokens: Token[] = []
+    
+    if (searchHasQuery) {
+      // In search mode, use search results
+      const apiResults = searchTokens.length > 0 ? searchTokens : []
+      const localTokens = Object.values(EMERGENCY_FALLBACK).flat()
+      const query = hookSearchQuery.toLowerCase().trim()
+      const localMatches = localTokens.filter((token: Token) => {
+        const symbolMatch = token.symbol.toLowerCase().includes(query)
+        const nameMatch = token.name.toLowerCase().includes(query)
+        const addressMatch = token.address.toLowerCase().includes(query)
+        return symbolMatch || nameMatch || addressMatch
+      })
+      
+      const combined = [...apiResults]
+      const existingAddresses = new Set(apiResults.map(t => t.address.toLowerCase()))
+      
+      localMatches.forEach(token => {
+        if (!existingAddresses.has(token.address.toLowerCase())) {
+          combined.push(token)
+        }
+      })
+      
+      baseTokens = combined
+    } else {
+      // Non-search mode
+      if (apiTokens.length > 0) {
+        baseTokens = apiTokens
+      } else {
+        baseTokens = Object.values(EMERGENCY_FALLBACK).flat()
+      }
+    }
+    
+    // Apply testnet filtering
+    const filteredBaseTokens = baseTokens.filter(token => {
+      const tokenIsTestnet = isTestnetChain(token.chainId)
+      return isTestnet ? tokenIsTestnet : !tokenIsTestnet
+    })
+    
+    // Calculate counts for each tab
+    const allCount = filteredBaseTokens.length
+    
+    const popularCount = filteredBaseTokens.filter(token => token.popular).length
+    
+    const recentCount = recentTokens.filter(recent => 
+      filteredBaseTokens.some(available => 
+        available.address === recent.address && available.chainId === recent.chainId
+      )
+    ).length
+    
+    const favoritesCount = filteredBaseTokens.filter((token: Token) => {
+      const tokenKey = `${token.chainId}-${token.address}`
+      return favorites.has(tokenKey)
+    }).length
+    
+    return {
+      all: allCount,
+      popular: popularCount,
+      recent: recentCount,
+      favorites: favoritesCount
+    }
+  }, [searchHasQuery, searchTokens, hookSearchQuery, apiTokens, isTestnet, recentTokens, favorites])
+
   if (!isOpen || !isMounted) return null
 
   const modalContent = (
     <>
-      {/* Backdrop with blur */}
+      {/* ✅ FIXED: Backdrop with proper z-index */}
       <div 
-        className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md transition-opacity duration-300"
+        className="fixed inset-0 z-[9998] bg-black/80 backdrop-blur-md transition-opacity duration-300"
         onClick={onClose}
       />
       
-      {/* Modal Container */}
+      {/* ✅ FIXED: Modal Container with higher z-index */}
       <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
         <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-3xl shadow-2xl 
                        pointer-events-auto transform transition-all duration-300 
-                       animate-in slide-in-from-bottom-8 fade-in-0">
+                       animate-in slide-in-from-bottom-8 fade-in-0 relative">
           
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-3">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">{title}</h2>
-              {searchHasQuery && (
-                <div className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                    {filteredTokens.length} found
-                  </span>
-                </div>
-              )}
-              {!searchHasQuery && availableTokens.length > 0 && (
-                <div className="px-2 py-1 bg-green-100 dark:bg-green-900/30 rounded-full">
-                  <span className="text-xs font-medium text-green-600 dark:text-green-400">
-                    {availableTokens.length} tokens
-                  </span>
-                </div>
-              )}
             </div>
             <button
               onClick={onClose}
@@ -571,66 +731,161 @@ export function TokenSelector({
             </div>
 
             {/* Search Status */}
-            {searchHasQuery && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">
-                  {isLoading ? 'Searching...' : `Found ${filteredTokens.length} tokens`}
-                </span>
-                {searchTokens.length > 0 && (
-                  <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full text-xs text-blue-600 dark:text-blue-400">
-                    API: {searchTokens.length}
-                  </span>
-                )}
+            {searchHasQuery && filteredTokens.length > 0 && (
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                {filteredTokens.length} result{filteredTokens.length !== 1 ? 's' : ''} found
               </div>
             )}
 
             {/* Tabs */}
             {!searchHasQuery && (
-              <div className="flex bg-gray-100 dark:bg-gray-800 rounded-2xl p-1">
-                {[
-                  { key: 'all', label: 'All Tokens', count: availableTokens.length },
-                  { key: 'popular', label: 'Popular', count: popularTokens.length },
-                  { 
-                    key: 'favorites', 
-                    label: 'Favorites', 
-                    count: hookFavoriteTokens.length || availableTokens.filter((token: Token) => {
-                      const tokenKey = `${token.chainId}-${token.address}`
-                      return favorites.has(tokenKey) || favorites.has(token.address)
-                    }).length
-                  },
-                ].map(({ key, label, count }) => (
-                  <button
-                    key={key}
-                    onClick={() => setActiveTab(key as any)}
-                    className={cn(
-                      "flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all duration-200",
-                      activeTab === key 
-                        ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
-                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                    )}
-                  >
-                    {key === 'popular' && <TrendingUp className="w-4 h-4" />}
-                    {key === 'favorites' && <Star className="w-4 h-4" />}
-                    <span>{label}</span>
-                    {count > 0 && (
-                      <span className={cn(
-                        "px-2 py-0.5 rounded-full text-xs",
+              <div className="space-y-3">
+                <div className="flex bg-gray-100 dark:bg-gray-800 rounded-2xl p-1">
+                  {[
+                    { key: 'all', label: 'All', icon: Coins, count: getTabCounts.all },
+                    { key: 'popular', label: 'Popular', icon: TrendingUp, count: getTabCounts.popular },
+                    { key: 'recent', label: 'Recent', icon: Clock, count: getTabCounts.recent },
+                    { 
+                      key: 'favorites', 
+                      label: 'Favorites',
+                      icon: Star,
+                      count: getTabCounts.favorites
+                    },
+                  ].map(({ key, label, icon: Icon, count }) => (
+                    <button
+                      key={key}
+                      onClick={() => setActiveTab(key as any)}
+                      className={cn(
+                        "flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all duration-200",
                         activeTab === key 
-                          ? 'bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
-                      )}>
-                        {count}
-                      </span>
-                    )}
+                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
+                          : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                      )}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span className="hidden sm:inline">{label}</span>
+                      {count > 0 && (
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded-full text-xs min-w-[18px] text-center",
+                          activeTab === key 
+                            ? 'bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                            : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                        )}>
+                          {count > 99 ? '99+' : count}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Filter and Sort Controls */}
+                <div className="flex items-center gap-2">
+                  {/* Sort */}
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="name">Sort by Name</option>
+                    <option value="price">Sort by Price</option>
+                    <option value="marketCap">Sort by Market Cap</option>
+                    <option value="volume">Sort by Volume</option>
+                    <option value="change">Sort by 24h Change</option>
+                  </select>
+
+                  {/* Sort Direction */}
+                  <button
+                    onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    className="p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    title={`Sort ${sortDirection === 'asc' ? 'Ascending' : 'Descending'}`}
+                  >
+                    <ArrowUpDown className={cn("w-4 h-4", sortDirection === 'desc' && "rotate-180")} />
                   </button>
-                ))}
+
+                  {/* Risk Filter */}
+                  <select
+                    value={filterRisk}
+                    onChange={(e) => setFilterRisk(e.target.value as any)}
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="all">All Tokens</option>
+                    <option value="verified">Verified Only</option>
+                    <option value="unverified">Unverified Only</option>
+                  </select>
+
+                  {/* Show Balances Toggle */}
+                  <button
+                    onClick={() => setShowBalances(!showBalances)}
+                    className={cn(
+                      "p-2 border rounded-lg transition-colors",
+                      showBalances 
+                        ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700 text-blue-600 dark:text-blue-400'
+                        : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    )}
+                    title={showBalances ? 'Hide Balances' : 'Show Balances'}
+                  >
+                    {showBalances ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
           {/* Content */}
           <div className="max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
-            {error ? (
+            {isLoading ? (
+              // ✅ FIXED: Skeleton shimmer loading for better UX
+              <div className="py-2 space-y-1">
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <div key={index} className="group flex items-start gap-4 px-4 py-4 mx-2 rounded-2xl bg-gray-50/50 dark:bg-gray-800/20">
+                    {/* Token Logo Skeleton */}
+                    <div className="relative flex-shrink-0">
+                      <div className="w-12 h-12 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded-full animate-pulse" />
+                      {/* Native Badge Skeleton */}
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded-full animate-pulse" />
+                    </div>
+
+                    {/* Token Info Skeleton */}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      {/* Symbol + Chain Badge */}
+                      <div className="flex items-center gap-2">
+                        <div className="h-5 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded animate-pulse w-20" />
+                        <div className="h-6 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded-lg animate-pulse w-16" />
+                      </div>
+                      
+                      {/* Token Name */}
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded animate-pulse w-32" />
+                      
+                      {/* Security Tags */}
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded-md animate-pulse w-16" />
+                        <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded-md animate-pulse w-14" />
+                      </div>
+                    </div>
+
+                    {/* Price Skeleton */}
+                    <div className="text-right flex-shrink-0 min-w-0">
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded animate-pulse w-16 ml-auto" />
+                    </div>
+
+                    {/* Favorite Button Skeleton */}
+                    <div className="w-6 h-6 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 rounded-lg animate-pulse flex-shrink-0" />
+                  </div>
+                ))}
+                
+                {/* Loading text */}
+                <div className="text-center py-4">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  </div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 font-medium">
+                    {searchHasQuery ? 'Searching tokens...' : 'Loading popular tokens...'}
+                  </p>
+                </div>
+              </div>
+            ) : error ? (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
                   <AlertCircle className="w-8 h-8 text-red-500" />
@@ -647,13 +902,6 @@ export function TokenSelector({
                 >
                   Retry
                 </button>
-              </div>
-            ) : isLoading ? (
-              <div className="flex flex-col items-center justify-center py-16">
-                <LoadingSpinner size="sm" />
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
-                  {searchHasQuery ? 'Searching tokens...' : 'Loading tokens...'}
-                </p>
               </div>
             ) : showEmptyState ? (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
@@ -687,6 +935,7 @@ export function TokenSelector({
                     onToggleFavorite={() => handleToggleFavorite(`${token.chainId}-${token.address}`)}
                     searchQuery={hookSearchQuery}
                     index={index}
+                    showBalances={showBalances}
                   />
                 ))}
               </div>
@@ -697,8 +946,7 @@ export function TokenSelector({
           <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-3xl">
             <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
               <span>
-                {filteredTokens.length} {filteredTokens.length === 1 ? 'token' : 'tokens'}
-                {searchHasQuery && ` • ${searchTokens.length} from API`}
+                {filteredTokens.length} {filteredTokens.length === 1 ? 'token' : 'tokens'} available
               </span>
               {isLoading && (
                 <div className="flex items-center gap-2">
@@ -724,6 +972,7 @@ interface TokenRowProps {
   onToggleFavorite: () => void
   searchQuery: string
   index: number
+  showBalances: boolean
 }
 
 function TokenRow({ 
@@ -733,9 +982,11 @@ function TokenRow({
   onSelect, 
   onToggleFavorite, 
   searchQuery,
-  index
+  index,
+  showBalances
 }: TokenRowProps) {
   const [imageError, setImageError] = useState(false)
+  const [showFullAddress, setShowFullAddress] = useState(false)
 
   // Highlight search matches
   const highlightText = (text: string, query: string) => {
@@ -751,126 +1002,268 @@ function TokenRow({
     )
   }
 
+  // Format address for display
+  const formatAddress = (address: string) => {
+    if (address === '0x0000000000000000000000000000000000000000') return 'Native Token'
+    return showFullAddress ? address : `${address.slice(0, 6)}...${address.slice(-4)}`
+  }
+
+  // Copy address to clipboard
+  const handleCopyAddress = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(token.address)
+      // Add toast notification here if available
+    } catch (error) {
+      console.error('Failed to copy address:', error)
+    }
+  }
+
+  // Get verification status
+  const getVerificationStatus = () => {
+    if (token.verified) return { status: 'verified', color: 'text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400', icon: CheckCircle }
+    if (token.verified === false) return { status: 'unverified', color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400', icon: AlertCircle }
+    return { status: 'unknown', color: 'text-gray-600 bg-gray-100 dark:bg-gray-700 dark:text-gray-400', icon: AlertCircle }
+  }
+
+  // Format price change
+  const formatPriceChange = (change: any) => {
+    // Convert to number and validate
+    let numericChange: number
+    
+    try {
+      // Handle different input types
+      if (change === undefined || change === null || change === '') {
+        numericChange = 0
+      } else if (typeof change === 'string') {
+        numericChange = parseFloat(change)
+      } else if (typeof change === 'number') {
+        numericChange = change
+      } else {
+        // For objects, arrays, or other types
+        numericChange = 0
+      }
+      
+      // Final validation
+      if (isNaN(numericChange) || !isFinite(numericChange)) {
+        numericChange = 0
+      }
+    } catch (error) {
+      console.warn('Error parsing price change:', change, error)
+      numericChange = 0
+    }
+    
+    // Return formatted result
+    if (numericChange === 0) {
+      return {
+        value: '0.00%',
+        color: 'text-gray-500 dark:text-gray-400'
+      }
+    }
+    
+    const isPositive = numericChange > 0
+    return {
+      value: `${isPositive ? '+' : ''}${numericChange.toFixed(2)}%`,
+      color: isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+    }
+  }
+
+  // Format large numbers with K, M, B suffixes
+  const formatCompactCurrency = (amount: number | undefined | null) => {
+    // Handle invalid or missing values
+    if (amount === undefined || amount === null || isNaN(amount) || !isFinite(amount) || amount <= 0) {
+      return '-'
+    }
+    
+    if (amount >= 1e9) return `$${(amount / 1e9).toFixed(2)}B`
+    if (amount >= 1e6) return `$${(amount / 1e6).toFixed(2)}M`
+    if (amount >= 1e3) return `$${(amount / 1e3).toFixed(2)}K`
+    return formatCurrency(amount)
+  }
+
   const chainInfo = CHAIN_CONFIG[token.chainId as keyof typeof CHAIN_CONFIG]
+  const verification = getVerificationStatus()
 
   return (
     <div 
       className={cn(
-        "group flex items-center gap-4 px-4 py-3 mx-2 rounded-2xl cursor-pointer transition-all duration-200",
+        "group flex items-start gap-3 px-4 py-3 mx-2 rounded-2xl cursor-pointer transition-all duration-200",
         "hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:shadow-sm",
         isSelected && "bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500/20 shadow-md"
       )}
       onClick={onSelect}
     >
-      {/* Token Logo with Chain Badge */}
+      {/* Token Logo */}
       <div className="relative flex-shrink-0">
         {token.logoURI && !imageError ? (
-          <img 
-            src={token.logoURI} 
-            alt={token.symbol}
-            className="w-10 h-10 rounded-full border border-gray-200 dark:border-gray-700 shadow-sm"
-            onError={() => setImageError(true)}
-          />
+          <div className="w-10 h-10 rounded-full border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden bg-white dark:bg-gray-800 flex items-center justify-center">
+            <img 
+              src={token.logoURI} 
+              alt={token.symbol}
+              className="w-full h-full object-cover object-center"
+              onError={() => setImageError(true)}
+            />
+          </div>
         ) : (
           <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 rounded-full flex items-center justify-center text-sm font-bold text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-gray-700">
             {token.symbol.charAt(0)}
           </div>
         )}
         
-        {/* Chain Badge - Small bottom-right corner */}
-        {chainInfo && (
-          <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shadow-sm">
-            <ChainIcon icon={chainInfo.icon} size="xs" />
-          </div>
-        )}
-        
-        {/* Status badges - top-right */}
-        {(token.isNative || token.popular) && (
-          <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full flex items-center justify-center">
-            {token.isNative ? (
-              <div className="w-3 h-3 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-                <Zap className="w-2 h-2 text-white" />
-              </div>
-            ) : token.popular ? (
-              <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center">
-                <TrendingUp className="w-2 h-2 text-white" />
-              </div>
-            ) : null}
-          </div>
-        )}
+        {/* Verification Badge - top-right */}
+        <div className={cn(
+          "absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center shadow-sm",
+          verification.color
+        )}>
+          <verification.icon className="w-2.5 h-2.5" />
+        </div>
       </div>
 
       {/* Token Info */}
-      <div className="flex-1 min-w-0 space-y-0.5">
+      <div className="flex-1 min-w-0 space-y-1">
+        {/* Header: Symbol + Chain */}
         <div className="flex items-center gap-2">
-          <h3 className="font-bold text-gray-900 dark:text-white text-base truncate">
-            {highlightText(token.symbol, searchQuery)}
-          </h3>
-          {token.verified && (
-            <CheckCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
-          )}
-          {/* Chain name as subtle text */}
-          <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">
-            {chainInfo?.name}
-          </span>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 truncate leading-tight">
-          {highlightText(token.name, searchQuery)}
-        </p>
-        {token.tags && token.tags.length > 0 && (
-          <div className="flex gap-1 mt-1">
-            {token.tags.slice(0, 1).map((tag, i) => (
-              <span 
-                key={i}
-                className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded-md font-medium"
-              >
-                {tag}
-              </span>
-            ))}
+          <div className="flex items-center gap-1.5">
+            <h3 className="font-bold text-gray-900 dark:text-white text-base truncate">
+              {highlightText(token.symbol, searchQuery)}
+            </h3>
+            {token.isNative && (
+              <div className="flex items-center justify-center w-4 h-4 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full">
+                <Zap className="w-2.5 h-2.5 text-white" />
+              </div>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Price & Stats */}
-      {(token.priceUSD || token.change24h !== undefined) && (
-        <div className="text-right space-y-0.5 flex-shrink-0 min-w-0">
-          {token.priceUSD && (
-            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-              {formatCurrency(token.priceUSD)}
-            </p>
-          )}
-          {token.change24h !== undefined && (
+          
+          {/* Chain Badge */}
+          {chainInfo && (
             <div className={cn(
-              "flex items-center justify-end gap-1 text-xs font-medium",
-              token.change24h >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+              "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium text-white",
+              chainInfo.color
             )}>
-              <ArrowUpRight className={cn(
-                "w-3 h-3",
-                token.change24h < 0 && "rotate-180"
-              )} />
-              <span>{Math.abs(token.change24h).toFixed(2)}%</span>
+              <ChainIcon icon={chainInfo.icon} size="xs" />
+              <span className="hidden sm:inline">{chainInfo.name}</span>
             </div>
           )}
         </div>
-      )}
 
-      {/* Favorite Button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggleFavorite()
-        }}
-        className={cn(
-          "p-1.5 rounded-lg transition-all duration-200 flex-shrink-0",
-          "opacity-0 group-hover:opacity-100",
-          isFavorite 
-            ? 'text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30 opacity-100' 
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+        {/* Token Name & Address */}
+        <div className="space-y-0.5">
+          <p className="text-sm text-gray-600 dark:text-gray-300 truncate">
+            {highlightText(token.name, searchQuery)}
+          </p>
+          
+          {/* Address with copy function */}
+          <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-mono">{formatAddress(token.address)}</span>
+            {token.address !== '0x0000000000000000000000000000000000000000' && (
+              <button
+                onClick={handleCopyAddress}
+                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                title="Copy address"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tags & Status */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {/* Verification Status */}
+          <div className={cn(
+            "flex items-center gap-1 px-1.5 py-0.5 text-xs rounded font-medium",
+            verification.color
+          )}>
+            <verification.icon className="w-3 h-3" />
+            <span className="capitalize">{verification.status}</span>
+          </div>
+
+          {/* Popular Tag */}
+          {token.popular && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs rounded font-medium">
+              <TrendingUp className="w-3 h-3" />
+              <span>Popular</span>
+            </div>
+          )}
+
+          {/* Token Tags */}
+          {token.tags?.slice(0, 2).map((tag, i) => (
+            <span
+              key={i}
+              className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded font-medium"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Market Data */}
+      <div className="text-right flex-shrink-0 min-w-0 space-y-0.5">
+        {/* Price */}
+        {token.priceUSD ? (
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            {formatCurrency(token.priceUSD)}
+          </p>
+        ) : (
+          <p className="text-sm text-gray-400">-</p>
         )}
-        title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-      >
-        <Star className={cn("w-3.5 h-3.5", isFavorite && "fill-current")} />
-      </button>
+
+        {/* 24h Change */}
+        {token.change24h !== undefined && token.change24h !== null && !isNaN(token.change24h) && (
+          <p className={cn("text-xs font-medium", formatPriceChange(token.change24h).color)}>
+            {formatPriceChange(token.change24h).value}
+          </p>
+        )}
+
+        {/* Market Cap */}
+        {token.marketCap && token.marketCap > 0 && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            MC: {formatCompactCurrency(token.marketCap)}
+          </p>
+        )}
+
+        {/* Volume 24h */}
+        {token.volume24h && token.volume24h > 0 && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Vol: {formatCompactCurrency(token.volume24h)}
+          </p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col gap-1 flex-shrink-0">
+        {/* Favorite Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFavorite()
+          }}
+          className={cn(
+            "p-1.5 rounded-lg transition-all duration-200",
+            "opacity-0 group-hover:opacity-100",
+            isFavorite 
+              ? 'text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30 opacity-100' 
+              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+          )}
+          title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+        >
+          <Star className={cn("w-3.5 h-3.5", isFavorite && "fill-current")} />
+        </button>
+
+        {/* Portfolio Balance - placeholder for future wallet integration */}
+        {showBalances && (
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={(e) => e.stopPropagation()}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Portfolio balance"
+            >
+              <Wallet className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 } 

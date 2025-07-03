@@ -54,6 +54,10 @@ export function SwapInterface() {
   
   // Track if component has been initialized from URL
   const isInitializedRef = useRef(false)
+  const lastSearchParamsRef = useRef<string>('')
+  const urlLoadAttemptsRef = useRef(0)
+  const maxRetryAttempts = 3
+  
   const { getTokenBySymbol, searchToken } = useTokens()
 
   // Main quote hook - initially without auto chain switch
@@ -87,17 +91,13 @@ export function SwapInterface() {
     currentChain
   } = useAutoChainSwitch(fromToken)
 
-  // URL synchronization - 🔧 FIX: Get forceUpdateURL for immediate updates
-  const { markInitialized, forceUpdateURL } = useUrlSync({
+  // URL synchronization
+  const { markInitialized } = useUrlSync({
     fromToken,
     toToken,
     amount,
     slippage: slippage || 0.5
   })
-
-  // 🔧 FIX: Add URL loading state tracking
-  const [isLoadingFromURL, setIsLoadingFromURL] = useState(false)
-  const urlLoadCompleteRef = useRef(false)
 
   // Memoize auto-refresh function to prevent infinite loops
   const handleAutoRefresh = useCallback(async () => {
@@ -134,10 +134,11 @@ export function SwapInterface() {
   const toTokenBalance = useTokenBalance(toToken, smartWalletClient)
 
   // ✅ Check if balance is sufficient - ONLY after URL params are fully loaded
-  // 🔧 FIX: Use urlLoadCompleteRef to prevent false positives during URL loading
+  // Tránh false positive khi amount chưa được load từ URL
+  // 🔧 FIX: Use real-time amount calculation to prevent race condition
   const hasInsufficientBalance = useMemo(() => {
-    // Don't check balance during URL loading or if not properly initialized
-    if (!urlLoadCompleteRef.current || isLoadingFromURL || !fromToken || !amount || !fromTokenBalance.balance) {
+    // Only check balance if we have all required data AND component is initialized
+    if (!fromToken || !amount || !fromTokenBalance.balance || !isInitializedRef.current) {
       return false
     }
     
@@ -154,13 +155,12 @@ export function SwapInterface() {
         token: fromToken.symbol,
         requestedAmount: amount,
         availableBalance: fromTokenBalance.balanceFormatted,
-        urlLoadComplete: urlLoadCompleteRef.current,
-        isLoadingFromURL
+        isInitialized: isInitializedRef.current
       })
     }
     
     return isInsufficient
-  }, [fromToken, amount, fromTokenBalance.balance, fromTokenBalance.balanceFormatted, isLoadingFromURL])
+  }, [fromToken, amount, fromTokenBalance.balance, fromTokenBalance.balanceFormatted])
 
   // 🔧 FIX: Add real-time balance check function for immediate validation
   const checkInsufficientBalanceRealtime = useCallback((currentAmount: string) => {
@@ -176,416 +176,401 @@ export function SwapInterface() {
     return !hasSufficientBalance(fromTokenBalance.balance, currentAmount, fromToken.decimals)
   }, [fromToken, fromTokenBalance.balance])
 
-  // 🔧 FIX: Enhanced amount change handler with URL sync
+  // 🔧 FIX: Enhanced amount change handler that provides immediate feedback
   const handleAmountChange = useCallback((newAmount: string) => {
     console.log('💰 Amount changing:', {
       oldAmount: amount,
       newAmount,
       fromToken: fromToken?.symbol,
-      urlLoadComplete: urlLoadCompleteRef.current
+      hasBalance: !!fromTokenBalance.balance,
+      balanceFormatted: fromTokenBalance.balanceFormatted
     })
     
     // Update the amount immediately
     setAmount(newAmount)
     
-    // 🔧 FIX: Force immediate URL update for user-initiated changes
-    if (urlLoadCompleteRef.current && forceUpdateURL) {
-      // Small delay to let state update propagate
-      setTimeout(() => forceUpdateURL(true), 10)
+    // For immediate UI feedback, check if this would cause insufficient balance
+    if (newAmount && fromToken && fromTokenBalance.balance) {
+      const wouldBeInsufficient = checkInsufficientBalanceRealtime(newAmount)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 Real-time balance check:', {
+          newAmount,
+          wouldBeInsufficient,
+          currentBalance: fromTokenBalance.balanceFormatted
+        })
+      }
     }
-  }, [amount, fromToken, setAmount, forceUpdateURL])
+  }, [amount, fromToken, fromTokenBalance.balance, fromTokenBalance.balanceFormatted, setAmount, checkInsufficientBalanceRealtime])
 
-  // 🔧 FIX: Enhanced token change handlers with immediate URL sync
-  const handleFromTokenChange = useCallback((token: Token | null) => {
-    console.log('🔄 From token changing:', token?.symbol)
-    setFromToken(token)
-    
-    // Force immediate URL update for token changes
-    if (urlLoadCompleteRef.current && forceUpdateURL) {
-      setTimeout(() => forceUpdateURL(true), 10)
-    }
-  }, [setFromToken, forceUpdateURL])
-
-  const handleToTokenChange = useCallback((token: Token | null) => {
-    console.log('🔄 To token changing:', token?.symbol)
-    setToToken(token)
-    
-    // Force immediate URL update for token changes
-    if (urlLoadCompleteRef.current && forceUpdateURL) {
-      setTimeout(() => forceUpdateURL(true), 10)
-    }
-  }, [setToToken, forceUpdateURL])
-
-  // Default chain ID for token loading
+  // 🔧 FIX: Improved defaultChainId logic - only fallback when NO URL params exist
   const defaultChainId = useMemo(() => {
-    const fromChainId = searchParams.get('fromChain')
-    const toChainId = searchParams.get('toChain')
+    const fromChainParam = searchParams.get('fromChain')
+    const toChainParam = searchParams.get('toChain')
     
-    if (fromChainId) return parseInt(fromChainId, 10)
-    if (toChainId) return parseInt(toChainId, 10)
+    // If we have URL chain params, don't use fallback
+    if (fromChainParam || toChainParam) {
+      return null // No default - use specific chains from URL
+    }
     
-    // Use current chain from auto chain switch hook
+    // Only use fallback when no URL params
     if (currentChain?.id) return currentChain.id
-    
-    return 8453 // Base as default
-  }, [searchParams, currentChain?.id, walletInfo?.chainId])
+    return 8453 // Base as last resort
+  }, [searchParams, currentChain?.id])
 
-  // 🔧 FIX: Add validation helper functions
-  const validateAmount = useCallback((amount: string): boolean => {
-    if (!amount || amount.trim() === '') return false
-    const num = parseFloat(amount)
-    return !isNaN(num) && isFinite(num) && num > 0
-  }, [])
-
-  const validateChainId = useCallback((chainIdStr: string): number | null => {
-    if (!chainIdStr) return null
-    const chainId = parseInt(chainIdStr, 10)
-    if (isNaN(chainId) || chainId <= 0) return null
-    return chainId
-  }, [])
-
-  // 🔧 FIX: Add URL parameter getter with validation
-  const getValidURLParams = useCallback(() => {
-    const params = {
-      amount: searchParams.get('amount'),
-      slippage: searchParams.get('slippage'),
-      from: searchParams.get('from'),
-      to: searchParams.get('to'),
-      fromChain: searchParams.get('fromChain'),
-      toChain: searchParams.get('toChain')
-    }
-
-    // Validate amount
-    if (params.amount && !validateAmount(params.amount)) {
-      console.warn('⚠️ Invalid amount in URL:', params.amount)
-      params.amount = null
-    }
-
-    // Validate slippage
-    if (params.slippage) {
-      const slippageNum = parseFloat(params.slippage)
-      if (isNaN(slippageNum) || slippageNum < 0 || slippageNum > 50) {
-        console.warn('⚠️ Invalid slippage in URL:', params.slippage)
-        params.slippage = null
-      }
-    }
-
-    // Validate chain IDs
-    if (params.fromChain && !validateChainId(params.fromChain)) {
-      console.warn('⚠️ Invalid fromChain in URL:', params.fromChain)
-      params.fromChain = null
-    }
-
-    if (params.toChain && !validateChainId(params.toChain)) {
-      console.warn('⚠️ Invalid toChain in URL:', params.toChain)
-      params.toChain = null
-    }
-
-    return params
-  }, [searchParams, validateAmount, validateChainId])
-
-  // Enhanced token lookup function - Fixed to avoid duplicate API calls
-  const findTokenByParam = useCallback(async (param: string, chainId: number): Promise<Token | null> => {
-    if (!param || param.trim() === '') {
-      console.warn('⚠️ Empty token parameter')
-      return null
-    }
-
-    console.log('🔍 Token lookup:', { param, chainId, isAddress: param.startsWith('0x') })
-
-    // 🔧 FIX: Special handling for native token address
-    const isNativeAddress = param.toLowerCase() === '0x0000000000000000000000000000000000000000'
-    const isAddress = param.startsWith('0x') && param.length === 42
-    
-    if (isNativeAddress) {
-      // For native token address: create native token for specific chain
-      try {
-        console.log('🔧 Creating native token for chain:', chainId)
-        
-        // Create native token based on chainId
-        let nativeToken: Token
-        switch (chainId) {
-          case 8453: // Base
-          case 84532: // Base Sepolia  
-            nativeToken = {
-              address: '0x0000000000000000000000000000000000000000',
-              symbol: 'ETH',
-              name: 'Ethereum',
-              decimals: 18,
-              chainId: chainId,
-              isNative: true,
-              verified: true,
-              popular: true,
-              logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
-            }
-            break
-          case 56: // BSC
-          case 97: // BSC Testnet
-            nativeToken = {
-              address: '0x0000000000000000000000000000000000000000',
-              symbol: 'BNB',
-              name: 'BNB',
-              decimals: 18,
-              chainId: chainId,
-              isNative: true,
-              verified: true,
-              popular: true,
-              logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
-            }
-            break
-          case 1: // Ethereum
-            nativeToken = {
-              address: '0x0000000000000000000000000000000000000000',
-              symbol: 'ETH',
-              name: 'Ethereum',
-              decimals: 18,
-              chainId: chainId,
-              isNative: true,
-              verified: true,
-              popular: true,
-              logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
-            }
-            break
-          default:
-            console.warn('⚠️ Unsupported chain for native token:', chainId)
-            return null
-        }
-        
-        console.log('✅ Created native token:', nativeToken.symbol, 'for chain', chainId)
-        return nativeToken
-      } catch (error) {
-        console.error('❌ Failed to create native token:', error)
-        return null
-      }
-    } else if (isAddress) {
-      // For contract addresses: search by address
-      try {
-        const apiToken = await searchToken(param, chainId)
-        if (apiToken) {
-          console.log('✅ Found token by address:', param, '→', apiToken.symbol, 'on chain', apiToken.chainId)
-          return apiToken
-        }
-        console.warn('⚠️ Token not found by address:', param, 'on chain', chainId)
-        return null
-      } catch (error) {
-        console.warn('❌ Failed to find token by address:', param, error)
-        return null
-      }
-    } else {
-      // For symbols: Try local first, then API
-      // 1. Check local tokens first (faster)
-      if (getTokenBySymbol) {
-        const symbolToken = getTokenBySymbol(param)
-        if (symbolToken && symbolToken.chainId === chainId) {
-          console.log('✅ Found token locally:', param, '→', symbolToken.symbol, 'on chain', symbolToken.chainId)
-          return symbolToken
-        }
-      }
-      
-      // 2. Search via API if not found locally
-      try {
-        const apiToken = await searchToken(param, chainId)
-        if (apiToken) {
-          console.log('✅ Found token by symbol via API:', param, '→', apiToken.symbol, 'on chain', apiToken.chainId)
-          return apiToken
-        }
-        console.warn('⚠️ Token not found by symbol:', param, 'on chain', chainId)
-        return null
-      } catch (error) {
-        console.warn('❌ Failed to find token by symbol:', param, error)
-        return null
-      }
-    }
-  }, [getTokenBySymbol, searchToken])
-
-  // 🔧 FIX: Stable token lookup function to prevent infinite re-renders
-  const findTokenByParamStable = useRef(findTokenByParam)
-  useEffect(() => {
-    findTokenByParamStable.current = findTokenByParam
-  }, [findTokenByParam])
-
-  // ✅ Single useEffect để load ALL URL parameters synchronously
-  // 🔧 FIX: Improved logic with proper state management
-  const lastSearchParamsRef = useRef<string>('')
-  const loadingStateRef = useRef({
-    amount: false,
-    slippage: false,
-    fromToken: false,
-    toToken: false
-  })
-  
+  // 🔧 FIX: Comprehensive URL params loading with proper error handling and retry
   useEffect(() => {
     const currentSearchParams = searchParams.toString()
     
-    // Skip if already loaded and same params
-    if (urlLoadCompleteRef.current && currentSearchParams === lastSearchParamsRef.current) {
+    // Skip if already initialized and params haven't changed
+    if (isInitializedRef.current && currentSearchParams === lastSearchParamsRef.current) {
       return
     }
     
-    // Skip if we don't have defaultChainId yet
-    if (!defaultChainId) {
+    // Skip if no params to load
+    if (!currentSearchParams) {
+      if (!isInitializedRef.current) {
+        isInitializedRef.current = true
+        markInitialized()
+        console.log('✅ No URL params to load, marked as initialized')
+      }
       return
     }
     
     lastSearchParamsRef.current = currentSearchParams
 
-    const loadFromURL = async () => {
-      try {
-        console.log('🔗 Starting URL parameter loading:', {
-          currentSearchParams,
-          defaultChainId,
-          currentChain: currentChain?.id,
-          walletChain: walletInfo?.chainId
-        })
-        setIsLoadingFromURL(true)
-        
-        // Reset loading state
-        loadingStateRef.current = {
-          amount: false,
-          slippage: false,
-          fromToken: false,
-          toToken: false
+    // 🔧 FIX: Define token lookup function inside useEffect to avoid dependency issues
+    const findTokenByParam = async (param: string, chainId: number): Promise<Token | null> => {
+      // 🔍 Detect input type to avoid duplicate calls
+      const isAddress = param.startsWith('0x') && param.length === 42
+      
+      if (isAddress) {
+        // For addresses: ONLY search by address, no fallback
+        try {
+          const apiToken = await searchToken(param, chainId)
+          if (apiToken) {
+            console.log('✅ Found token by address:', param, '→', apiToken.symbol, 'on chain', chainId)
+            return apiToken
+          }
+          console.warn('⚠️ Token not found by address:', param, 'on chain', chainId)
+          return null
+        } catch (error) {
+          console.warn('❌ Failed to find token by address:', param, 'on chain', chainId, error)
+          return null
         }
-
-        // 🔧 FIX: Get validated URL parameters
-        const urlParams = getValidURLParams()
-        console.log('🔗 Validated URL params:', urlParams)
-
-        // 1. Load basic params first (amount, slippage)
-        // 🔧 FIX: Only load if URL has the param AND it's different from current state
-        if (urlParams.amount && urlParams.amount !== amount) {
-          console.log('🔗 Loading amount from URL:', urlParams.amount, '(current:', amount, ')')
-          setAmount(urlParams.amount)
-          loadingStateRef.current.amount = true
-        }
-        
-        if (urlParams.slippage && parseFloat(urlParams.slippage) !== slippage) {
-          console.log('🔗 Loading slippage from URL:', urlParams.slippage, '(current:', slippage, ')')
-          setSlippage(parseFloat(urlParams.slippage))
-          loadingStateRef.current.slippage = true
-        }
-
-        // 2. Load tokens with improved comparison logic
-        // 🔧 FIX: Better fromToken loading logic with explicit chain handling
-        if (urlParams.from) {
-          const targetChainId = urlParams.fromChain ? parseInt(urlParams.fromChain) : defaultChainId
-          const shouldLoadFromToken = !fromToken || 
-            (fromToken.address.toLowerCase() !== urlParams.from.toLowerCase() && 
-             fromToken.symbol.toLowerCase() !== urlParams.from.toLowerCase()) ||
-            fromToken.chainId !== targetChainId
-          
-          console.log('🔍 FromToken loading decision:', {
-            urlParam: urlParams.from,
-            targetChainId,
-            currentToken: fromToken?.symbol,
-            currentChain: fromToken?.chainId,
-            shouldLoad: shouldLoadFromToken
-          })
-          
-          if (shouldLoadFromToken) {
-            console.log('🔍 Looking for fromToken:', urlParams.from, 'on chain:', targetChainId)
-            
-            try {
-              const foundToken = await findTokenByParamStable.current(urlParams.from, targetChainId)
-              if (foundToken) {
-                setFromToken(foundToken)
-                loadingStateRef.current.fromToken = true
-                console.log('✅ Loaded fromToken from URL:', foundToken.symbol, 'on chain', foundToken.chainId)
-              } else {
-                console.warn('⚠️ fromToken not found:', urlParams.from, 'on chain', targetChainId)
-              }
-            } catch (error) {
-              console.error('❌ Error loading fromToken:', error)
-            }
-          } else {
-            console.log('✅ fromToken already matches URL:', fromToken?.symbol, 'on chain', fromToken?.chainId)
+      } else {
+        // For symbols: Try local first, then API
+        // 1. Check local tokens first (faster)
+        if (getTokenBySymbol) {
+          const symbolToken = getTokenBySymbol(param)
+          if (symbolToken && symbolToken.chainId === chainId) {
+            console.log('✅ Found token locally:', param, '→', symbolToken.symbol, 'on chain', chainId)
+            return symbolToken
           }
         }
-
-        // 🔧 FIX: Better toToken loading logic with explicit chain handling
-        if (urlParams.to) {
-          const targetChainId = urlParams.toChain ? parseInt(urlParams.toChain) : defaultChainId
-          const shouldLoadToToken = !toToken || 
-            (toToken.address.toLowerCase() !== urlParams.to.toLowerCase() && 
-             toToken.symbol.toLowerCase() !== urlParams.to.toLowerCase()) ||
-            toToken.chainId !== targetChainId
-          
-          console.log('🔍 ToToken loading decision:', {
-            urlParam: urlParams.to,
-            targetChainId,
-            currentToken: toToken?.symbol,
-            currentChain: toToken?.chainId,
-            shouldLoad: shouldLoadToToken
-          })
-          
-          if (shouldLoadToToken) {
-            console.log('🔍 Looking for toToken:', urlParams.to, 'on chain:', targetChainId)
-            
-            try {
-              const foundToken = await findTokenByParamStable.current(urlParams.to, targetChainId)
-              if (foundToken) {
-                setToToken(foundToken)
-                loadingStateRef.current.toToken = true
-                console.log('✅ Loaded toToken from URL:', foundToken.symbol, 'on chain', foundToken.chainId)
-              } else {
-                console.warn('⚠️ toToken not found:', urlParams.to, 'on chain', targetChainId)
-              }
-            } catch (error) {
-              console.error('❌ Error loading toToken:', error)
-            }
-          } else {
-            console.log('✅ toToken already matches URL:', toToken?.symbol, 'on chain', toToken?.chainId)
+        
+        // 2. Search via API if not found locally
+        try {
+          const apiToken = await searchToken(param, chainId)
+          if (apiToken) {
+            console.log('✅ Found token by symbol via API:', param, '→', apiToken.symbol, 'on chain', chainId)
+            return apiToken
           }
+          console.warn('⚠️ Token not found by symbol:', param, 'on chain', chainId)
+          return null
+        } catch (error) {
+          console.warn('❌ Failed to find token by symbol:', param, 'on chain', chainId, error)
+          return null
         }
-
-        // 3. Mark URL loading as complete
-        urlLoadCompleteRef.current = true
-        setIsLoadingFromURL(false)
-        
-        // 4. Initialize URL sync AFTER loading is complete
-        markInitialized()
-        
-        console.log('✅ URL params loading completed:', {
-          amountLoaded: loadingStateRef.current.amount,
-          slippageLoaded: loadingStateRef.current.slippage,
-          fromTokenLoaded: loadingStateRef.current.fromToken,
-          toTokenLoaded: loadingStateRef.current.toToken,
-          currentParams: currentSearchParams
-        })
-        
-      } catch (error) {
-        console.error('❌ Failed to load params from URL:', error)
-        setIsLoadingFromURL(false)
-        // Still mark as complete to prevent infinite loading
-        urlLoadCompleteRef.current = true
-        markInitialized()
       }
     }
 
-    loadFromURL()
+    const loadFromURL = async () => {
+      const attemptNumber = ++urlLoadAttemptsRef.current
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔗 Loading URL params (attempt ${attemptNumber}):`, {
+          params: currentSearchParams,
+          hasFromToken: !!fromToken,
+          hasToToken: !!toToken,
+          hasAmount: !!amount,
+          hasSlippage: !!slippage
+        })
+      }
+
+      try {
+        let hasLoadedAnyParam = false
+
+        // 1. Load basic params first (amount, slippage)
+        const amountParam = searchParams.get('amount')
+        const slippageParam = searchParams.get('slippage')
+        
+        if (amountParam && amountParam !== amount) {
+          setAmount(amountParam)
+          hasLoadedAnyParam = true
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 Loading amount from URL:', amountParam)
+          }
+        }
+        
+        if (slippageParam && parseFloat(slippageParam) !== slippage) {
+          setSlippage(parseFloat(slippageParam))
+          hasLoadedAnyParam = true
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 Loading slippage from URL:', slippageParam)
+          }
+        }
+
+        // 2. Load tokens with explicit chain IDs from URL
+        const fromTokenParam = searchParams.get('from')
+        const toTokenParam = searchParams.get('to') 
+        const fromChainParam = searchParams.get('fromChain')
+        const toChainParam = searchParams.get('toChain')
+        
+        // 🔧 FIX: Load fromToken only if URL params specify it and it's different from current
+        if (fromTokenParam && fromChainParam) {
+          const chainId = parseInt(fromChainParam, 10)
+          const shouldLoad = !fromToken || 
+                           fromToken.address.toLowerCase() !== fromTokenParam.toLowerCase() ||
+                           fromToken.chainId !== chainId
+          
+          if (shouldLoad) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🔗 Attempting to load fromToken:', {
+                param: fromTokenParam,
+                chainId,
+                reason: !fromToken ? 'No current token' :
+                       fromToken.address.toLowerCase() !== fromTokenParam.toLowerCase() ? 'Different address' :
+                       fromToken.chainId !== chainId ? 'Different chain' : 'Unknown'
+              })
+            }
+            
+            const foundToken = await findTokenByParam(fromTokenParam, chainId)
+            if (foundToken) {
+              setFromToken(foundToken)
+              hasLoadedAnyParam = true
+              if (process.env.NODE_ENV === 'development') {
+                console.log('✅ Loaded fromToken from URL:', foundToken.symbol, 'on chain', foundToken.chainId)
+              }
+            } else {
+              console.warn('❌ Failed to load fromToken from URL:', {
+                param: fromTokenParam,
+                chainId
+              })
+            }
+          }
+        }
+
+        // 🔧 FIX: Load toToken only if URL params specify it and it's different from current
+        if (toTokenParam && toChainParam) {
+          const chainId = parseInt(toChainParam, 10)
+          const shouldLoad = !toToken || 
+                           toToken.address.toLowerCase() !== toTokenParam.toLowerCase() ||
+                           toToken.chainId !== chainId
+          
+          if (shouldLoad) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🔗 Attempting to load toToken:', {
+                param: toTokenParam,
+                chainId,
+                reason: !toToken ? 'No current token' :
+                       toToken.address.toLowerCase() !== toTokenParam.toLowerCase() ? 'Different address' :
+                       toToken.chainId !== chainId ? 'Different chain' : 'Unknown'
+              })
+            }
+            
+            const foundToken = await findTokenByParam(toTokenParam, chainId)
+            if (foundToken) {
+              setToToken(foundToken)
+              hasLoadedAnyParam = true
+              if (process.env.NODE_ENV === 'development') {
+                console.log('✅ Loaded toToken from URL:', foundToken.symbol, 'on chain', foundToken.chainId)
+              }
+            } else {
+              console.warn('❌ Failed to load toToken from URL:', {
+                param: toTokenParam,
+                chainId
+              })
+            }
+          }
+        }
+
+        // 3. Mark as initialized after successful attempt
+        if (!isInitializedRef.current) {
+          isInitializedRef.current = true
+          markInitialized()
+          urlLoadAttemptsRef.current = 0 // Reset attempts on success
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log('✅ URL params loading completed:', {
+              hasLoadedAnyParam,
+              fromToken: fromToken?.symbol,
+              toToken: toToken?.symbol,
+              amount,
+              slippage
+            })
+          }
+        }
+
+      } catch (error) {
+        console.error('❌ Failed to load params from URL (attempt', attemptNumber, '):', error)
+        
+        // Retry logic
+        if (attemptNumber < maxRetryAttempts) {
+          console.log(`🔄 Retrying URL load in 1 second (attempt ${attemptNumber + 1}/${maxRetryAttempts})`)
+          setTimeout(() => {
+            // Trigger retry by clearing lastSearchParamsRef
+            lastSearchParamsRef.current = ''
+          }, 1000)
+        } else {
+          // Give up after max attempts
+          console.error('❌ Max retry attempts reached, marking as initialized anyway')
+          if (!isInitializedRef.current) {
+            isInitializedRef.current = true
+            markInitialized()
+            urlLoadAttemptsRef.current = 0
+          }
+        }
+      }
+    }
+
+    // Only load if we have search params to load
+    if (currentSearchParams) {
+      loadFromURL()
+    }
   }, [
-    // 🔧 FIX: Minimal stable dependencies to prevent infinite loops
     searchParams.toString(),
-    defaultChainId,
-    getValidURLParams,
-    markInitialized
-    // Note: Removed amount, slippage, fromToken, toToken from deps to prevent loops
-    // The conditionals inside handle state comparison
+    setAmount,
+    setSlippage,
+    setFromToken,
+    setToToken,
+    markInitialized,
+    getTokenBySymbol,
+    searchToken
+    // 🔧 FIX: Only essential stable dependencies
   ])
 
-  // 🔧 FIX: Add debugging for current state
+  // 🔧 FIX: Listen to auto chain switch events and update URL accordingly
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🎯 Current swap state:', {
-        fromToken: fromToken?.symbol,
-        toToken: toToken?.symbol,
-        amount,
-        slippage,
-        isInitialized: isInitializedRef.current,
-        urlParams: searchParams.toString()
-      })
+    const handleChainSwitchSuccess = (event: CustomEvent) => {
+      const { chainId, smartWalletClient: newSmartWalletClient } = event.detail
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔗 Auto chain switch success detected, updating URL:', {
+          newChainId: chainId,
+          fromToken: fromToken?.symbol,
+          fromTokenChain: fromToken?.chainId,
+          isInitialized: isInitializedRef.current
+        })
+      }
+      
+      // Force URL update if we have fromToken and it matches the switched chain
+      if (fromToken && fromToken.chainId === chainId && isInitializedRef.current) {
+        // Trigger URL sync by temporarily updating a ref and forcing re-render
+        const urlParams: Record<string, string | null> = {}
+        
+        if (fromToken) {
+          urlParams.from = fromToken.address
+          urlParams.fromChain = fromToken.chainId.toString()
+        }
+        
+        if (toToken) {
+          urlParams.to = toToken.address
+          urlParams.toChain = toToken.chainId.toString()
+        }
+        
+        if (amount && amount !== '0') {
+          urlParams.amount = amount
+          urlParams.exactField = 'input'
+        }
+        
+        if (slippage && slippage !== 0.5) {
+          urlParams.slippage = slippage.toString()
+        }
+        
+        // Build query string
+        const queryParts: string[] = []
+        Object.entries(urlParams).forEach(([key, value]) => {
+          if (value !== null && value !== undefined && value !== '') {
+            queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+          }
+        })
+        
+        const queryString = queryParts.join('&')
+        const newUrl = queryString ? `/swap?${queryString}` : '/swap'
+        
+        // Check if URL actually needs updating
+        const currentUrl = `${window.location.pathname}${window.location.search}`
+        const expectedUrl = newUrl
+        
+        if (currentUrl !== expectedUrl) {
+          // Update URL immediately
+          window.history.replaceState(null, '', newUrl)
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 URL updated after chain switch:', {
+              from: currentUrl,
+              to: newUrl,
+              params: urlParams
+            })
+          }
+        } else {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 URL already correct after chain switch:', currentUrl)
+          }
+        }
+      } else {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔗 Skipping URL update after chain switch:', {
+            hasFromToken: !!fromToken,
+            chainMatch: fromToken?.chainId === chainId,
+            isInitialized: isInitializedRef.current,
+            reason: !fromToken ? 'No fromToken' : 
+                   fromToken.chainId !== chainId ? 'Chain mismatch' : 
+                   !isInitializedRef.current ? 'Not initialized' : 'Unknown'
+          })
+        }
+      }
     }
-  }, [fromToken, toToken, amount, slippage, searchParams])
+
+    // Listen to custom events from useAutoChainSwitch
+    if (typeof window !== 'undefined') {
+      window.addEventListener('auto-chain-switch-success', handleChainSwitchSuccess as EventListener)
+      
+      return () => {
+        window.removeEventListener('auto-chain-switch-success', handleChainSwitchSuccess as EventListener)
+      }
+    }
+  }, [fromToken, toToken, amount, slippage])
+
+  // 🔧 FIX: Also listen to direct chain switch completion via state change
+  useEffect(() => {
+    if (chainSwitchSuccess && fromToken && currentChain && fromToken.chainId === currentChain.id) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔗 Chain switch success state detected, ensuring URL sync:', {
+          fromTokenChain: fromToken.chainId,
+          currentChain: currentChain.id,
+          chainName: currentChain.name,
+          isInitialized: isInitializedRef.current
+        })
+      }
+      
+      // Small delay to ensure all state is settled, then trigger URL sync
+      const timeoutId = setTimeout(() => {
+        if (fromToken && isInitializedRef.current) {
+          // Force trigger URL sync by creating a new object reference
+          // This will trigger the useUrlSync effect without changing the actual token
+          const newFromToken = { ...fromToken }
+          setFromToken(newFromToken)
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔗 Triggered URL sync via fromToken update')
+          }
+        }
+      }, 100)
+      
+      return () => clearTimeout(timeoutId)
+    }
+  }, [chainSwitchSuccess, fromToken, currentChain, setFromToken])
 
   // Determine active quote - priority: manual selection > best quote > first quote
   const activeQuote = useMemo(() => {
@@ -697,13 +682,13 @@ export function SwapInterface() {
   // Token selection handlers
   const handleFromTokenSelect = useCallback((token: Token) => {
     setShowFromTokenSelector(false)
-    handleFromTokenChange(token)
-  }, [handleFromTokenChange])
+    setFromToken(token)
+  }, [setFromToken])
 
   const handleToTokenSelect = useCallback((token: Token) => {
     setShowToTokenSelector(false)
-    handleToTokenChange(token)
-  }, [handleToTokenChange])
+    setToToken(token)
+  }, [setToToken])
 
   const handleSelectQuote = useCallback((quote: any) => {
     console.log('📌 User manually selected quote:', {

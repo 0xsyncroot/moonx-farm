@@ -1,16 +1,15 @@
 /** @type {import('next').NextConfig} */
+const TerserPlugin = require('terser-webpack-plugin');
+
 const nextConfig = {
-  // Enable standalone output for Docker deployment
   output: 'standalone',
 
-  swcMinify: true,           // bật SWC minification
-  
-  // Disable ESLint during production builds
+  swcMinify: true,
+
   eslint: {
     ignoreDuringBuilds: true,
   },
 
-  // Disable TypeScript checking during builds (optional)
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -18,14 +17,15 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
   },
+
   transpilePackages: ['@moonx-farm/common', '@moonx-farm/configs'],
+
   images: {
     remotePatterns: [
       {
         protocol: 'https',
         hostname: 'assets.coingecko.com',
         port: '',
-        // bất kỳ đường dẫn con nào dưới /coins/images/
         pathname: '/coins/images/**',
       },
       {
@@ -34,10 +34,25 @@ const nextConfig = {
       },
     ],
   },
-  webpack: (config) => {
+
+  webpack: (config, { dev, isServer }) => {
     config.resolve.fallback = { fs: false, net: false, tls: false };
+
+    if (!dev && !isServer) {
+      config.optimization.minimizer.push(
+        new TerserPlugin({
+          terserOptions: {
+            compress: {
+              drop_console: ['log', 'info', 'warn', 'debug'], // Xóa console nhưng giữ lại console.error
+              drop_debugger: true,
+            },
+          },
+        })
+      );
+    }
+
     return config;
   },
 };
 
-module.exports = nextConfig; 
+module.exports = nextConfig;

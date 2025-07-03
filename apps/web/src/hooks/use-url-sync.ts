@@ -13,86 +13,65 @@ export function useUrlSync({ fromToken, toToken, amount, slippage }: UseUrlSyncP
   const router = useRouter()
   const searchParams = useSearchParams()
   const isInitializedRef = useRef(false)
-  const lastUpdateRef = useRef<number>(0)
-  const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null)
+  const lastURLUpdateRef = useRef<string>('')
+  const lastChainUpdateRef = useRef<{ fromChain?: number, toChain?: number }>({})
 
-  // 🔧 FIX: Improved URL update function with smarter debouncing
-  const updateURL = useCallback((params: Record<string, string | null>, immediate = false) => {
-    // Clear any pending updates
-    if (pendingUpdateRef.current) {
-      clearTimeout(pendingUpdateRef.current)
-      pendingUpdateRef.current = null
-    }
-
-    const performUpdate = () => {
-      // Build query string directly without URLSearchParams overhead
-      const queryParts: string[] = []
-      
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== null && value !== undefined && value !== '') {
-          queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-        }
-      })
-      
-      const queryString = queryParts.join('&')
-      const newUrl = queryString ? `/swap?${queryString}` : '/swap'
-      
-      // Skip update if URL hasn't changed
-      const currentUrl = `${window.location.pathname}${window.location.search}`
-      if (currentUrl === newUrl) return
-      
-      // Update URL and track when we last updated
-      router.replace(newUrl, { scroll: false })
-      lastUpdateRef.current = Date.now()
-      
-      console.log('🔗 URL updated:', newUrl)
-    }
-
-    if (immediate) {
-      // For immediate updates (like when user explicitly changes something)
-      performUpdate()
-    } else {
-      // 🔧 FIX: Reduced debounce from 800ms to 300ms for better responsiveness  
-      pendingUpdateRef.current = setTimeout(performUpdate, 300)
-    }
+  // URL update function - optimized for speed
+  const updateURL = useCallback((params: Record<string, string | null>) => {
+    // Build query string directly without URLSearchParams overhead
+    const queryParts: string[] = []
+    
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== null && value !== undefined && value !== '') {
+        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      }
+    })
+    
+    const queryString = queryParts.join('&')
+    const newUrl = queryString ? `/swap?${queryString}` : '/swap'
+    
+    // Skip update if URL hasn't changed
+    const currentUrl = `${window.location.pathname}${window.location.search}`
+    if (currentUrl === newUrl) return
+    
+    router.replace(newUrl, { scroll: false })
   }, [router])
 
-  // 🔧 FIX: Enhanced URL sync with better state tracking
+  // Update URL when state changes
   useEffect(() => {
-    // Only sync URL if component is properly initialized
-    if (!isInitializedRef.current) return
-
-    // 🔧 FIX: Prevent updating URL immediately after loading from URL
-    const timeSinceLastUpdate = Date.now() - lastUpdateRef.current
-    if (timeSinceLastUpdate < 1000) {
-      console.log('⏳ Skipping URL update - too soon after last update')
-      return
-    }
+    if (!isInitializedRef.current) return // Skip during initialization
 
     const params: Record<string, string | null> = {}
     
-    // Add from token params
     if (fromToken) {
       params.from = fromToken.address
       params.fromChain = fromToken.chainId.toString()
     }
     
-    // Add to token params
     if (toToken) {
       params.to = toToken.address
       params.toChain = toToken.chainId.toString()
     }
     
-    // Add amount if it's a valid non-zero value
-    if (amount && amount !== '0' && !isNaN(parseFloat(amount))) {
+    if (amount && amount !== '0') {
       params.amount = amount
       params.exactField = 'input'
     }
     
-    // Add slippage if it's not the default
     if (slippage && slippage !== 0.5) {
       params.slippage = slippage.toString()
     }
+    
+    // 🔧 FIX: Detect chain changes for immediate URL update
+    const currentChains = {
+      fromChain: fromToken?.chainId,
+      toChain: toToken?.chainId
+    }
+    
+    const chainChanged = (
+      currentChains.fromChain !== lastChainUpdateRef.current.fromChain ||
+      currentChains.toChain !== lastChainUpdateRef.current.toChain
+    )
     
     // Create URL string for comparison
     const urlString = Object.entries(params)
@@ -100,71 +79,43 @@ export function useUrlSync({ fromToken, toToken, amount, slippage }: UseUrlSyncP
       .map(([key, value]) => `${key}=${value}`)
       .join('&')
     
-    // Get current URL params for comparison
-    const currentUrlString = searchParams.toString()
-    
-    // Only update if URL actually needs to change
-    if (urlString !== currentUrlString) {
-      console.log('🔄 URL sync triggered:', {
-        from: urlString !== currentUrlString ? 'changed' : 'same',
-        newParams: urlString,
-        currentParams: currentUrlString
-      })
-      updateURL(params)
-    }
-  }, [fromToken?.address, fromToken?.chainId, toToken?.address, toToken?.chainId, amount, slippage, updateURL, searchParams])
-
-  // 🔧 FIX: Enhanced initialization function with proper state management
-  const markInitialized = useCallback(() => {
-    if (!isInitializedRef.current) {
-      isInitializedRef.current = true
-      // Mark the time when we initialized to prevent immediate URL overwrites
-      lastUpdateRef.current = Date.now()
-      console.log('✅ URL sync initialized - will start syncing URL changes')
-    }
-  }, [])
-
-  // 🔧 FIX: Force immediate URL update function for user actions
-  const forceUpdateURL = useCallback((immediate = true) => {
-    if (!isInitializedRef.current) return
-
-    const params: Record<string, string | null> = {}
-    
-    if (fromToken) {
-      params.from = fromToken.address
-      params.fromChain = fromToken.chainId.toString()
-    }
-    
-    if (toToken) {
-      params.to = toToken.address
-      params.toChain = toToken.chainId.toString()
-    }
-    
-    if (amount && amount !== '0' && !isNaN(parseFloat(amount))) {
-      params.amount = amount
-      params.exactField = 'input'
-    }
-    
-    if (slippage && slippage !== 0.5) {
-      params.slippage = slippage.toString()
-    }
-
-    updateURL(params, immediate)
-  }, [fromToken, toToken, amount, slippage, updateURL])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (pendingUpdateRef.current) {
-        clearTimeout(pendingUpdateRef.current)
+    // Only update if URL actually changed
+    if (urlString !== lastURLUpdateRef.current) {
+      lastURLUpdateRef.current = urlString
+      lastChainUpdateRef.current = currentChains
+      
+      if (chainChanged) {
+        // 🔧 FIX: Immediate update for chain changes (no debounce)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔗 Chain change detected, immediate URL update:', {
+            fromChain: currentChains.fromChain,
+            toChain: currentChains.toChain,
+            previousChains: lastChainUpdateRef.current
+          })
+        }
+        updateURL(params)
+      } else {
+        // Regular debounce for other changes (amount, slippage)
+        const timeoutId = setTimeout(() => {
+          updateURL(params)
+        }, 800)
+        
+        return () => clearTimeout(timeoutId)
       }
+    } else {
+      // Update chain ref even if URL didn't change
+      lastChainUpdateRef.current = currentChains
     }
+  }, [fromToken?.address, fromToken?.chainId, toToken?.address, toToken?.chainId, amount, slippage, updateURL])
+
+  // Mark as initialized
+  const markInitialized = useCallback(() => {
+    isInitializedRef.current = true
   }, [])
 
   return {
     searchParams,
     markInitialized,
-    forceUpdateURL,
     isInitialized: isInitializedRef.current
   }
 } 

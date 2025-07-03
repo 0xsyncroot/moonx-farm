@@ -17,13 +17,13 @@ func NewTokenUtils() *TokenUtils {
 // GetTokenDecimals gets token decimals with comprehensive multi-chain support
 func (tu *TokenUtils) GetTokenDecimals(tokenAddress string, chainID int) (int, error) {
 	normalizedAddress := strings.ToLower(strings.TrimSpace(tokenAddress))
-	
+
 	// Handle native tokens (always 18 decimals)
-	if normalizedAddress == "0x0000000000000000000000000000000000000000" || 
-	   normalizedAddress == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" {
+	if normalizedAddress == "0x0000000000000000000000000000000000000000" ||
+		normalizedAddress == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" {
 		return 18, nil
 	}
-	
+
 	// Handle known tokens by chain
 	switch chainID {
 	case 1: // Ethereum Mainnet
@@ -53,8 +53,7 @@ func (tu *TokenUtils) GetTokenDecimals(tokenAddress string, chainID int) (int, e
 			return 6, nil
 		case "0x50c5725949a6f0c72e6c4a641f24049a917db0cb": // DAI
 			return 18, nil
-		case "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca": // USDbC (Bridged USDC)
-			return 6, nil
+		// Removed USDbC due to low liquidity
 		case "0x940181a94a35a4569e4529a3cdfb74e38fd98631": // AERO
 			return 18, nil
 		case "0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22": // cbETH
@@ -68,8 +67,7 @@ func (tu *TokenUtils) GetTokenDecimals(tokenAddress string, chainID int) (int, e
 			return 18, nil
 		case "0x55d398326f99059ff775485246999027b3197955": // USDT
 			return 18, nil
-		case "0xe9e7cea3dedca5984780bafc599bd69add087d56": // BUSD
-			return 18, nil
+		// Note: BUSD removed due to Binance deprecation
 		case "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe": // XRP
 			return 18, nil
 		case "0x2170ed0880ac9a755fd29b2688956bd959f933f8": // ETH
@@ -159,7 +157,7 @@ func (tu *TokenUtils) GetTokenDecimals(tokenAddress string, chainID int) (int, e
 			return 8, nil
 		}
 	}
-	
+
 	// Fallback: call onchain to get decimals
 	return tu.getTokenDecimalsFromContract(normalizedAddress, chainID)
 }
@@ -172,15 +170,15 @@ func (tu *TokenUtils) getTokenDecimalsFromContract(tokenAddress string, chainID 
 		"tokenAddress": tokenAddress,
 		"chainID":      chainID,
 	}).Warn("⚠️ Token decimals not found in known list, using default 18. TODO: implement onchain lookup")
-	
+
 	return 18, nil
 }
 
 // IsNativeToken checks if a token address represents the native token
 func (tu *TokenUtils) IsNativeToken(tokenAddress string) bool {
 	normalizedAddress := strings.ToLower(strings.TrimSpace(tokenAddress))
-	return normalizedAddress == "0x0000000000000000000000000000000000000000" || 
-		   normalizedAddress == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	return normalizedAddress == "0x0000000000000000000000000000000000000000" ||
+		normalizedAddress == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 }
 
 // GetNativeTokenSymbol returns the native token symbol for a chain
@@ -210,7 +208,7 @@ func (tu *TokenUtils) GetNativeTokenSymbol(chainID int) string {
 // IsStablecoin checks if a token is a known stablecoin
 func (tu *TokenUtils) IsStablecoin(tokenAddress string, chainID int) bool {
 	normalizedAddress := strings.ToLower(strings.TrimSpace(tokenAddress))
-	
+
 	stablecoins := map[int]map[string]bool{
 		1: { // Ethereum
 			"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": true, // USDC
@@ -220,12 +218,12 @@ func (tu *TokenUtils) IsStablecoin(tokenAddress string, chainID int) bool {
 		8453: { // Base
 			"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": true, // USDC
 			"0x50c5725949a6f0c72e6c4a641f24049a917db0cb": true, // DAI
-			"0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca": true, // USDbC
+			// Removed USDbC due to low liquidity
 		},
 		56: { // BSC
 			"0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": true, // USDC
 			"0x55d398326f99059ff775485246999027b3197955": true, // USDT
-			"0xe9e7cea3dedca5984780bafc599bd69add087d56": true, // BUSD
+			// Note: BUSD removed due to Binance deprecation
 		},
 		137: { // Polygon
 			"0x2791bca1f2de4661ed88a30c99a7a9449aa84174": true, // USDC
@@ -243,10 +241,10 @@ func (tu *TokenUtils) IsStablecoin(tokenAddress string, chainID int) bool {
 			"0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": true, // DAI
 		},
 	}
-	
+
 	if chainStables, exists := stablecoins[chainID]; exists {
 		return chainStables[normalizedAddress]
 	}
-	
+
 	return false
-} 
+}
