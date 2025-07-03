@@ -43,7 +43,7 @@
     "account-abstraction"
   ],
   "author": "MoonX Farm Team",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "homepage": "https://moonx.farm",
   "repository": {
     "type": "git",

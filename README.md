@@ -483,23 +483,7 @@ docker-compose -f docker-compose.yml up -d
 
 ## 📄 License
 
-This project is licensed under the **MoonXFarm DEX License v1.0** - see the [LICENSE](LICENSE) file for details.
-
-### License Overview
-- **Personal/Educational Use**: ✅ Permitted
-- **Research & Development**: ✅ Permitted  
-- **Non-commercial DeFi Protocols**: ✅ Permitted
-- **Commercial Use**: ❌ Requires licensing agreement
-- **Direct Competition**: ❌ Not permitted
-
-### Commercial Licensing
-For commercial use, enterprise deployments, or integration into commercial DeFi protocols, please contact: **licensing@moonxfarm.com**
-
-### Key Provisions
-- Smart contracts are subject to the same license terms
-- AI components may have additional restrictions
-- Users must comply with applicable laws and regulations
-- Security audits are the responsibility of users
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support & Community
 

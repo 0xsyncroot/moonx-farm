@@ -1,70 +1,21 @@
-MoonXFarm DEX License v1.0
+MIT License
 
 Copyright (c) 2025 MoonXFarm DEX
 
-This software and associated documentation files (the "Software") are licensed under the MoonXFarm DEX License v1.0 (the "License"). You may not use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software except in compliance with the License.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-TERMS AND CONDITIONS:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-1. DEFINITIONS
-   - "Software" means the MoonXFarm DEX platform, including all source code, documentation, smart contracts, and related materials.
-   - "Commercial Use" means any use of the Software primarily intended for commercial advantage or monetary compensation.
-   - "DeFi Protocol" means any decentralized finance protocol, exchange, or application.
-   - "Derivative Work" means any work based upon the Software.
-
-2. PERMITTED USES
-   You are permitted to:
-   - Use the Software for personal, educational, and research purposes
-   - Modify the Software for personal use
-   - Distribute unmodified copies of the Software
-   - Contribute to the Software through pull requests and issues
-   - Use the Software in non-commercial DeFi protocols
-
-3. RESTRICTED USES
-   You are NOT permitted to:
-   - Use the Software for commercial purposes without explicit written permission
-   - Create derivative works for commercial distribution
-   - Integrate the Software into commercial DeFi protocols without licensing
-   - Use the Software to compete directly with MoonXFarm DEX
-   - Remove or modify copyright notices and license terms
-
-4. COMMERCIAL LICENSING
-   For commercial use, including but not limited to:
-   - Integration into commercial DeFi protocols
-   - White-label solutions
-   - Enterprise deployments
-   - Revenue-generating services
-   
-   Please contact: licensing@moonxfarm.com
-
-5. SMART CONTRACT PROVISIONS
-   - Smart contracts deployed on public blockchains are subject to the same license terms
-   - Any fork or modification of deployed contracts must comply with this license
-   - Contract addresses and deployment information must be publicly disclosed
-
-6. AI COMPONENTS
-   - AI assistant components are proprietary and may have additional restrictions
-   - AI training data and models are not included in this license
-   - AI integration APIs require separate licensing
-
-7. DISCLAIMER OF WARRANTIES
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-8. SECURITY AND AUDITS
-   - Users are responsible for conducting their own security audits
-   - The Software has not been audited for production use
-   - Use at your own risk in production environments
-
-9. COMPLIANCE
-   - Users must comply with all applicable laws and regulations
-   - DeFi protocols must implement appropriate KYC/AML measures
-   - Users are responsible for tax compliance
-
-10. TERMINATION
-    This license automatically terminates if you fail to comply with its terms.
-
-For questions about this license, please contact: legal@moonxfarm.com
-
----
-
-This license is designed specifically for DeFi projects and may be updated. Please check the latest version at: https://github.com/0xsyncroot/moonx-farm/blob/master/LICENSE 
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE. 
