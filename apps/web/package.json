@@ -7,14 +7,15 @@
     "build": "next build",
     "build:production": "next build",
     "build:clean": "next build --no-lint",
+    "export": "next build",
     "start": "next start",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@moonx-farm/common": "^1.0.5",
-    "@moonx-farm/configs": "^1.0.0",
+    "@moonx-farm/common": "^1.0.6",
+    "@moonx-farm/configs": "^1.0.1",
     "@permissionless/wagmi": "^0.1.4",
     "@privy-io/react-auth": "^2.3.0",
     "@radix-ui/react-alert-dialog": "^1.0.5",
