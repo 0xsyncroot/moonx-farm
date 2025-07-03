@@ -215,4 +215,12 @@ pnpm add-facets
 
 ## 📄 License
 
-MIT License - see LICENSE file for details.
+MoonXFarm DEX License v1.0 - see LICENSE file for details.
+
+### Smart Contract Licensing
+- Smart contracts deployed on public blockchains are subject to the same license terms
+- Any fork or modification of deployed contracts must comply with this license
+- Contract addresses and deployment information must be publicly disclosed
+
+### Commercial Use
+For commercial use or integration into commercial DeFi protocols, please contact: **contact@moonxfarm.com**
