@@ -1,43 +1,54 @@
-# Core Service API - MoonXFarm DEX
+# Core Service API Documentation
 
 **Service**: Core Platform Service  
 **Port**: 3007  
 **Base URL**: `/api/v1`  
-**Status**: ✅ Production Ready
+**Status**: ✅ Production Ready  
+**Last Updated**: January 2025
 
 ## 🎯 Overview
 
-Core Service provides the central platform APIs for order management, portfolio tracking, and P&L calculation with Alchemy integration across 5 chains.
+The Core Service provides centralized platform APIs for order management, portfolio tracking, and P&L analytics. It integrates with Alchemy API for multi-chain portfolio sync and provides enterprise-grade data operations.
 
-## 🔧 Order Management APIs
+## 🔑 Authentication
+
+All endpoints require JWT authentication:
+```typescript
+Authorization: Bearer <jwt_token>
+```
+
+## 📋 Order Management APIs
 
 ### Create Order
 ```typescript
 POST /api/v1/orders
 ```
 
-**Request Body**:
+**Request Body:**
 ```typescript
 {
   "type": "LIMIT" | "DCA",
-  "tokenIn": "0x...",
-  "tokenOut": "0x...", 
-  "amountIn": "1000000000000000000",
-  "targetPrice"?: "2500.50",      // For LIMIT orders
-  "frequency"?: "DAILY",          // For DCA orders  
-  "maxExecutions"?: 10,           // For DCA orders
-  "expiresAt": "2025-02-15T00:00:00Z"
+  "fromToken": "0x...", // Token contract address
+  "toToken": "0x...",   // Target token address
+  "fromAmount": "1000000000000000000", // Amount in wei
+  "limitPrice": "2500.50", // Price threshold
+  "chainId": 8453,      // Base mainnet
+  "dcaSettings"?: {     // Required for DCA orders
+    "interval": 3600,   // Seconds between executions
+    "totalExecutions": 10
+  }
 }
 ```
 
-**Response**:
+**Response:**
 ```typescript
 {
   "success": true,
   "data": {
-    "orderId": "550e8400-e29b-41d4-a716-446655440000",
+    "orderId": "uuid",
     "status": "PENDING",
-    "createdAt": "2025-01-16T10:30:00.000Z"
+    "createdAt": "2025-01-16T10:30:00.000Z",
+    "estimatedGas": "150000"
   },
   "message": "Order created successfully",
   "timestamp": "2025-01-16T10:30:00.000Z"
@@ -46,10 +57,17 @@ POST /api/v1/orders
 
 ### List Orders
 ```typescript
-GET /api/v1/orders?status=PENDING&page=1&limit=20
+GET /api/v1/orders?status=ACTIVE&limit=20&offset=0
 ```
 
-**Response**:
+**Query Parameters:**
+- `status`: `PENDING` | `ACTIVE` | `COMPLETED` | `CANCELLED`
+- `type`: `LIMIT` | `DCA`
+- `chainId`: Network ID filter
+- `limit`: Records per page (default: 20, max: 100)
+- `offset`: Pagination offset
+
+**Response:**
 ```typescript
 {
   "success": true,
@@ -58,47 +76,76 @@ GET /api/v1/orders?status=PENDING&page=1&limit=20
       {
         "orderId": "uuid",
         "type": "LIMIT",
-        "status": "PENDING",
-        "tokenIn": "0x...",
-        "tokenOut": "0x...",
-        "amountIn": "1000000000000000000",
-        "targetPrice": "2500.50",
+        "status": "ACTIVE",
+        "fromToken": "0x...",
+        "toToken": "0x...",
+        "fromAmount": "1000000000000000000",
+        "limitPrice": "2500.50",
+        "chainId": 8453,
         "executionCount": 0,
-        "createdAt": "2025-01-16T10:30:00.000Z"
+        "totalExecutions": 1,
+        "createdAt": "2025-01-16T10:30:00.000Z",
+        "updatedAt": "2025-01-16T10:30:00.000Z"
       }
     ],
     "pagination": {
-      "page": 1,
-      "limit": 20,
       "total": 45,
+      "limit": 20,
+      "offset": 0,
       "hasMore": true
     }
   }
 }
 ```
 
+### Get Active Orders Only
+```typescript
+GET /api/v1/orders/active
+```
+
+Returns only orders with status `PENDING` or `ACTIVE`.
+
 ### Get Order Details
 ```typescript
 GET /api/v1/orders/:orderId
 ```
 
-**Response**: Order with execution history
+**Response:**
 ```typescript
 {
   "success": true,
   "data": {
-    "order": { /* order details */ },
+    "order": {
+      "orderId": "uuid",
+      "type": "DCA",
+      "status": "ACTIVE",
+      // ... order details
+    },
     "executions": [
       {
         "executionId": "uuid",
         "txHash": "0x...",
-        "amountExecuted": "500000000000000000",
-        "gasUsed": "150000",
-        "gasPrice": "20000000000",
-        "executedAt": "2025-01-16T11:00:00.000Z"
+        "fromAmount": "100000000000000000",
+        "toAmount": "250000000000000000",
+        "gasUsed": "145000",
+        "gasFee": "2500000000000000",
+        "executedAt": "2025-01-16T10:30:00.000Z"
       }
     ]
   }
+}
+```
+
+### Update Order
+```typescript
+PUT /api/v1/orders/:orderId
+```
+
+**Request Body:**
+```typescript
+{
+  "status"?: "CANCELLED",  // Only cancellation allowed
+  "limitPrice"?: "2600.00" // Update price for pending orders
 }
 ```
 
@@ -107,50 +154,92 @@ GET /api/v1/orders/:orderId
 DELETE /api/v1/orders/:orderId
 ```
 
-## 📊 Portfolio Management APIs
+Soft delete - preserves order history for analytics.
+
+### Record Order Execution
+```typescript
+POST /api/v1/orders/:orderId/executions
+```
+
+**Request Body:**
+```typescript
+{
+  "txHash": "0x...",
+  "fromAmount": "100000000000000000",
+  "toAmount": "250000000000000000",
+  "gasUsed": "145000",
+  "gasFee": "2500000000000000"
+}
+```
+
+### Order Statistics
+```typescript
+GET /api/v1/orders/stats
+```
+
+**Response:**
+```typescript
+{
+  "success": true,
+  "data": {
+    "totalOrders": 156,
+    "activeOrders": 12,
+    "completedOrders": 142,
+    "cancelledOrders": 2,
+    "totalVolume": "45670.50",
+    "averageOrderSize": "292.75"
+  }
+}
+```
+
+## 💼 Portfolio Management APIs
 
 ### Manual Portfolio Sync
 ```typescript
 POST /api/v1/portfolio/sync
 ```
 
-**Response**:
+Triggers manual sync with Alchemy API across 5 supported chains.
+
+**Response:**
 ```typescript
 {
   "success": true,
   "data": {
-    "syncId": "uuid",
-    "status": "COMPLETED",
-    "chainsUpdated": ["ethereum", "polygon", "base"],
-    "tokensFound": 15,
-    "lastSyncAt": "2025-01-16T10:30:00.000Z"
+    "syncJobId": "uuid",
+    "chainsQueued": ["ethereum", "polygon", "optimism", "arbitrum", "base"],
+    "estimatedCompletion": "2025-01-16T10:32:00.000Z"
   }
 }
 ```
 
-### Quick Portfolio (2min cache)
+### Quick Portfolio Data
 ```typescript
 GET /api/v1/portfolio/quick
 ```
 
-**Response**:
+Returns cached portfolio data (2-minute cache).
+
+**Response:**
 ```typescript
 {
   "success": true,
   "data": {
-    "totalValueUSD": "25678.45",
-    "tokens": [
+    "totalValueUsd": "12450.75",
+    "chainBreakdown": {
+      "ethereum": { "valueUsd": "8500.50", "tokenCount": 5 },
+      "base": { "valueUsd": "3950.25", "tokenCount": 8 }
+    },
+    "topHoldings": [
       {
-        "chainId": 1,
-        "address": "0x...",
         "symbol": "ETH",
-        "balance": "10.5",
-        "valueUSD": "24500.00",
-        "price": "2333.33"
+        "balance": "3.5",
+        "valueUsd": "8750.00",
+        "percentage": 70.3
       }
     ],
-    "lastUpdated": "2025-01-16T10:28:00.000Z",
-    "cacheExpiry": "2025-01-16T10:32:00.000Z"
+    "lastSyncAt": "2025-01-16T10:28:00.000Z",
+    "cacheExpiresAt": "2025-01-16T10:30:00.000Z"
   }
 }
 ```
@@ -160,31 +249,40 @@ GET /api/v1/portfolio/quick
 GET /api/v1/portfolio/refresh
 ```
 
+Forces immediate portfolio refresh from Alchemy API.
+
+## 📊 P&L Analytics APIs
+
 ### Real-time P&L Calculation
 ```typescript
-GET /api/v1/portfolio/pnl?timeframe=24h
+GET /api/v1/portfolio/pnl
 ```
 
-**Response**:
+**Response:**
 ```typescript
 {
   "success": true,
   "data": {
-    "totalPnL": {
+    "totalPnl": {
       "realized": "1250.75",
-      "unrealized": "2890.25", 
-      "total": "4141.00"
+      "unrealized": "-320.50",
+      "total": "930.25"
     },
-    "pnlPercentage": "16.12",
+    "dailyPnl": "45.80",
+    "weeklyPnl": "312.90",
+    "monthlyPnl": "930.25",
+    "costBasis": "11520.50",
+    "currentValue": "12450.75",
+    "returnPercentage": 8.07,
     "breakdown": [
       {
         "token": "ETH",
-        "pnl": "3500.00",
-        "pnlPercentage": "18.5",
-        "costBasis": "18918.92"
+        "realized": "850.00",
+        "unrealized": "125.50",
+        "costBasis": "8000.00",
+        "currentValue": "8975.50"
       }
-    ],
-    "timeframe": "24h"
+    ]
   }
 }
 ```
@@ -194,110 +292,179 @@ GET /api/v1/portfolio/pnl?timeframe=24h
 GET /api/v1/portfolio/analytics
 ```
 
-**Response**: Historical performance, win rate, etc.
-
-### Trading History
-```typescript
-GET /api/v1/portfolio/trades?days=30
-```
-
-**Response**: Recent trades (read-only)
-
-## 🔄 Order Execution APIs
-
-### Record Order Execution
-```typescript
-POST /api/v1/orders/:orderId/executions
-```
-
-**Request Body**:
+**Response:**
 ```typescript
 {
-  "txHash": "0x...",
-  "amountExecuted": "500000000000000000",
-  "gasUsed": "150000",
-  "gasPrice": "20000000000",
-  "executedAt": "2025-01-16T11:00:00.000Z"
+  "success": true,
+  "data": {
+    "performance": {
+      "allTime": { "return": 8.07, "period": "180d" },
+      "monthly": { "return": 12.5, "period": "30d" },
+      "weekly": { "return": 3.2, "period": "7d" }
+    },
+    "allocation": {
+      "byChain": { "ethereum": 68.3, "base": 31.7 },
+      "byCategory": { "defi": 45.2, "layer1": 54.8 }
+    },
+    "riskMetrics": {
+      "volatility": 0.45,
+      "sharpeRatio": 1.23,
+      "maxDrawdown": -15.8
+    }
+  }
 }
 ```
 
-### Get Order Statistics  
+### Portfolio History
 ```typescript
-GET /api/v1/orders/stats
+GET /api/v1/portfolio/history?period=30d
 ```
 
-**Response**: User order statistics and performance metrics
+**Query Parameters:**
+- `period`: `7d` | `30d` | `90d` | `1y`
+- `granularity`: `hourly` | `daily` | `weekly`
 
-## 📋 Health & Monitoring
+**Response:**
+```typescript
+{
+  "success": true,
+  "data": {
+    "timeline": [
+      {
+        "date": "2025-01-15",
+        "totalValue": "12105.25",
+        "pnl": "885.00",
+        "returnPercentage": 7.89
+      }
+    ],
+    "summary": {
+      "startValue": "11220.25",
+      "endValue": "12450.75",
+      "totalReturn": "1230.50",
+      "returnPercentage": 10.97
+    }
+  }
+}
+```
+
+## 📈 Trading History APIs
+
+### Recent Trades
+```typescript
+GET /api/v1/portfolio/trades?limit=50&offset=0
+```
+
+**Query Parameters:**
+- `chainId`: Filter by network
+- `tokenAddress`: Filter by token
+- `limit`: Records per page (default: 50, max: 200)
+- `offset`: Pagination offset
+
+**Response:**
+```typescript
+{
+  "success": true,
+  "data": {
+    "trades": [
+      {
+        "tradeId": "uuid",
+        "txHash": "0x...",
+        "type": "SWAP",
+        "fromToken": {
+          "address": "0x...",
+          "symbol": "USDC",
+          "amount": "1000.00"
+        },
+        "toToken": {
+          "address": "0x...",
+          "symbol": "ETH",
+          "amount": "0.4"
+        },
+        "chainId": 8453,
+        "gasFee": "0.05",
+        "executedAt": "2025-01-16T10:30:00.000Z",
+        "pnlImpact": "+125.50"
+      }
+    ],
+    "pagination": {
+      "total": 234,
+      "limit": 50,
+      "offset": 0,
+      "hasMore": true
+    }
+  }
+}
+```
+
+## 🏥 Health & Monitoring
 
 ### Service Health Check
 ```typescript
 GET /api/v1/health
 ```
 
-**Response**:
+**Response:**
 ```typescript
 {
-  "status": "healthy",
-  "services": {
-    "database": "connected",
-    "redis": "connected", 
-    "alchemy": "responsive"
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "version": "1.0.0",
+    "uptime": 3600,
+    "checks": {
+      "database": "healthy",
+      "redis": "healthy",
+      "alchemy": "healthy"
+    },
+    "metrics": {
+      "activeConnections": 45,
+      "avgResponseTime": "250ms",
+      "requestsPerMinute": 120
+    }
   },
-  "version": "1.0.0",
   "timestamp": "2025-01-16T10:30:00.000Z"
 }
 ```
 
-## 🔐 Authentication
+## ⚡ Performance Features
 
-All endpoints require JWT authentication:
-```typescript
-Authorization: Bearer <jwt_token>
-```
-
-Get JWT token from Auth Service (`POST /auth/login`)
-
-## ⚡ Performance
-
-| Endpoint Category | Response Time |
-|------------------|---------------|
-| Order APIs | ~150-250ms |
-| Portfolio APIs | ~200-300ms |
-| Health Check | ~50-100ms |
-
-## 🔧 Auto-Sync System
-
-### Background Worker Features
+### Auto-Sync System
+- **Background Worker**: Syncs portfolio every 2 minutes
 - **Smart Triggers**: onUserLogin(), onUserTrade(), onUserAccess()
-- **Priority System**: triggered (high), scheduled (normal), stale (low)
-- **Frequency**: Every 2 minutes background sync
-- **Concurrency**: Max 5 parallel syncs
+- **Priority Queue**: Triggered > Scheduled > Stale
 - **Alchemy Integration**: 5 chains (Ethereum, Polygon, Optimism, Arbitrum, Base)
 
 ### Caching Strategy
-```typescript
-const CACHE_TTLS = {
-  quickPortfolio: 120,    // 2 minutes
-  fullPortfolio: 600,     // 10 minutes 
-  orderData: 300,         // 5 minutes
-  pnlData: 180,          // 3 minutes (variable by timeframe)
-};
-```
+- **Quick Portfolio**: 2-minute cache for fast responses
+- **Full Portfolio**: 10-minute cache for comprehensive data
+- **P&L Data**: Variable TTL based on market volatility
+- **Redis Optimization**: Batch operations, connection pooling
 
-## 📊 Database Schema
+### Performance Metrics
+- **API Response**: ~200-300ms average
+- **Portfolio Sync**: ~3-5 seconds for 5 chains
+- **P&L Calculation**: ~150ms for complex portfolios
+- **Cache Hit Rate**: >95% for frequent queries
 
-### Key Tables
-- **orders**: Order CRUD with execution counts
-- **order_executions**: Detailed execution history  
-- **user_trades**: Trading history with JSONB optimization
-- **Views**: active_orders, completed_orders, order_summary
+## 🔧 Rate Limiting
 
-### Indexes
-- User-based: `(user_id, status)`, `(user_id, created_at)`
-- Status-based: `(status)` for active order queries
-- Performance: Optimized for portfolio and P&L queries
+- **General APIs**: 1000 requests/hour per user
+- **Portfolio Sync**: 10 requests/hour per user
+- **Health Check**: No limits
+
+## 🗄️ Database Integration
+
+### Tables Used
+- `orders`: Order management with execution tracking
+- `order_executions`: Detailed execution history
+- `user_trades`: Trading history with JSONB optimization
+- `portfolio_snapshots`: Historical portfolio data
+
+### Database Views
+- `active_orders`: Real-time active order tracking
+- `completed_orders`: Historical order analysis
+- `order_summary`: Aggregated order statistics
 
 ---
 
-**Enterprise-grade Core Service APIs for trading platform operations.** 
+**Production-ready Core Service APIs with enterprise-grade performance and comprehensive portfolio management.** 

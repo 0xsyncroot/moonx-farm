@@ -11,7 +11,7 @@ MoonXFarm frontend is a modern Next.js application with Account Abstraction inte
 ## 🛠️ Tech Stack
 
 - **Next.js 14+**: App Router, TypeScript, Server Components
-- **UI**: shadcn/ui + TailwindCSS (Jupiter-inspired design)
+- **UI**: shadcn/ui + TailwindCSS
 - **Account Abstraction**: ZeroDev SDK v5.4+ + Privy
 - **Blockchain**: wagmi + viem for Web3 interactions
 - **State**: React Query + Context API
@@ -160,7 +160,7 @@ NEXT_PUBLIC_BSC_MAINNET_RPC=https://bsc-dataseed.binance.org
 
 ### Design System
 - **Base**: shadcn/ui components
-- **Styling**: TailwindCSS with custom Jupiter-inspired theme
+- **Styling**: TailwindCSS with custom theme
 - **Effects**: Glass morphism, smooth animations
 - **Responsive**: Mobile-first design
 
