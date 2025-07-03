@@ -67,18 +67,49 @@ export function useTokenBalance(token: Token | null, customSmartWalletClient?: a
     try {
       // Format the balance using the token's decimals
       const formatted = formatUnits(balanceData.value, token.decimals)
-      const number = parseFloat(formatted)
+      
+      // 🔧 IMPROVEMENT: Better precision handling for different scenarios
+      let cleanFormatted = formatted
+      
+      // Remove trailing zeros but preserve significant digits
+      if (formatted.includes('.')) {
+        cleanFormatted = formatted.replace(/\.?0+$/, '')
+        // Ensure we don't end up with empty string
+        if (cleanFormatted === '' || cleanFormatted === '.') {
+          cleanFormatted = '0'
+        }
+      }
+      
+      // Parse to number for balanceNumber
+      const number = parseFloat(cleanFormatted)
+      
+      // Validate the parsed number
+      if (!isFinite(number) || isNaN(number)) {
+        console.warn('Invalid balance number parsed:', { formatted, cleanFormatted, number })
+        return {
+          balance: balanceData.value.toString(),
+          balanceFormatted: '0',
+          balanceNumber: 0,
+          isLoading,
+          error,
+          refetch
+        }
+      }
       
       return {
         balance: balanceData.value.toString(),
-        balanceFormatted: formatted,
+        balanceFormatted: cleanFormatted,
         balanceNumber: number,
         isLoading,
         error,
         refetch
       }
     } catch (err) {
-      console.error('Error formatting token balance:', err)
+      console.error('Error formatting token balance:', err, { 
+        tokenSymbol: token?.symbol,
+        tokenDecimals: token?.decimals,
+        rawBalance: balanceData?.value?.toString()
+      })
       return {
         balance: null,
         balanceFormatted: null,

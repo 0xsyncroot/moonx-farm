@@ -8,6 +8,7 @@ import { AuthMiddleware } from './middleware/authMiddleware';
 import { orderRoutes } from './routes/orders';
 import { portfolioRoutes } from './routes/portfolio';
 import { bitqueryRoutes } from './routes/bitquery';
+import { chainRoutes } from './routes/chains';
 
 const logger = createLogger('core-service');
 
@@ -162,6 +163,15 @@ const startServer = async () => {
       
       // Register order routes
       await orderRoutes(fastify);
+    });
+
+    // Chain Management Routes (mixed: public read, admin CRUD)
+    fastify.register(async function (fastify) {
+      // Register chain routes - they handle their own authentication internally
+      await chainRoutes(fastify, {
+        databaseService,
+        cacheService
+      });
     });
 
     // Bitquery API Routes (no authentication required)

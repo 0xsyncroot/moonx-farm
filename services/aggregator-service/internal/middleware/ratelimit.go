@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 
+	"github.com/moonx-farm/aggregator-service/internal/config"
 	"github.com/moonx-farm/aggregator-service/internal/models"
 )
 
@@ -55,15 +56,15 @@ func (rl *RateLimiter) GetLimiter(clientID string) *rate.Limiter {
 }
 
 // RateLimit middleware for rate limiting requests
-func RateLimit() gin.HandlerFunc {
+func RateLimit(cfg *config.Config) gin.HandlerFunc {
 	limiter := NewRateLimiter(RateLimitConfig{
-		RequestsPerMinute: 60,  // 60 requests per minute
-		BurstSize:         10,  // Allow burst of 10 requests
+		RequestsPerMinute: cfg.RateLimit.RequestsPerMinute,
+		BurstSize:         cfg.RateLimit.BurstSize,
 	})
 
 	return gin.HandlerFunc(func(c *gin.Context) {
 		clientIP := c.ClientIP()
-		
+
 		// Get rate limiter for this client
 		clientLimiter := limiter.GetLimiter(clientIP)
 
@@ -81,4 +82,4 @@ func RateLimit() gin.HandlerFunc {
 
 		c.Next()
 	})
-} 
+}

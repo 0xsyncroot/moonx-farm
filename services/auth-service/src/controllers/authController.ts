@@ -94,11 +94,11 @@ export async function authRoutes(fastify: FastifyInstance) {
     preHandler: [
       // Rate limiting for login attempts
       async (request: FastifyRequest, reply: FastifyReply) => {
-        const ip = request.ip;
-        const key = `login_attempts:${ip}`;
-        
+        const ip = request.headers['x-real-ip'] || request.headers['x-forwarded-for'] || request.ip;
+        const key = `auth_login_attempts:${ip}`;
+        logger.info('Login attempt', { ip, key });
         try {
-          const attempts = await fastify.redisService.incrementRateLimit(key, 900000, 5);
+          const attempts = await fastify.redisService.incrementRateLimit(key, 900000, Number(fastify.config.get('REDIS_MAX_RETRIES_PER_REQUEST')) || 50);
           
           if (attempts.exceeded) {
             logger.warn('Too many login attempts', { ip, attempts: attempts.count });
@@ -297,7 +297,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       // Clear rate limiting on successful login
       try {
-        await fastify.redisService.del(`ratelimit:login_attempts:${clientIp}`);
+        await fastify.redisService.del(`ratelimit:auth_login_attempts:${clientIp}`);
       } catch (error) {
         // Ignore rate limit clearing errors
       }

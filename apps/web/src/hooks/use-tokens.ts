@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { aggregatorApi } from '@/lib/api-client'
 import { useDebounce } from './use-debounce'
@@ -104,7 +104,7 @@ const CRITICAL_TOKENS_FALLBACK: Record<number, Token[]> = {
 export function useTokens(selectedChainId?: number) {
   const [searchQuery, setSearchQuery] = useState('')
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
-  const debouncedQuery = useDebounce(searchQuery, 300)
+  const debouncedQuery = useDebounce(searchQuery, 800) // Increased to 800ms - only trigger when user stops typing
 
   // Load favorites from localStorage
   useEffect(() => {
@@ -126,42 +126,93 @@ export function useTokens(selectedChainId?: number) {
   const popularLoading = false  
   const popularError = null
 
-  // Search tokens using aggregator service - Cross-chain search
+  // Search tokens using aggregator service - Cross-chain search with optimized triggering
   const {
     data: searchResults,
     isLoading: isSearching,
     error: searchError,
   } = useQuery<TokenListResponse>({
     queryKey: ['tokens', 'search', debouncedQuery, 'all-chains'],
-    queryFn: async () => {
-      if (!debouncedQuery.trim()) {
+    queryFn: async ({ signal }) => {
+      const query = debouncedQuery.trim()
+      
+      // Return empty for empty queries (removed minimum length requirement as tokens can be 1 character)
+      if (!query) {
         return { tokens: [], total: 0 }
       }
       
-      // Don't pass chainId to search across all supported chains
-      const result = await aggregatorApi.searchTokens({
-        q: debouncedQuery.trim(),
-        // chainId: undefined, // Search all chains
-        limit: 50,
-      })
-      
-      return result
+      // React Query provides AbortSignal automatically, no need for manual AbortController
+      try {
+        console.log('🔍 Triggering API search for:', query)
+        
+        // Don't pass chainId to search across all supported chains
+        // Note: We'll need to modify aggregatorApi.searchTokens to accept AbortSignal
+        const result = await aggregatorApi.searchTokens({
+          q: query,
+          // chainId: undefined, // Search all chains
+          limit: 50,
+        })
+        
+        // Check if request was aborted
+        if (signal?.aborted) {
+          console.log('🚫 API search cancelled for:', query)
+          throw new Error('AbortError')
+        }
+        
+        console.log('✅ API search completed for:', query, 'Found:', result.tokens?.length || 0)
+        return result
+      } catch (error) {
+        // Don't throw for aborted requests
+        if (signal?.aborted || (error instanceof Error && (error.name === 'AbortError' || error.message === 'AbortError'))) {
+          console.log('🚫 API search cancelled for:', query)
+          return { tokens: [], total: 0 }
+        }
+        throw error
+      }
     },
-    enabled: !!debouncedQuery.trim(),
+    enabled: !!debouncedQuery.trim(), // Search for any non-empty query (tokens can be 1 character)
     staleTime: 30000, // 30 seconds
     refetchOnWindowFocus: false,
     retry: 1,
   })
 
-  // Process tokens data with proper fallback
+  // Process tokens data with instant local filtering + debounced API search
   const tokens = useMemo(() => {
     let tokensArray: Token[] = []
+    const currentQuery = searchQuery.trim().toLowerCase()
+    const debouncedQ = debouncedQuery.trim().toLowerCase()
 
-    if (debouncedQuery.trim()) {
-      // Use search results
-      tokensArray = searchResults?.tokens || []
+    if (currentQuery) {
+      // 🚀 INSTANT LOCAL FILTERING: Filter fallback tokens immediately while typing
+      const localTokens = Object.values(CRITICAL_TOKENS_FALLBACK).flat()
+      const localMatches = localTokens.filter((token: Token) => {
+        const symbolMatch = token.symbol.toLowerCase().includes(currentQuery)
+        const nameMatch = token.name.toLowerCase().includes(currentQuery)
+        const addressMatch = token.address.toLowerCase().includes(currentQuery)
+        return symbolMatch || nameMatch || addressMatch
+      })
+
+             // 🔍 API RESULTS: Only use API results if debounced query matches current query
+       // This prevents stale API results from overriding fresh local results
+       if (debouncedQ === currentQuery && debouncedQ.length > 0) {
+        // Combine API results with local matches (deduplicate by address)
+        const apiResults = searchResults?.tokens || []
+        const combined = [...apiResults]
+        const existingAddresses = new Set(apiResults.map(t => t.address.toLowerCase()))
+        
+        localMatches.forEach(token => {
+          if (!existingAddresses.has(token.address.toLowerCase())) {
+            combined.push(token)
+          }
+        })
+        
+        tokensArray = combined
+      } else {
+        // Only show local matches for instant feedback
+        tokensArray = localMatches
+      }
     } else {
-      // Use fallback tokens when not searching
+      // No search query - use fallback tokens
       tokensArray = Object.values(CRITICAL_TOKENS_FALLBACK).flat()
     }
 
@@ -173,27 +224,41 @@ export function useTokens(selectedChainId?: number) {
       if (aFavorite && !bFavorite) return -1
       if (!aFavorite && bFavorite) return 1
 
-      // 2. Native tokens
+      // 2. Exact matches first (if searching)
+      if (currentQuery) {
+        const aExact = a.symbol.toLowerCase() === currentQuery
+        const bExact = b.symbol.toLowerCase() === currentQuery
+        if (aExact && !bExact) return -1
+        if (!aExact && bExact) return 1
+        
+        // Symbol starts with query
+        const aStarts = a.symbol.toLowerCase().startsWith(currentQuery)
+        const bStarts = b.symbol.toLowerCase().startsWith(currentQuery)
+        if (aStarts && !bStarts) return -1
+        if (!aStarts && bStarts) return 1
+      }
+
+      // 3. Native tokens
       if (a.isNative && !b.isNative) return -1
       if (!a.isNative && b.isNative) return 1
 
-      // 3. Verified tokens
+      // 4. Verified tokens
       if (a.verified && !b.verified) return -1
       if (!a.verified && b.verified) return 1
 
-      // 4. Popular tokens
+      // 5. Popular tokens
       if (a.popular && !b.popular) return -1
       if (!a.popular && b.popular) return 1
 
-      // 5. Volume (highest first)
+      // 6. Volume (highest first)
       if (a.volume24h && b.volume24h) {
         return b.volume24h - a.volume24h
       }
 
-      // 6. Alphabetical
+      // 7. Alphabetical
       return a.symbol.localeCompare(b.symbol)
     })
-  }, [debouncedQuery, searchResults, popularTokensData, selectedChainId, favorites])
+  }, [searchQuery, debouncedQuery, searchResults, favorites])
 
   // Popular tokens for quick access
   const popularTokens = useMemo(() => {
@@ -245,22 +310,59 @@ export function useTokens(selectedChainId?: number) {
     )
   }
 
-  // Search specific token
-  const searchToken = async (query: string, chainId?: number): Promise<Token | null> => {
+  // Search specific token with memoization to prevent duplicate calls
+  const searchTokenCache = useMemo(() => new Map<string, { result: Promise<Token | null>, timestamp: number }>(), [])
+  
+  const searchToken = useCallback(async (query: string, chainId?: number): Promise<Token | null> => {
     if (!query.trim()) return null
     
-    try {
-      const result = await aggregatorApi.searchTokens({
-        q: query.trim(),
-        chainId,
-        limit: 1,
-      })
-      return result.tokens?.[0] || null
-    } catch (error) {
-      console.error('Token search failed:', error)
-      return null
+    // Create cache key
+    const cacheKey = `${query.trim().toLowerCase()}_${chainId || 'all'}`
+    const now = Date.now()
+    const CACHE_DURATION = 10000 // 10 seconds cache
+    
+    // Check cache first
+    const cached = searchTokenCache.get(cacheKey)
+    if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      console.log('🎯 Using cached searchToken result for:', query)
+      return await cached.result
     }
-  }
+    
+    // Create promise for the API call
+    const searchPromise = (async () => {
+      try {
+        console.log('🔍 Calling aggregatorApi.searchTokens for:', query, 'chainId:', chainId)
+        const result = await aggregatorApi.searchTokens({
+          q: query.trim(),
+          chainId,
+          limit: 1,
+        })
+        return result.tokens?.[0] || null
+      } catch (error) {
+        console.error('❌ Token search failed:', error)
+        return null
+      }
+    })()
+    
+    // Cache the promise and timestamp
+    searchTokenCache.set(cacheKey, {
+      result: searchPromise,
+      timestamp: now
+    })
+    
+    // Clean up old cache entries periodically
+    if (searchTokenCache.size > 50) {
+      const entriesToDelete: string[] = []
+      searchTokenCache.forEach((value, key) => {
+        if ((now - value.timestamp) > CACHE_DURATION) {
+          entriesToDelete.push(key)
+        }
+      })
+      entriesToDelete.forEach(key => searchTokenCache.delete(key))
+    }
+    
+    return await searchPromise
+  }, [searchTokenCache])
 
   // Add function to manually load popular tokens
   const loadPopularTokens = async (): Promise<TokenListResponse | null> => {
@@ -273,11 +375,20 @@ export function useTokens(selectedChainId?: number) {
     }
   }
 
-  // Compute loading and error states
-  const isLoading = popularLoading || isSearching
-  const hasSearchQuery = Boolean(debouncedQuery.trim())
+  // Compute loading and error states with better granularity
+  const isLoadingAPI = isSearching && debouncedQuery.trim().length > 0
+  const isLoadingPopular = popularLoading
+  const isLoading = isLoadingAPI || isLoadingPopular
+  
+  // Better search state tracking
+  const hasSearchQuery = Boolean(searchQuery.trim())
+  const hasAPIQuery = Boolean(debouncedQuery.trim())
   const hasResults = tokens.length > 0
   const error = searchError || popularError
+
+  // Determine if we're showing local results vs API results
+  const isShowingLocalResults = hasSearchQuery && (!hasAPIQuery || searchQuery.trim() !== debouncedQuery.trim())
+  const isShowingAPIResults = hasAPIQuery && searchQuery.trim() === debouncedQuery.trim() && !isLoadingAPI
 
   return {
     // Data
@@ -285,12 +396,20 @@ export function useTokens(selectedChainId?: number) {
     popularTokens,
     favoriteTokens,
     
-    // State
+    // State - Enhanced for better UX
     isLoading,
+    isLoadingAPI,
+    isLoadingPopular,
     error,
     hasSearchQuery,
+    hasAPIQuery,
     hasResults,
-    searchQuery: debouncedQuery,
+    isShowingLocalResults,
+    isShowingAPIResults,
+    
+    // Search queries - separate for better control
+    searchQuery, // Real-time query (for input field)
+    debouncedQuery, // Debounced query (for API calls)
 
     // Actions  
     setSearchQuery,
@@ -299,7 +418,7 @@ export function useTokens(selectedChainId?: number) {
     getTokenByAddress,
     getTokenBySymbol,
     searchToken,
-    loadPopularTokens, // New manual load function
+    loadPopularTokens, // Manual load function
 
     // Metadata
     total: searchResults?.total || tokens.length,
