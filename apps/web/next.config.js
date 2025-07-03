@@ -43,7 +43,7 @@ const nextConfig = {
         new TerserPlugin({
           terserOptions: {
             compress: {
-              drop_console: ['log', 'info', 'warn', 'debug'], // Xóa console nhưng giữ lại console.error
+              pure_funcs: ['console.log', 'console.info', 'console.warn', 'console.debug'], // Xóa console nhưng giữ lại console.error
               drop_debugger: true,
             },
           },
