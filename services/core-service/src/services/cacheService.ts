@@ -67,8 +67,13 @@ export class CacheService {
       
       // Handle JSON parsing safely
       try {
-        // Check if data is already a string representation of "[object Object]"
-        if (data === '[object Object]') {
+        // Check if data contains invalid object representations
+        if (typeof data === 'string' && (
+          data === '[object Object]' || 
+          data.includes('[object Object]') || 
+          data.startsWith('[object Object]') ||
+          data.match(/^\[object\s+Object\]/i)
+        )) {
           console.warn(`Found invalid cached data (stringified object) for key ${key}, clearing...`);
           await this.del(key);
           return null;

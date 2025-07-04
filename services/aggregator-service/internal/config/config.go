@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+type RateLimitConfig struct {
+	RequestsPerMinute int
+	BurstSize         int
+}
+
 // Config holds all configuration for the aggregator service
 type Config struct {
 	Environment  string            `json:"environment"`
@@ -18,6 +23,7 @@ type Config struct {
 	ExternalAPIs *APIConfig        `json:"external_apis"`
 	Blockchain   *BlockchainConfig `json:"blockchain"`
 	Cache        *CacheConfig      `json:"cache"`
+	RateLimit    *RateLimitConfig  `json:"rate_limit"`
 }
 
 // RedisConfig holds Redis connection configuration
@@ -104,6 +110,13 @@ func Load() (*Config, error) {
 	}
 	cfg.Cache = cache
 
+	// Load Rate Limit configuration
+	rateLimit, err := loadRateLimitConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load rate limit config: %w", err)
+	}
+	cfg.RateLimit = rateLimit
+
 	return cfg, nil
 }
 
@@ -155,6 +168,13 @@ func loadCacheConfig() (*CacheConfig, error) {
 		QuoteTTL: time.Duration(getEnvInt("QUOTE_CACHE_TTL_SECONDS", 10)) * time.Second,
 		PriceTTL: time.Duration(getEnvInt("PRICE_CACHE_TTL_SECONDS", 30)) * time.Second,
 		RouteTTL: time.Duration(getEnvInt("ROUTE_CACHE_TTL_SECONDS", 60)) * time.Second,
+	}, nil
+}
+
+func loadRateLimitConfig() (*RateLimitConfig, error) {
+	return &RateLimitConfig{
+		RequestsPerMinute: getEnvInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 60),
+		BurstSize:         getEnvInt("RATE_LIMIT_BURST_SIZE", 10),
 	}, nil
 }
 

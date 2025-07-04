@@ -311,6 +311,170 @@ export class PortfolioController {
     }
   }
 
+  // POST /portfolio/trades - Add new trade after successful swap
+  async addTrade(request: FastifyRequest<{
+    Body: {
+      txHash: string;
+      chainId: number;
+      blockNumber?: number;
+      timestamp?: string;
+      type?: 'swap' | 'buy' | 'sell';
+      status?: 'pending' | 'completed' | 'failed';
+      fromToken: {
+        address: string;
+        symbol: string;
+        name: string;
+        decimals: number;
+        amount: string;
+        amountFormatted: number;
+        priceUSD: number;
+        valueUSD: number;
+      };
+      toToken: {
+        address: string;
+        symbol: string;
+        name: string;
+        decimals: number;
+        amount: string;
+        amountFormatted: number;
+        priceUSD: number;
+        valueUSD: number;
+      };
+      gasFeeETH?: number;
+      gasFeeUSD: number;
+      protocolFeeUSD?: number;
+      slippage?: number;
+      priceImpact?: number;
+      dexName?: string;
+      routerAddress?: string;
+      aggregator?: 'lifi' | '1inch' | 'relay' | 'jupiter';
+    }
+  }>, reply: FastifyReply) {
+    try {
+      const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
+      const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      
+      // Validate required fields
+      const { txHash, chainId, fromToken, toToken, gasFeeUSD } = request.body;
+      
+      if (!txHash || !chainId || !fromToken || !toToken || gasFeeUSD === undefined) {
+        return reply.code(400).send(createErrorResponse('Missing required fields: txHash, chainId, fromToken, toToken, gasFeeUSD'));
+      }
+
+      // Validate token data
+      if (!fromToken.address || !fromToken.symbol || !toToken.address || !toToken.symbol) {
+        return reply.code(400).send(createErrorResponse('Invalid token data: address and symbol are required'));
+      }
+
+      // Check if trade already exists
+      const existingTrade = await this.tradesService.getTradeByTxHash(txHash, userId);
+      if (existingTrade) {
+        return reply.code(409).send(createErrorResponse(`Trade with transaction hash ${txHash} already exists`));
+      }
+
+      // Prepare trade data
+      const tradeData = {
+        userId,
+        walletAddress,
+        txHash,
+        chainId,
+        blockNumber: request.body.blockNumber,
+        timestamp: request.body.timestamp ? new Date(request.body.timestamp) : new Date(),
+        type: request.body.type || 'swap' as const,
+        status: request.body.status || 'completed' as const,
+        fromToken,
+        toToken,
+        gasFeeETH: request.body.gasFeeETH,
+        gasFeeUSD,
+        protocolFeeUSD: request.body.protocolFeeUSD,
+        slippage: request.body.slippage,
+        priceImpact: request.body.priceImpact,
+        dexName: request.body.dexName,
+        routerAddress: request.body.routerAddress,
+        aggregator: request.body.aggregator
+      };
+
+      // Add trade to database
+      const savedTrade = await this.tradesService.addTrade(tradeData);
+
+      // Trigger portfolio sync in background for fresh data
+      setImmediate(() => {
+        this.autoSyncService.onUserTrade(userId, walletAddress);
+      });
+
+      return reply.code(201).send(createSuccessResponse({
+        trade: savedTrade,
+        portfolioSyncTriggered: true
+      }, `Trade ${txHash} added successfully`));
+
+    } catch (error) {
+      logger.error('Add trade error', { 
+        error: error instanceof Error ? error.message : String(error),
+        txHash: request.body?.txHash,
+        userId: this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest)
+      });
+      
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add trade';
+      return reply.code(500).send(createErrorResponse(errorMessage));
+    }
+  }
+
+  // PUT /portfolio/trades/:txHash - Update trade status
+  async updateTrade(request: FastifyRequest<{
+    Params: { txHash: string };
+    Body: {
+      status?: 'pending' | 'completed' | 'failed';
+      blockNumber?: number;
+      timestamp?: string;
+      gasFeeETH?: number;
+      gasFeeUSD?: number;
+      pnl?: {
+        realizedPnlUSD: number;
+        feesPaidUSD: number;
+        netPnlUSD: number;
+        unrealizedPnlUSD?: number;
+      };
+    }
+  }>, reply: FastifyReply) {
+    try {
+      const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
+      const { txHash } = request.params;
+      
+      if (!txHash) {
+        return reply.code(400).send(createErrorResponse('Transaction hash is required'));
+      }
+
+      const updates: any = {};
+      
+      if (request.body.status !== undefined) updates.status = request.body.status;
+      if (request.body.blockNumber !== undefined) updates.blockNumber = request.body.blockNumber;
+      if (request.body.timestamp !== undefined) updates.timestamp = new Date(request.body.timestamp);
+      if (request.body.gasFeeETH !== undefined) updates.gasFeeETH = request.body.gasFeeETH;
+      if (request.body.gasFeeUSD !== undefined) updates.gasFeeUSD = request.body.gasFeeUSD;
+      if (request.body.pnl !== undefined) updates.pnl = request.body.pnl;
+
+      const updatedTrade = await this.tradesService.updateTradeStatus(txHash, userId, updates);
+
+      if (!updatedTrade) {
+        return reply.code(404).send(createErrorResponse('Trade not found'));
+      }
+
+      return reply.send(createSuccessResponse({
+        trade: updatedTrade
+      }, `Trade ${txHash} updated successfully`));
+
+    } catch (error) {
+      logger.error('Update trade error', { 
+        error: error instanceof Error ? error.message : String(error),
+        txHash: request.params?.txHash,
+        userId: this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest)
+      });
+      
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update trade';
+      return reply.code(500).send(createErrorResponse(errorMessage));
+    }
+  }
+
   // GET /portfolio/sync-status - Get sync status
   async getSyncStatus(request: FastifyRequest, reply: FastifyReply) {
     try {

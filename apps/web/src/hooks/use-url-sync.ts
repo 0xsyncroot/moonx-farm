@@ -14,6 +14,7 @@ export function useUrlSync({ fromToken, toToken, amount, slippage }: UseUrlSyncP
   const searchParams = useSearchParams()
   const isInitializedRef = useRef(false)
   const lastURLUpdateRef = useRef<string>('')
+  const lastChainUpdateRef = useRef<{ fromChain?: number, toChain?: number }>({})
 
   // URL update function - optimized for speed
   const updateURL = useCallback((params: Record<string, string | null>) => {
@@ -61,6 +62,17 @@ export function useUrlSync({ fromToken, toToken, amount, slippage }: UseUrlSyncP
       params.slippage = slippage.toString()
     }
     
+    // 🔧 FIX: Detect chain changes for immediate URL update
+    const currentChains = {
+      fromChain: fromToken?.chainId,
+      toChain: toToken?.chainId
+    }
+    
+    const chainChanged = (
+      currentChains.fromChain !== lastChainUpdateRef.current.fromChain ||
+      currentChains.toChain !== lastChainUpdateRef.current.toChain
+    )
+    
     // Create URL string for comparison
     const urlString = Object.entries(params)
       .filter(([_, value]) => value !== null)
@@ -70,15 +82,31 @@ export function useUrlSync({ fromToken, toToken, amount, slippage }: UseUrlSyncP
     // Only update if URL actually changed
     if (urlString !== lastURLUpdateRef.current) {
       lastURLUpdateRef.current = urlString
+      lastChainUpdateRef.current = currentChains
       
-      // Debounce the actual update
-      const timeoutId = setTimeout(() => {
+      if (chainChanged) {
+        // 🔧 FIX: Immediate update for chain changes (no debounce)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔗 Chain change detected, immediate URL update:', {
+            fromChain: currentChains.fromChain,
+            toChain: currentChains.toChain,
+            previousChains: lastChainUpdateRef.current
+          })
+        }
         updateURL(params)
-      }, 800)
-      
-      return () => clearTimeout(timeoutId)
+      } else {
+        // Regular debounce for other changes (amount, slippage)
+        const timeoutId = setTimeout(() => {
+          updateURL(params)
+        }, 800)
+        
+        return () => clearTimeout(timeoutId)
+      }
+    } else {
+      // Update chain ref even if URL didn't change
+      lastChainUpdateRef.current = currentChains
     }
-  }, [fromToken?.address, toToken?.address, amount, slippage, updateURL])
+  }, [fromToken?.address, fromToken?.chainId, toToken?.address, toToken?.chainId, amount, slippage, updateURL])
 
   // Mark as initialized
   const markInitialized = useCallback(() => {

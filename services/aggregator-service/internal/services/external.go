@@ -458,8 +458,6 @@ func (s *ExternalAPIService) searchBinance(ctx context.Context, query string) []
 			var baseAsset string
 			if strings.HasSuffix(ticker.Symbol, "USDT") {
 				baseAsset = strings.TrimSuffix(ticker.Symbol, "USDT")
-			} else if strings.HasSuffix(ticker.Symbol, "BUSD") {
-				baseAsset = strings.TrimSuffix(ticker.Symbol, "BUSD")
 			} else if strings.HasSuffix(ticker.Symbol, "BNB") {
 				baseAsset = strings.TrimSuffix(ticker.Symbol, "BNB")
 			} else {
@@ -712,11 +710,8 @@ func (s *ExternalAPIService) mapDexScreenerChainToID(chain string) int {
 }
 
 func (s *ExternalAPIService) isStablecoin(symbol string) bool {
-	stablecoins := map[string]bool{
-		"USDT": true, "USDC": true, "DAI": true, "BUSD": true,
-		"FRAX": true, "LUSD": true, "SUSD": true, "TUSD": true,
-	}
-	return stablecoins[strings.ToUpper(symbol)]
+	// Use the centralized check from config
+	return config.IsStablecoin(symbol)
 }
 
 func (s *ExternalAPIService) deduplicateTokens(tokens []*models.Token) []*models.Token {

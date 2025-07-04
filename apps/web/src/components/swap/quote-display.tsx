@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react'
 import { 
   RefreshCw, 
   TrendingUp, 
+  TrendingDown,
+  Minus,
   Zap, 
   Clock, 
   ArrowRight, 
@@ -271,14 +273,35 @@ export function QuoteDisplay({
                 (() => {
                   const impact = parseFloat(quote.priceImpact)
                   const absImpact = Math.abs(impact)
-                  return absImpact > 5 
-                    ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 animate-pulse'
-                    : absImpact > 2 
-                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
-                    : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                  
+                  // 🚀 FIXED: Positive impact = good (green), Negative impact = bad (red/yellow)
+                  if (impact > 0) {
+                    // Positive impact is good - green
+                    return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                  } else if (impact < 0) {
+                    // Negative impact is bad - red/yellow based on severity
+                    return absImpact > 5 
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 animate-pulse'
+                      : absImpact > 2 
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                      : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
+                  } else {
+                    // Zero impact - neutral
+                    return 'bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-400'
+                  }
                 })()
               )}>
-                <TrendingUp className="w-3 h-3" />
+                {(() => {
+                  const impact = parseFloat(quote.priceImpact)
+                  // 🚀 FIXED: Use appropriate icon based on impact direction
+                  if (impact > 0) {
+                    return <TrendingUp className="w-3 h-3" />
+                  } else if (impact < 0) {
+                    return <TrendingDown className="w-3 h-3" />
+                  } else {
+                    return <Minus className="w-3 h-3" />
+                  }
+                })()}
                 {(() => {
                   const impact = parseFloat(quote.priceImpact)
                   const absImpact = Math.abs(impact)

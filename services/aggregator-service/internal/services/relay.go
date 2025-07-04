@@ -632,7 +632,7 @@ func (r *RelayService) processTokenList(relayResp RelayCurrenciesResponse, chain
 
 	stablecoinSymbols := map[string]bool{
 		"USDC": true, "USDT": true, "DAI": true, "FRAX": true,
-		"USDB": true, "USDBC": true, "USDbC": true,
+		"USDB": true, // Removed USDbC due to low liquidity
 	}
 
 	for _, currency := range relayResp.Currencies {

@@ -1,6 +1,6 @@
-# MoonX Farm - Jupiter-Style DEX Interface
+# MoonX Farm - DEX Interface
 
-Modern, responsive web application for decentralized token swapping with Jupiter-inspired UI/UX, built with Next.js 14, Privy authentication, and Account Abstraction wallets.
+Modern, responsive web application for decentralized token swapping with inspired UI/UX, built with Next.js 14, Privy authentication, and Account Abstraction wallets.
 
 ## 🚀 Features
 
@@ -11,7 +11,7 @@ Modern, responsive web application for decentralized token swapping with Jupiter
 - **Smart Alerts**: Price alerts and copy trading notifications
 
 ### User Experience
-- **Jupiter-Inspired Design**: Modern glass morphism UI with smooth animations
+- **Inspired Design**: Modern glass morphism UI with smooth animations
 - **Social Login**: Email, Google, Twitter, GitHub, Telegram, Farcaster via Privy
 - **Account Abstraction**: Gasless transactions and session keys
 - **Mobile-First**: Responsive design optimized for all devices
@@ -28,7 +28,7 @@ Modern, responsive web application for decentralized token swapping with Jupiter
 ### Frontend Stack
 - **Next.js 14**: App Router with server components
 - **TypeScript**: Full type safety and IntelliSense
-- **TailwindCSS**: Utility-first styling with custom Jupiter theme
+- **TailwindCSS**: Utility-first styling with custom theme
 - **shadcn/ui**: High-quality React components
 - **React Query**: Data fetching and caching
 - **Next Themes**: Dark/light mode support
@@ -99,7 +99,7 @@ Visit `http://localhost:3000` to see the application.
 ## 🎨 Design System
 
 ### Brand Colors
-- **Primary**: `rgba(255,120,66,.6)` - Jupiter orange with transparency
+- **Primary**: `rgba(255,120,66,.6)` - orange with transparency
 - **Gradient**: Dynamic gradients for buttons and accents
 - **Glass Morphism**: Frosted glass effects throughout UI
 
@@ -170,7 +170,7 @@ Main trading widget with:
 - Gas fee estimates
 
 ### TokenSelector
-Jupiter-style token picker:
+- style token picker:
 - Search with debounced queries
 - Popular tokens section
 - Favorites management

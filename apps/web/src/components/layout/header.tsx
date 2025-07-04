@@ -18,8 +18,9 @@ import {
   DEFAULT_CHAIN,
   getDefaultChain
 } from '@/config/chains'
-import { TestnetToggle, useTestnetMode } from '@/components/ui/testnet-toggle'
+import { TestnetToggle } from '@/components/ui/testnet-toggle'
 import { ChainIcon } from '@/components/ui/chain-icon'
+import { useTestnet } from '@/hooks/use-testnet'
 
 const navigation = [
   { name: 'Swap', href: '/swap' },
@@ -39,11 +40,15 @@ export function Header() {
   const [walletMenuOpen, setWalletMenuOpen] = useState(false)
   const walletMenuRef = useRef<HTMLDivElement>(null)
 
-  const { walletInfo } = useAuth()
+  const { walletInfo, logout: authLogout } = useAuth()
   const { address: wagmiAddress } = useAccount()
   const wagmiChainId = useChainId()
   const { switchChain } = useSwitchChain()
-  const isTestnet = useTestnetMode()
+  
+  // 🚀 NEW: Use unified testnet hook
+  const { isTestnet, isTestnetSwitching } = useTestnet({
+    skipIfAutoSwitching: true // Prevent conflict with cross-chain swap logic
+  })
 
   // Get embedded wallet (EOA) từ Privy
   const embeddedWallet = wallets.find(w => w.walletClientType === 'privy')
@@ -78,35 +83,35 @@ export function Header() {
     isSuccess: false
   })
 
-  // Listen for testnet mode changes and show notification
+  // Listen for testnet chain switch events
   useEffect(() => {
-    const handleTestnetModeChange = async (event: Event) => {
+    const handleTestnetChainSwitchSuccess = (event: Event) => {
       const customEvent = event as CustomEvent
-      const newIsTestnet = customEvent.detail.isTestnet
-      const targetChain = getDefaultChain(newIsTestnet)
+      const { chainName, isTestnet } = customEvent.detail
       
-      console.log('🔍 Testnet Mode Changed:', {
-        newIsTestnet,
-        targetChainId: targetChain.id,
-        targetChainName: targetChain.name,
-        isTestnetChain: targetChain.isTestnet
-      })
+      console.log('✅ Testnet chain switch success:', customEvent.detail)
       
-      // Show notification about expected network without auto-switching
-      // This avoids triggering OKX and other wallet connectors
-      if (activeSmartWalletClient?.account?.address) {
-        toast.success(
-          `Switched to ${targetChain.name} successfully`,
-          { duration: 4000 }
-        )
-      }
+      // Show success notification
+      toast.success(
+        `Switched to ${chainName} successfully`,
+        { duration: 3000 }
+      )
     }
 
-    window.addEventListener('testnet-mode-changed', handleTestnetModeChange)
-    return () => {
-      window.removeEventListener('testnet-mode-changed', handleTestnetModeChange)
+    const handleTestnetChainSwitchError = (event: Event) => {
+      const customEvent = event as CustomEvent
+      console.error('❌ Testnet chain switch error:', customEvent.detail)
+      // Error toast is already shown by the hook
     }
-  }, [activeSmartWalletClient])
+
+    window.addEventListener('testnet-chain-switch-success', handleTestnetChainSwitchSuccess)
+    window.addEventListener('testnet-chain-switch-error', handleTestnetChainSwitchError)
+    
+    return () => {
+      window.removeEventListener('testnet-chain-switch-success', handleTestnetChainSwitchSuccess)
+      window.removeEventListener('testnet-chain-switch-error', handleTestnetChainSwitchError)
+    }
+  }, [])
 
   // Listen for auto chain switch events from swap interface
   useEffect(() => {
@@ -255,12 +260,17 @@ export function Header() {
     setMobileMenuOpen(false)
   }
 
-  const handleDisconnect = () => {
-    logout()
-    setWalletMenuOpen(false)
-    // Reset auto-switched smart wallet client khi disconnect
-    setAutoSwitchedSmartWalletClient(null)
-    toast.success('Wallet disconnected')
+  const handleDisconnect = async () => {
+    try {
+      await authLogout()
+      setWalletMenuOpen(false)
+      // Reset auto-switched smart wallet client khi disconnect
+      setAutoSwitchedSmartWalletClient(null)
+      toast.success('Wallet disconnected')
+    } catch (error) {
+      console.error('Disconnect failed:', error)
+      toast.error('Failed to disconnect wallet')
+    }
   }
 
   // Reset auto-switched smart wallet client khi user thay đổi
@@ -365,7 +375,7 @@ export function Header() {
                         )}
                         
                         {/* Chain Switch Status Indicator */}
-                        {chainSwitchStatus.isLoading && (
+                        {(chainSwitchStatus.isLoading || isTestnetSwitching) && (
                           <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full animate-ping" />
                         )}
                         {chainSwitchStatus.isSuccess && (
@@ -375,8 +385,8 @@ export function Header() {
                       
                       <div className="flex flex-col">
                         <span className="text-xs text-gray-400 hidden sm:block leading-none">
-                          {chainSwitchStatus.isLoading 
-                            ? `Switching to ${chainSwitchStatus.chainName}...` 
+                          {(chainSwitchStatus.isLoading || isTestnetSwitching)
+                            ? (isTestnetSwitching ? 'Switching network...' : `Switching to ${chainSwitchStatus.chainName}...`)
                             : chainInfo.name
                           }
                         </span>
@@ -640,7 +650,7 @@ export function Header() {
                                 <div className="relative w-3 h-3 flex items-center justify-center">
                                   <ChainIcon icon={chainConfig.icon} size="xs" />
                                   {/* Mobile Chain Switch Status Indicator */}
-                                  {chainSwitchStatus.isLoading && (
+                                  {(chainSwitchStatus.isLoading || isTestnetSwitching) && (
                                     <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping" />
                                   )}
                                   {chainSwitchStatus.isSuccess && (
@@ -648,8 +658,8 @@ export function Header() {
                                   )}
                                 </div>
                                 <span>
-                                  {chainSwitchStatus.isLoading 
-                                    ? `Switching to ${chainSwitchStatus.chainName}...` 
+                                  {(chainSwitchStatus.isLoading || isTestnetSwitching)
+                                    ? (isTestnetSwitching ? 'Switching network...' : `Switching to ${chainSwitchStatus.chainName}...`)
                                     : chainInfo.name
                                   }
                                   {chainSwitchStatus.isSuccess && ' ✓'}
@@ -659,7 +669,7 @@ export function Header() {
                               <div className="flex items-center gap-1">
                                 <div className={cn("w-2 h-2 rounded-full relative", chainInfo.color)}>
                                   {/* Mobile Chain Switch Status Indicator */}
-                                  {chainSwitchStatus.isLoading && (
+                                  {(chainSwitchStatus.isLoading || isTestnetSwitching) && (
                                     <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping" />
                                   )}
                                   {chainSwitchStatus.isSuccess && (
@@ -667,8 +677,8 @@ export function Header() {
                                   )}
                                 </div>
                                 <span>
-                                  {chainSwitchStatus.isLoading 
-                                    ? `Switching to ${chainSwitchStatus.chainName}...` 
+                                  {(chainSwitchStatus.isLoading || isTestnetSwitching)
+                                    ? (isTestnetSwitching ? 'Switching network...' : `Switching to ${chainSwitchStatus.chainName}...`)
                                     : chainInfo.name
                                   }
                                   {chainSwitchStatus.isSuccess && ' ✓'}

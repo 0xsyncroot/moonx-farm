@@ -265,7 +265,7 @@ export class OrderModel {
       transactionHash: row.transaction_hash,
       contractAddress: row.contract_address,
       slippage: row.slippage,
-      metadata: JSON.parse(row.metadata || '{}')
+      metadata: row.metadata ? (typeof row.metadata === 'object' ? row.metadata : JSON.parse(row.metadata)) : {}
     };
   }
 
@@ -282,7 +282,7 @@ export class OrderModel {
       gasUsed: row.gas_used,
       gasFee: row.gas_fee,
       executedAt: row.executed_at,
-      metadata: JSON.parse(row.metadata || '{}')
+      metadata: row.metadata ? (typeof row.metadata === 'object' ? row.metadata : JSON.parse(row.metadata)) : {}
     };
   }
 } 

@@ -350,7 +350,13 @@ export class OrderService {
     const cacheKey = `order_stats:${userId}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) {
-      return JSON.parse(cached);
+      try {
+        return JSON.parse(cached);
+      } catch (error) {
+        console.warn(`Failed to parse cached order stats for ${userId}:`, error);
+        await this.redis.del(cacheKey); // Clear corrupted cache
+        // Continue to generate fresh stats
+      }
     }
 
     const allOrders = await this.orderModel.getOrdersByUser(userId, 1000, 0);
@@ -369,7 +375,8 @@ export class OrderService {
     }
 
     // Cache for 10 minutes
-    await this.redis.set(cacheKey, JSON.stringify(stats));
+    const cleanStats = JSON.parse(JSON.stringify(stats)); // Ensure clean serialization
+    await this.redis.set(cacheKey, JSON.stringify(cleanStats));
     await this.redis.expire(cacheKey, 600);
 
     return stats;
@@ -378,20 +385,32 @@ export class OrderService {
   // Cache management methods
   private async cacheOrder(order: Order): Promise<void> {
     const cacheKey = `order:${order.orderId}`;
-    await this.redis.set(cacheKey, JSON.stringify(order));
+    // Check if order has any methods that would cause [object Object] issue
+    const cleanOrder = JSON.parse(JSON.stringify(order)); // Deep clone to remove any methods
+    await this.redis.set(cacheKey, JSON.stringify(cleanOrder));
     await this.redis.expire(cacheKey, 300); // 5 minutes
   }
 
   private async cacheUserOrders(userId: string, orders: Order[]): Promise<void> {
     const cacheKey = `user_orders:${userId}`;
-    await this.redis.set(cacheKey, JSON.stringify(orders));
+    // Clean the orders array to prevent [object Object] issue
+    const cleanOrders = orders.map(order => JSON.parse(JSON.stringify(order)));
+    await this.redis.set(cacheKey, JSON.stringify(cleanOrders));
     await this.redis.expire(cacheKey, 120); // 2 minutes
   }
 
   private async getCachedUserOrders(userId: string): Promise<Order[] | null> {
     const cacheKey = `user_orders:${userId}`;
     const cached = await this.redis.get(cacheKey);
-    return cached ? JSON.parse(cached) : null;
+    if (!cached) return null;
+    
+    try {
+      return JSON.parse(cached);
+    } catch (error) {
+      console.warn(`Failed to parse cached user orders for ${userId}:`, error);
+      await this.redis.del(cacheKey); // Clear corrupted cache
+      return null;
+    }
   }
 
   private async invalidateOrderCaches(orderId: string, userId: string): Promise<void> {

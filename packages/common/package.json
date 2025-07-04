@@ -1,6 +1,6 @@
 {
   "name": "@moonx-farm/common",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Common utilities and types for MoonXFarm DEX",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +16,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@moonx-farm/configs": "^1.0.0",
+    "@moonx-farm/configs": "^1.0.1",
     "ethers": "^6.8.1",
     "nanoid": "^3.3.4",
     "winston": "^3.11.0",

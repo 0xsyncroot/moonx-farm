@@ -2,6 +2,7 @@ import { Portfolio, TokenHolding, PortfolioSyncRequest, PortfolioFilters, SyncOp
 import { AlchemyService } from './alchemyService';
 import { CacheService } from './cacheService';
 import { DatabaseService } from './databaseService';
+import { randomUUID } from 'crypto';
 
 export class PortfolioService {
   private alchemyService: AlchemyService;
@@ -15,14 +16,14 @@ export class PortfolioService {
   }
 
   async syncPortfolio(userId: string, request: PortfolioSyncRequest): Promise<SyncOperation> {
-    const syncId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const syncId = randomUUID();
     
     // Create sync operation record
     const syncOperation: SyncOperation = {
       id: syncId,
       userId,
       walletAddress: request.walletAddress,
-      type: 'portfolio_sync',
+      type: 'portfolio', // Fix: match database constraint values
       status: 'pending',
       startedAt: new Date(),
       metadata: {
@@ -292,7 +293,7 @@ export class PortfolioService {
         priceUSD: parseFloat(row.price_usd),
         valueUSD: parseFloat(row.value_usd),
         lastUpdated: new Date(row.last_updated),
-        alchemyData: row.alchemy_data ? JSON.parse(row.alchemy_data) : undefined
+        alchemyData: row.alchemy_data ? (typeof row.alchemy_data === 'object' ? row.alchemy_data : JSON.parse(row.alchemy_data)) : undefined
       }));
 
       return {

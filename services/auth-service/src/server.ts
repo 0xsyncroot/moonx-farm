@@ -58,7 +58,8 @@ async function buildServer(): Promise<FastifyInstance> {
       customOptions: {
         strict: false
       }
-    }
+    },
+    trustProxy: true,
   });
 
   // Register Swagger for API documentation (development only)

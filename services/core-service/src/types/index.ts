@@ -323,8 +323,8 @@ export interface SyncOperation {
   id: string;
   userId: string;
   walletAddress: string;
-  type: 'portfolio_sync' | 'trade_sync' | 'price_sync';
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  type: 'portfolio' | 'trades' | 'full'; // Fix: match database constraint values
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; // Fix: match database constraint values
   startedAt: Date;
   completedAt?: Date;
   error?: string;

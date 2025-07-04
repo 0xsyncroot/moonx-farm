@@ -1,14 +1,17 @@
 # MoonX Farm DEX - Configuration Manager
 
-Hệ thống quản lý cấu hình tập trung cho toàn bộ monorepo MoonX Farm DEX. Cho phép mỗi service chỉ load những configuration cần thiết với hỗ trợ RPC fallback và private RPC URLs.
+Hệ thống quản lý cấu hình tập trung cho toàn bộ monorepo MoonX Farm DEX. **Hỗ trợ 2 patterns:**
+
+1. **Predefined Profiles**: Sử dụng các profile có sẵn cho từng service
+2. **Generic Schemas**: Tự định nghĩa schema riêng cho flexibility
 
 ## 🎯 Tính năng
 
-- **Configuration Profiles**: Mỗi service chỉ load config cần thiết
+- **Dual Pattern Support**: Predefined profiles + Generic schemas  
 - **Type Safety**: Validation với Zod schema
 - **Environment Variables**: Quản lý tập trung từ file `.env` root
 - **RPC Management**: Hỗ trợ private RPC và fallback RPC URLs
-- **Flexible Usage**: Dễ dàng extend và customize cho từng service
+- **Backward Compatibility**: Không phá vỡ code cũ
 - **Validation**: Kiểm tra config bắt buộc cho từng service
 
 ## 📁 Cấu trúc

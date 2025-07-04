@@ -1,41 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { Beaker, Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTestnet } from '@/hooks/use-testnet'
 
 interface TestnetToggleProps {
   className?: string
 }
 
 export function TestnetToggle({ className }: TestnetToggleProps) {
-  // Get default from environment variable
-  const defaultTestnetMode = process.env.NEXT_PUBLIC_DEFAULT_TESTNET_MODE === 'true'
-  const [isTestnet, setIsTestnet] = useState(defaultTestnetMode)
-
-  // Load testnet preference from localStorage or use env default
-  useEffect(() => {
-    const saved = localStorage.getItem('moonx-testnet-mode')
-    if (saved !== null) {
-      setIsTestnet(saved === 'true')
-    } else {
-      // Use environment default if no saved preference
-      setIsTestnet(defaultTestnetMode)
-    }
-  }, [defaultTestnetMode])
-
-  // Save testnet preference to localStorage
-  const toggleTestnet = () => {
-    const newValue = !isTestnet
-    console.log('🔄 TestnetToggle: Switching to', newValue ? 'TESTNET' : 'MAINNET')
-    setIsTestnet(newValue)
-    localStorage.setItem('moonx-testnet-mode', newValue.toString())
-    
-    // Dispatch custom event for other components
-    window.dispatchEvent(new CustomEvent('testnet-mode-changed', { 
-      detail: { isTestnet: newValue } 
-    }))
-  }
+  // 🚀 NEW: Use unified testnet hook
+  const { isTestnet, toggleTestnet } = useTestnet()
 
   return (
     <div className={cn("flex items-center", className)}>
@@ -67,31 +42,11 @@ export function TestnetToggle({ className }: TestnetToggleProps) {
 }
 
 // Hook to use testnet mode in other components
+// 🚀 NEW: Now a lightweight wrapper around useTestnet
 export function useTestnetMode() {
-  const defaultTestnetMode = process.env.NEXT_PUBLIC_DEFAULT_TESTNET_MODE === 'true'
-  const [isTestnet, setIsTestnet] = useState(defaultTestnetMode)
-
-  useEffect(() => {
-    // Initial load
-    const saved = localStorage.getItem('moonx-testnet-mode')
-    if (saved !== null) {
-      setIsTestnet(saved === 'true')
-    } else {
-      // Use environment default if no saved preference
-      setIsTestnet(defaultTestnetMode)
-    }
-
-    // Listen for changes
-    const handleTestnetChange = (event: CustomEvent) => {
-      setIsTestnet(event.detail.isTestnet)
-    }
-
-    window.addEventListener('testnet-mode-changed', handleTestnetChange as EventListener)
-    
-    return () => {
-      window.removeEventListener('testnet-mode-changed', handleTestnetChange as EventListener)
-    }
-  }, [defaultTestnetMode])
-
+  const { isTestnet } = useTestnet()
   return isTestnet
 } 
+
+// 🚀 NEW: Export unified testnet hook (recommended)
+export { useTestnet, useTestnetMode as useTestnetModeOptimized } from '@/hooks/use-testnet' 

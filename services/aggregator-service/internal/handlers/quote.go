@@ -294,6 +294,9 @@ func (h *QuoteHandler) searchTokenByAddress(c *gin.Context, address string, pref
 		return nil, fmt.Errorf("token not found onchain: %w", err)
 	}
 
+	// Set verified = false for non-popular tokens by default
+	baseToken.Verified = false
+
 	// Filter based on testnet detection using chain config
 	chainConfig := config.GetChainByID(baseToken.ChainID, h.aggregatorService.Environment)
 	if chainConfig == nil {
@@ -339,6 +342,11 @@ func (h *QuoteHandler) searchTokenByAddress(c *gin.Context, address string, pref
 							enhancedToken.LogoURI = cgToken.LogoURI
 						}
 
+						// Merge verified status from CoinGecko only if it's a popular token
+						if cgToken.Source == "coingecko" && config.IsPopularToken(enhancedToken.Address, enhancedToken.ChainID) {
+							enhancedToken.Verified = true
+						}
+
 						// Merge CoinGecko price data if available
 						if !cgToken.PriceUSD.IsZero() {
 							enhancedToken.PriceUSD = cgToken.PriceUSD
@@ -361,8 +369,22 @@ func (h *QuoteHandler) searchTokenByAddress(c *gin.Context, address string, pref
 		enhancedToken.MarketCap = decimal.Zero
 	}
 
-	// IMPORTANT: Ensure token has logoURI before returning
+	// IMPORTANT: Ensure token has logoURI and verified metadata before returning
 	h.ensureTokenLogo(enhancedToken)
+
+	// Update metadata with verified status
+	if enhancedToken.Metadata == nil {
+		enhancedToken.Metadata = make(map[string]interface{})
+	}
+	enhancedToken.Metadata["isVerified"] = enhancedToken.Verified
+
+	logrus.WithFields(logrus.Fields{
+		"address":  address,
+		"symbol":   enhancedToken.Symbol,
+		"chainID":  enhancedToken.ChainID,
+		"verified": enhancedToken.Verified,
+		"source":   enhancedToken.Source,
+	}).Info("Token address search completed with verification status")
 
 	return []*models.Token{enhancedToken}, nil
 }
@@ -391,11 +413,27 @@ func (h *QuoteHandler) searchTokenBySymbol(c *gin.Context, symbol string, limit 
 
 	// STEP 2: If no popular tokens found and mainnet, fallback to CoinGecko
 	if !testnetOnly {
-		tokens, err := h.aggregatorService.CoinGeckoService.SearchTokensBySymbol(ctx, symbol)
+		allTokens, err := h.aggregatorService.CoinGeckoService.SearchTokensBySymbol(ctx, symbol)
 		if err != nil {
 			logrus.WithError(err).WithField("symbol", symbol).Error("CoinGecko search failed")
 			return nil, fmt.Errorf("symbol search failed: %w", err)
 		}
+
+		// Filter tokens by supported chains only
+		supportedChains := config.GetActiveChains(h.aggregatorService.Environment)
+		var tokens []*models.Token
+		for _, token := range allTokens {
+			if chainConfig, exists := supportedChains[token.ChainID]; exists && !chainConfig.IsTestnet {
+				tokens = append(tokens, token)
+			}
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"symbol":          symbol,
+			"allResults":      len(allTokens),
+			"filteredResults": len(tokens),
+			"supportedChains": len(supportedChains),
+		}).Debug("Filtered CoinGecko results by supported chains")
 
 		// Limit results
 		if len(tokens) > limit {
@@ -405,16 +443,32 @@ func (h *QuoteHandler) searchTokenBySymbol(c *gin.Context, symbol string, limit 
 		// Sort by relevance (market cap, popularity)
 		h.sortTokensByRelevance(tokens, symbol)
 
-		// Ensure all tokens have logoURI
+		// Ensure all tokens have logoURI and set verified status
 		for _, token := range tokens {
 			h.ensureTokenLogo(token)
+			// CoinGecko tokens default to verified = false unless explicitly set
+			// Only popular tokens should be automatically verified
+			if token.Verified == false {
+				// Check if this is a popular token using config
+				if config.IsPopularToken(token.Address, token.ChainID) {
+					token.Verified = true
+				} else {
+					// CoinGecko tokens remain unverified by default
+					token.Verified = false
+				}
+			}
+			// Set verified metadata
+			if token.Metadata == nil {
+				token.Metadata = make(map[string]interface{})
+			}
+			token.Metadata["isVerified"] = token.Verified
 		}
 
 		logrus.WithFields(logrus.Fields{
 			"symbol":  symbol,
 			"results": len(tokens),
-			"source":  "coingecko",
-		}).Info("Symbol search completed via CoinGecko")
+			"source":  "coingecko_filtered",
+		}).Info("Symbol search completed via CoinGecko with chain filtering")
 
 		return tokens, nil
 	}
@@ -509,19 +563,8 @@ func (h *QuoteHandler) GetPopularTokens(c *gin.Context) {
 		}
 	}
 
-	var tokens []*models.Token
-	var err error
-
-	if testnetOnly {
-		tokens = h.aggregatorService.GetTestnetPopularTokens(c.Request.Context(), chainID)
-	} else {
-		tokens, err = h.aggregatorService.GetPopularTokensWithPrices(c.Request.Context(), chainID)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to get popular tokens")
-			h.errorResponse(c, http.StatusInternalServerError, "Failed to get popular tokens", err)
-			return
-		}
-	}
+	// Build tokens directly from config metadata like search API
+	tokens := h.buildPopularTokensFromConfig(c.Request.Context(), chainID, testnetOnly)
 
 	response := &models.TokenListResponse{
 		Tokens:    tokens,
@@ -547,37 +590,46 @@ func (h *QuoteHandler) GetPopularTokens(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// NEW: isPopularToken checks if a token is popular by address or symbol
-func (h *QuoteHandler) isPopularToken(address, symbol string, chainID int) bool {
-	// Check by address first
-	popularTokensMap := config.GetAllPopularTokensForChain(chainID)
-	if popularTokensMap != nil {
-		if _, exists := popularTokensMap[strings.ToLower(address)]; exists {
-			return true
-		}
-	}
-
-	// Check by symbol (case insensitive)
-	for _, metadata := range popularTokensMap {
-		if strings.EqualFold(metadata.Symbol, symbol) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // NEW: enhanceTokensWithBinancePrices enhances tokens with Binance pricing data
 func (h *QuoteHandler) enhanceTokensWithBinancePrices(ctx context.Context, tokens []*models.Token) []*models.Token {
 	if len(tokens) == 0 {
 		return tokens
 	}
 
-	// Extract unique Binance symbols
+	// First, handle USDT separately with fixed $1.00 price
+	for _, token := range tokens {
+		if strings.ToUpper(token.Symbol) == "USDT" {
+			token.PriceUSD = decimal.NewFromFloat(1.00)
+			token.Change24h = decimal.NewFromFloat(0.0) // USDT has minimal price change
+			token.Volume24h = decimal.NewFromFloat(0.0) // We don't track volume for USDT
+			token.LastUpdated = time.Now()
+			token.Source = "popular+usdt_fixed"
+
+			// Update metadata with USDT pricing
+			if token.Metadata == nil {
+				token.Metadata = make(map[string]interface{})
+			}
+			token.Metadata["usdtFixed"] = true
+			token.Metadata["isVerified"] = token.Verified
+
+			logrus.WithFields(logrus.Fields{
+				"symbol":   token.Symbol,
+				"chainID":  token.ChainID,
+				"priceUSD": token.PriceUSD.String(),
+			}).Debug("Fixed USDT price applied")
+		}
+	}
+
+	// Extract unique Binance symbols (excluding USDT)
 	symbolMap := make(map[string]bool)
 	var binanceSymbols []string
 
 	for _, token := range tokens {
+		// Skip USDT as it already has fixed price
+		if strings.ToUpper(token.Symbol) == "USDT" {
+			continue
+		}
+
 		binanceSymbol := h.getBinanceSymbol(token.Symbol)
 		if binanceSymbol != "" && !symbolMap[binanceSymbol] {
 			symbolMap[binanceSymbol] = true
@@ -585,19 +637,25 @@ func (h *QuoteHandler) enhanceTokensWithBinancePrices(ctx context.Context, token
 		}
 	}
 
+	// If no non-USDT tokens, return early
 	if len(binanceSymbols) == 0 {
 		return tokens
 	}
 
-	// Get prices from Binance
+	// Get prices from Binance for non-USDT tokens
 	priceData, err := h.aggregatorService.ExternalAPIService.GetBinancePrices(ctx, binanceSymbols)
 	if err != nil {
 		logrus.WithError(err).Warn("Failed to get Binance prices for search tokens")
 		return tokens
 	}
 
-	// Merge price data with tokens
+	// Merge price data with non-USDT tokens
 	for _, token := range tokens {
+		// Skip USDT as it already has fixed price
+		if strings.ToUpper(token.Symbol) == "USDT" {
+			continue
+		}
+
 		binanceSymbol := h.getBinanceSymbol(token.Symbol)
 		if binanceSymbol != "" && priceData[binanceSymbol] != nil {
 			if priceInfo, ok := priceData[binanceSymbol].(map[string]interface{}); ok {
@@ -618,6 +676,13 @@ func (h *QuoteHandler) enhanceTokensWithBinancePrices(ctx context.Context, token
 				}
 				token.LastUpdated = time.Now()
 				token.Source = "popular+binance"
+
+				// Update metadata with enhanced pricing and verified status
+				if token.Metadata == nil {
+					token.Metadata = make(map[string]interface{})
+				}
+				token.Metadata["binanceEnhanced"] = true
+				token.Metadata["isVerified"] = token.Verified
 			}
 		}
 	}
@@ -628,29 +693,30 @@ func (h *QuoteHandler) enhanceTokensWithBinancePrices(ctx context.Context, token
 // NEW: getBinanceSymbol maps token symbols to Binance trading pairs
 func (h *QuoteHandler) getBinanceSymbol(tokenSymbol string) string {
 	// Handle wrapped tokens - map to native token pricing
+	// NOTE: Only USDT is handled separately with fixed $1.00 price
 	switch strings.ToUpper(tokenSymbol) {
-	case "ETH":
+	case "ETH", "WETH": // Both native and wrapped ETH use same price
 		return "ETHUSDT"
-	case "WETH": // Wrapped ETH uses ETH price
-		return "ETHUSDT"
-	case "BNB":
+	case "BNB", "WBNB": // Both native and wrapped BNB use same price
 		return "BNBUSDT"
-	case "WBNB": // Wrapped BNB uses BNB price
-		return "BNBUSDT"
-	case "BTC", "WBTC":
+	case "BTC", "WBTC": // Both native and wrapped BTC use same price
 		return "BTCUSDT"
-	case "USDC":
-		return "USDCUSDT"
-	case "USDT":
-		return "USDTUSDT"
-	case "MATIC":
+	case "MATIC", "WMATIC": // Both native and wrapped MATIC use same price
 		return "MATICUSDT"
+	case "USDC": // USDC can have price fluctuation, get from Binance
+		return "USDCUSDT"
 	case "LINK":
 		return "LINKUSDT"
 	case "ADA":
 		return "ADAUSDT"
 	case "DOT":
 		return "DOTUSDT"
+	case "SOL":
+		return "SOLUSDT"
+	case "AVAX":
+		return "AVAXUSDT"
+	// Only USDT is handled separately with fixed $1.00 price
+	// case "USDT": handled separately
 	default:
 		return ""
 	}
@@ -667,10 +733,12 @@ func (h *QuoteHandler) buildTokenFromPopularMetadata(metadata *config.PopularTok
 		LogoURI:     metadata.LogoURI,
 		IsNative:    metadata.IsNative,
 		Popular:     true,
+		Verified:    true, // Popular tokens are verified by default
 		Source:      "popular",
 		LastUpdated: time.Now(),
 		Metadata: map[string]interface{}{
 			"isPopular":     true,
+			"isVerified":    true,
 			"isStablecoin":  metadata.IsStablecoin,
 			"coinGeckoId":   metadata.CoinGeckoID,
 			"binanceSymbol": metadata.BinanceSymbol,
@@ -712,7 +780,7 @@ func (h *QuoteHandler) getTokenLogoBySymbol(symbol string, chainID int) string {
 		return "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png"
 	case "BTC", "WBTC":
 		return "https://assets.coingecko.com/coins/images/1/large/bitcoin.png"
-	case "USDC", "USDBC":
+	case "USDC": // Removed USDBC due to low liquidity
 		return "https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png"
 	case "USDT":
 		return "https://assets.coingecko.com/coins/images/325/large/Tether.png"
@@ -722,8 +790,7 @@ func (h *QuoteHandler) getTokenLogoBySymbol(symbol string, chainID int) string {
 		return "https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png"
 	case "DAI":
 		return "https://assets.coingecko.com/coins/images/9956/large/Badge_Dai.png"
-	case "BUSD":
-		return "https://assets.coingecko.com/coins/images/9576/large/BUSD.png"
+	// Note: BUSD removed due to Binance deprecation
 	default:
 		return "" // Will use fallback in ensureTokenLogo
 	}
@@ -782,6 +849,10 @@ func (h *QuoteHandler) enhancePopularTokenUnified(ctx context.Context, token *mo
 	// Ensure logo is always set
 	h.ensureTokenLogo(token)
 
+	// Popular tokens are always verified
+	token.Verified = true
+	token.Popular = true
+
 	if isTestnet {
 		// For testnet tokens, just ensure proper metadata
 		token.PriceUSD = decimal.Zero
@@ -795,11 +866,13 @@ func (h *QuoteHandler) enhancePopularTokenUnified(ctx context.Context, token *mo
 		}
 		token.Metadata["isTestnet"] = true
 		token.Metadata["isPopular"] = true
+		token.Metadata["isVerified"] = true
 
 		logrus.WithFields(logrus.Fields{
-			"symbol":  token.Symbol,
-			"chainID": token.ChainID,
-			"source":  token.Source,
+			"symbol":   token.Symbol,
+			"chainID":  token.ChainID,
+			"verified": token.Verified,
+			"source":   token.Source,
 		}).Debug("Testnet popular token enhanced")
 
 		return token
@@ -810,10 +883,13 @@ func (h *QuoteHandler) enhancePopularTokenUnified(ctx context.Context, token *mo
 	if len(enhancedTokens) > 0 {
 		enhanced := enhancedTokens[0]
 		enhanced.Source = "popular+binance"
+		enhanced.Verified = true // Ensure verified is maintained
+		enhanced.Popular = true  // Ensure popular is maintained
 
 		logrus.WithFields(logrus.Fields{
 			"symbol":   enhanced.Symbol,
 			"chainID":  enhanced.ChainID,
+			"verified": enhanced.Verified,
 			"priceUSD": enhanced.PriceUSD.String(),
 			"source":   enhanced.Source,
 		}).Debug("Mainnet popular token enhanced with Binance pricing")
@@ -823,6 +899,8 @@ func (h *QuoteHandler) enhancePopularTokenUnified(ctx context.Context, token *mo
 
 	// Fallback for mainnet without pricing
 	token.Source = "popular"
+	token.Verified = true // Ensure verified is set
+	token.Popular = true  // Ensure popular is maintained
 	return token
 }
 
@@ -869,4 +947,124 @@ func (h *QuoteHandler) getPopularTokenByAddress(ctx context.Context, address str
 	}
 
 	return nil // Not a popular token
+}
+
+// NEW: buildPopularTokensFromConfig builds all popular tokens from config metadata with enhancement
+func (h *QuoteHandler) buildPopularTokensFromConfig(ctx context.Context, chainID int, testnetOnly bool) []*models.Token {
+	var tokens []*models.Token
+
+	// Determine which chains to search
+	var chains map[int]*config.ChainConfig
+	if testnetOnly {
+		chains = config.GetTestnetChains(h.aggregatorService.Environment)
+		if chainID != 0 {
+			if chainConfig, exists := chains[chainID]; exists {
+				chains = map[int]*config.ChainConfig{chainID: chainConfig}
+			} else {
+				chains = make(map[int]*config.ChainConfig)
+			}
+		}
+	} else {
+		chains = config.GetActiveChains(h.aggregatorService.Environment)
+		// Filter out testnets for mainnet search
+		mainnetChains := make(map[int]*config.ChainConfig)
+		for cID, chainConfig := range chains {
+			if !chainConfig.IsTestnet {
+				mainnetChains[cID] = chainConfig
+			}
+		}
+		chains = mainnetChains
+
+		if chainID != 0 {
+			if chainConfig, exists := chains[chainID]; exists {
+				chains = map[int]*config.ChainConfig{chainID: chainConfig}
+			} else {
+				chains = make(map[int]*config.ChainConfig)
+			}
+		}
+	}
+
+	// Build tokens from config metadata for each chain
+	for cID, chainConfig := range chains {
+		popularTokensMap := config.GetAllPopularTokensForChain(cID)
+		for address, metadata := range popularTokensMap {
+			// Build token from metadata
+			token := h.buildTokenFromPopularMetadata(metadata, address, cID)
+			if token != nil {
+				// Apply appropriate enhancement (testnet vs mainnet)
+				enhancedToken := h.enhancePopularTokenUnified(ctx, token, chainConfig.IsTestnet)
+				tokens = append(tokens, enhancedToken)
+			}
+		}
+	}
+
+	// Sort tokens by priority: native first, then by symbol
+	h.sortPopularTokens(tokens)
+
+	logrus.WithFields(logrus.Fields{
+		"chainID":    chainID,
+		"testnet":    testnetOnly,
+		"tokenCount": len(tokens),
+		"method":     "buildFromConfig",
+	}).Info("Popular tokens built from config metadata")
+
+	return tokens
+}
+
+// NEW: sortPopularTokens sorts popular tokens by importance
+func (h *QuoteHandler) sortPopularTokens(tokens []*models.Token) {
+	if len(tokens) <= 1 {
+		return
+	}
+
+	// Sort by multiple criteria
+	for i := 0; i < len(tokens)-1; i++ {
+		for j := i + 1; j < len(tokens); j++ {
+			shouldSwap := false
+
+			// 1. Native tokens first
+			if tokens[j].IsNative && !tokens[i].IsNative {
+				shouldSwap = true
+			} else if tokens[i].IsNative == tokens[j].IsNative {
+				// 2. Symbol priority (ETH, BTC, BNB, USDC, USDT, others)
+				iPriority := h.getSymbolPriority(tokens[i].Symbol)
+				jPriority := h.getSymbolPriority(tokens[j].Symbol)
+
+				if jPriority < iPriority {
+					shouldSwap = true
+				} else if iPriority == jPriority {
+					// 3. Alphabetical by symbol
+					if tokens[j].Symbol < tokens[i].Symbol {
+						shouldSwap = true
+					}
+				}
+			}
+
+			if shouldSwap {
+				tokens[i], tokens[j] = tokens[j], tokens[i]
+			}
+		}
+	}
+}
+
+// NEW: getSymbolPriority returns priority order for token symbols
+func (h *QuoteHandler) getSymbolPriority(symbol string) int {
+	priorities := map[string]int{
+		"ETH":  1,
+		"BTC":  2,
+		"BNB":  3,
+		"USDC": 4,
+		"USDT": 5,
+		"WETH": 6,
+		"WBNB": 7,
+		"WBTC": 8,
+		"LINK": 9,
+		"DAI":  10,
+		// Note: BUSD removed due to Binance deprecation
+	}
+
+	if priority, exists := priorities[strings.ToUpper(symbol)]; exists {
+		return priority
+	}
+	return 999 // Default for unlisted tokens
 }

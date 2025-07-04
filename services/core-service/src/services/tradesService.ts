@@ -145,11 +145,19 @@ export class TradesService {
       let fromToken, toToken, pnl;
       
       try {
-        fromToken = row.from_token ? JSON.parse(row.from_token) : null;
-        toToken = row.to_token ? JSON.parse(row.to_token) : null;
-        pnl = row.pnl ? JSON.parse(row.pnl) : null;
+        // Handle JSONB fields - they may already be parsed objects or JSON strings
+        fromToken = row.from_token 
+          ? (typeof row.from_token === 'object' ? row.from_token : JSON.parse(row.from_token))
+          : null;
+        toToken = row.to_token 
+          ? (typeof row.to_token === 'object' ? row.to_token : JSON.parse(row.to_token))
+          : null;
+        pnl = row.pnl 
+          ? (typeof row.pnl === 'object' ? row.pnl : JSON.parse(row.pnl))
+          : null;
       } catch (parseError) {
-        console.warn(`Failed to parse JSON fields for trade ${row.id}:`, parseError);
+        console.error(`Failed to parse JSON fields for trade ${row.id}:`, parseError);
+        console.error('Raw data:', { from_token: row.from_token, to_token: row.to_token });
         return null;
       }
 
@@ -385,5 +393,228 @@ export class TradesService {
     }
 
     return health;
+  }
+
+  /**
+   * Add a new trade to the database
+   */
+  async addTrade(tradeData: {
+    userId: string;
+    walletAddress: string;
+    txHash: string;
+    chainId: number;
+    blockNumber?: number;
+    timestamp?: Date;
+    type: 'swap' | 'buy' | 'sell';
+    status: 'pending' | 'completed' | 'failed';
+    fromToken: {
+      address: string;
+      symbol: string;
+      name: string;
+      decimals: number;
+      amount: string;
+      amountFormatted: number;
+      priceUSD: number;
+      valueUSD: number;
+    };
+    toToken: {
+      address: string;
+      symbol: string;
+      name: string;
+      decimals: number;
+      amount: string;
+      amountFormatted: number;
+      priceUSD: number;
+      valueUSD: number;
+    };
+    gasFeeETH?: number;
+    gasFeeUSD: number;
+    protocolFeeUSD?: number;
+    slippage?: number;
+    priceImpact?: number;
+    dexName?: string;
+    routerAddress?: string;
+    aggregator?: 'lifi' | '1inch' | 'relay' | 'jupiter';
+  }): Promise<RealTrade> {
+    if (!tradeData.userId || !tradeData.walletAddress || !tradeData.txHash) {
+      throw new Error('User ID, wallet address, and transaction hash are required');
+    }
+
+    try {
+      // Check if trade already exists
+      const existingTrade = await this.getTradeByTxHash(tradeData.txHash, tradeData.userId);
+      if (existingTrade) {
+        throw new Error(`Trade with txHash ${tradeData.txHash} already exists for user ${tradeData.userId}`);
+      }
+
+      // Ensure tokens are objects before stringifying
+      const fromTokenStr = typeof tradeData.fromToken === 'object' ? JSON.stringify(tradeData.fromToken) : String(tradeData.fromToken);
+      const toTokenStr = typeof tradeData.toToken === 'object' ? JSON.stringify(tradeData.toToken) : String(tradeData.toToken);
+
+      // Insert trade into database (let PostgreSQL generate UUID for id)
+      const insertQuery = `
+        INSERT INTO user_trades (
+          user_id, wallet_address, tx_hash, chain_id, block_number,
+          timestamp, type, status, from_token, to_token,
+          gas_fee_eth, gas_fee_usd, protocol_fee_usd, slippage, price_impact,
+          dex_name, router_address, aggregator, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
+        ) RETURNING *
+      `;
+
+      const params = [
+        tradeData.userId,
+        tradeData.walletAddress,
+        tradeData.txHash,
+        tradeData.chainId,
+        tradeData.blockNumber || 0,
+        tradeData.timestamp || new Date(),
+        tradeData.type,
+        tradeData.status,
+        fromTokenStr,
+        toTokenStr,
+        tradeData.gasFeeETH || 0,
+        tradeData.gasFeeUSD,
+        tradeData.protocolFeeUSD || null,
+        tradeData.slippage || null,
+        tradeData.priceImpact || null,
+        tradeData.dexName || null,
+        tradeData.routerAddress || null,
+        tradeData.aggregator || null
+      ];
+
+      const result = await this.db.query(insertQuery, params);
+      
+      if (!result.rows[0]) {
+        throw new Error('Failed to insert trade');
+      }
+
+      // Map result to RealTrade
+      const savedTrade = this.mapRowToRealTrade(result.rows[0]);
+      
+      if (!savedTrade) {
+        throw new Error('Failed to map saved trade data');
+      }
+
+      // Clear cache for this user
+      await this.clearTradesCache(tradeData.userId);
+
+      console.log(`✅ Added new trade ${savedTrade.id} for user ${tradeData.userId}`);
+      return savedTrade;
+
+    } catch (error) {
+      console.error(`❌ Failed to add trade for user ${tradeData.userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get trade by transaction hash
+   */
+  async getTradeByTxHash(txHash: string, userId: string): Promise<RealTrade | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM user_trades WHERE tx_hash = $1 AND user_id = $2',
+        [txHash, userId]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return this.mapRowToRealTrade(result.rows[0]);
+    } catch (error) {
+      console.error(`❌ Error fetching trade by txHash ${txHash}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Update trade status (e.g., from pending to completed)
+   */
+  async updateTradeStatus(
+    txHash: string, 
+    userId: string, 
+    updates: {
+      status?: 'pending' | 'completed' | 'failed';
+      blockNumber?: number;
+      timestamp?: Date;
+      gasFeeETH?: number;
+      gasFeeUSD?: number;
+      pnl?: {
+        realizedPnlUSD: number;
+        feesPaidUSD: number;
+        netPnlUSD: number;
+        unrealizedPnlUSD?: number;
+      };
+    }
+  ): Promise<RealTrade | null> {
+    try {
+      const updateFields: string[] = [];
+      const updateParams: any[] = [];
+      let paramIndex = 1;
+
+      if (updates.status !== undefined) {
+        updateFields.push(`status = $${paramIndex++}`);
+        updateParams.push(updates.status);
+      }
+
+      if (updates.blockNumber !== undefined) {
+        updateFields.push(`block_number = $${paramIndex++}`);
+        updateParams.push(updates.blockNumber);
+      }
+
+      if (updates.timestamp !== undefined) {
+        updateFields.push(`timestamp = $${paramIndex++}`);
+        updateParams.push(updates.timestamp);
+      }
+
+      if (updates.gasFeeETH !== undefined) {
+        updateFields.push(`gas_fee_eth = $${paramIndex++}`);
+        updateParams.push(updates.gasFeeETH);
+      }
+
+      if (updates.gasFeeUSD !== undefined) {
+        updateFields.push(`gas_fee_usd = $${paramIndex++}`);
+        updateParams.push(updates.gasFeeUSD);
+      }
+
+      if (updates.pnl !== undefined) {
+        updateFields.push(`pnl = $${paramIndex++}`);
+        updateParams.push(JSON.stringify(updates.pnl));
+      }
+
+      if (updateFields.length === 0) {
+        throw new Error('No fields to update');
+      }
+
+      updateFields.push('updated_at = NOW()');
+
+      const query = `
+        UPDATE user_trades 
+        SET ${updateFields.join(', ')} 
+        WHERE tx_hash = $${paramIndex++} AND user_id = $${paramIndex++}
+        RETURNING *
+      `;
+
+      updateParams.push(txHash, userId);
+
+      const result = await this.db.query(query, updateParams);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      // Clear cache for this user
+      await this.clearTradesCache(userId);
+
+      console.log(`✅ Updated trade ${txHash} for user ${userId}`);
+      return this.mapRowToRealTrade(result.rows[0]);
+
+    } catch (error) {
+      console.error(`❌ Failed to update trade ${txHash}:`, error);
+      throw error;
+    }
   }
 } 

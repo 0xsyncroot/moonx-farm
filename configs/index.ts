@@ -47,23 +47,23 @@ export const CONFIG_PROFILES = {
     .merge(BlockchainConfigSchema)
     .merge(JwtConfigSchema)
     .merge(ZeroDevConfigSchema)
-    .merge(ServicesConfigSchema.pick({ WALLET_REGISTRY_PORT: true, WALLET_REGISTRY_HOST: true, FRONTEND_URL: true }))
+    .merge(ServicesConfigSchema.pick({ WALLET_REGISTRY_PORT: true, WALLET_REGISTRY_HOST: true }))
     .merge(LoggerConfigSchema),
 
-  // Core service needs database, redis, JWT, external APIs, logger
+  // Core service needs database, redis, blockchain
   'core-service': BaseConfigSchema
     .merge(DatabaseConfigSchema)
     .merge(RedisConfigSchema)
-    .merge(JwtConfigSchema)
-    .merge(ExternalApisConfigSchema)
-    .merge(ServicesConfigSchema.pick({ CORE_SERVICE_PORT: true, CORE_SERVICE_HOST: true, FRONTEND_URL: true }))
+    .merge(BlockchainConfigSchema)
+    .merge(ServicesConfigSchema.pick({ CORE_SERVICE_PORT: true, CORE_SERVICE_HOST: true }))
     .merge(LoggerConfigSchema),
 
-  // Quote service needs redis, external APIs, blockchain
+  // Aggregator service needs redis, external APIs, blockchain
   'aggregator-service': BaseConfigSchema
     .merge(RedisConfigSchema)
     .merge(ExternalApisConfigSchema)
     .merge(BlockchainConfigSchema)
+    .merge(CacheConfigSchema)
     .merge(ServicesConfigSchema.pick({ AGGREGATOR_SERVICE_PORT: true, AGGREGATOR_SERVICE_HOST: true }))
     .merge(LoggerConfigSchema),
 
@@ -93,12 +93,31 @@ export const CONFIG_PROFILES = {
     .merge(ServicesConfigSchema.pick({ NOTIFY_SERVICE_PORT: true, NOTIFY_SERVICE_HOST: true }))
     .merge(LoggerConfigSchema),
 
+  // WebSocket Gateway needs redis, services for auth calls
+  'websocket-gateway': BaseConfigSchema
+    .merge(RedisConfigSchema)
+    .merge(ServicesConfigSchema.pick({ 
+      WEBSOCKET_GATEWAY_PORT: true, 
+      WEBSOCKET_GATEWAY_HOST: true, 
+      AUTH_SERVICE_URL: true 
+    }))
+    .merge(LoggerConfigSchema),
+
+  // Notification Hub needs redis, kafka, external APIs
+  'notification-hub': BaseConfigSchema
+    .merge(RedisConfigSchema)
+    .merge(KafkaConfigSchema)
+    .merge(ExternalApisConfigSchema.pick({ FIREBASE_SERVER_KEY: true }))
+    .merge(ServicesConfigSchema.pick({ NOTIFICATION_HUB_PORT: true, NOTIFICATION_HUB_HOST: true }))
+    .merge(LoggerConfigSchema),
+
   // Price crawler worker needs redis, kafka, external APIs, blockchain
   'price-crawler': BaseConfigSchema
     .merge(RedisConfigSchema)
     .merge(KafkaConfigSchema)
     .merge(ExternalApisConfigSchema)
     .merge(BlockchainConfigSchema)
+    .merge(CacheConfigSchema)
     .merge(LoggerConfigSchema),
 
   // Order executor worker needs database, redis, kafka, blockchain, trading
@@ -110,7 +129,7 @@ export const CONFIG_PROFILES = {
     .merge(TradingConfigSchema)
     .merge(LoggerConfigSchema),
 
-  // Frontend web app needs frontend config
+  // Frontend Next.js app
   'web': BaseConfigSchema
     .merge(FrontendConfigSchema)
     .merge(LoggerConfigSchema),
@@ -121,12 +140,14 @@ export const CONFIG_PROFILES = {
     .merge(RedisConfigSchema)
     .merge(KafkaConfigSchema)
     .merge(JwtConfigSchema)
+    .merge(PrivyConfigSchema)
     .merge(ServicesConfigSchema)
     .merge(BlockchainConfigSchema)
     .merge(ExternalApisConfigSchema)
     .merge(TradingConfigSchema)
     .merge(FrontendConfigSchema)
     .merge(CacheConfigSchema)
+    .merge(ZeroDevConfigSchema)
     .merge(LoggerConfigSchema),
 } as const;
 
@@ -134,42 +155,31 @@ export type ConfigProfile = keyof typeof CONFIG_PROFILES;
 export type ConfigForProfile<T extends ConfigProfile> = z.infer<typeof CONFIG_PROFILES[T]>;
 
 /**
- * Configuration Manager
+ * Generic Configuration Manager
  */
-class ConfigManager<T extends ConfigProfile> {
-  private static instances: Map<ConfigProfile, ConfigManager<any>> = new Map();
-  private config: ConfigForProfile<T>;
-  private profile: T;
+class ConfigManager<T extends z.ZodSchema> {
+  private config: z.infer<T>;
 
-  private constructor(profile: T) {
-    this.profile = profile;
-    this.config = this.loadConfig(profile);
+  constructor(schema: T) {
+    this.config = this.loadConfig(schema);
   }
 
-  public static getInstance<T extends ConfigProfile>(profile: T): ConfigManager<T> {
-    if (!ConfigManager.instances.has(profile)) {
-      ConfigManager.instances.set(profile, new ConfigManager(profile));
-    }
-    return ConfigManager.instances.get(profile)!;
-  }
-
-  private loadConfig(profile: T): ConfigForProfile<T> {
+  private loadConfig(schema: T): z.infer<T> {
     try {
-      const schema = CONFIG_PROFILES[profile];
       const config = schema.parse(process.env);
-      console.log(`✅ Configuration loaded for profile: ${profile}`);
-      return config as ConfigForProfile<T>;
+      console.log(`✅ Configuration loaded successfully`);
+      return config;
     } catch (error) {
-      console.error(`❌ Configuration validation failed for profile: ${profile}`, error);
-      throw new Error(`Invalid configuration for profile: ${profile}`);
+      console.error(`❌ Configuration validation failed:`, error);
+      throw new Error(`Invalid configuration`);
     }
   }
 
-  public get<K extends keyof ConfigForProfile<T>>(key: K): ConfigForProfile<T>[K] {
+  public get<K extends keyof z.infer<T>>(key: K): z.infer<T>[K] {
     return this.config[key];
   }
 
-  public getAll(): ConfigForProfile<T> {
+  public getAll(): z.infer<T> {
     return this.config;
   }
 
@@ -185,66 +195,43 @@ class ConfigManager<T extends ConfigProfile> {
     return this.config.NODE_ENV === 'test';
   }
 
-  public reload(): void {
-    this.config = this.loadConfig(this.profile);
+  public reload(schema: T): void {
+    this.config = this.loadConfig(schema);
+  }
+}
+
+/**
+ * Generic config creator - supports both schemas and profiles
+ */
+export function createConfig<T extends z.ZodSchema>(schema: T): ConfigManager<T>;
+export function createConfig<T extends ConfigProfile>(profile: T): ConfigManager<typeof CONFIG_PROFILES[T]>;
+export function createConfig<T extends z.ZodSchema | ConfigProfile>(input: T): any {
+  if (typeof input === 'string') {
+    // Profile name
+    return new ConfigManager(CONFIG_PROFILES[input as ConfigProfile]);
+  } else {
+    // Zod schema
+    return new ConfigManager(input as z.ZodSchema);
   }
 }
 
 /**
  * Helper functions to create config instances for each service
  */
-export const createConfig = <T extends ConfigProfile>(profile: T): ConfigManager<T> => {
-  return ConfigManager.getInstance(profile);
-};
-
-// Export specific config creators for each service
-export const createApiGatewayConfig = () => createConfig('api-gateway');
-export const createAuthServiceConfig = () => createConfig('auth-service');
-export const createWalletRegistryConfig = () => createConfig('wallet-registry');
-export const createCoreServiceConfig = () => createConfig('core-service');
-export const createAggregatorServiceConfig = () => createConfig('aggregator-service');
-export const createSwapOrchestratorConfig = () => createConfig('swap-orchestrator');
-export const createPositionIndexerConfig = () => createConfig('position-indexer');
-export const createNotifyServiceConfig = () => createConfig('notify-service');
-export const createPriceCrawlerConfig = () => createConfig('price-crawler');
-export const createOrderExecutorConfig = () => createConfig('order-executor');
-export const createWebConfig = () => createConfig('web');
-export const createFullConfig = () => createConfig('full');
-
-/**
- * Configuration helper functions
- */
-export const getConfigForService = (serviceName: string) => {
-  const profileMap: Record<string, ConfigProfile> = {
-    'api-gateway': 'api-gateway',
-    'auth-service': 'auth-service',
-    'wallet-registry': 'wallet-registry',
-    'core-service': 'core-service',
-    'aggregator-service': 'aggregator-service',
-    'swap-orchestrator': 'swap-orchestrator',
-    'position-indexer': 'position-indexer',
-    'notify-service': 'notify-service',
-    'price-crawler': 'price-crawler',
-    'order-executor': 'order-executor',
-    'web': 'web',
-  };
-
-  const profile = profileMap[serviceName];
-  if (!profile) {
-    throw new Error(`Unknown service: ${serviceName}`);
-  }
-
-  return createConfig(profile);
-};
-
-/**
- * Get configuration for a specific profile
- * @param profile - Profile name
- * @returns Configuration object
- */
-export const getConfig = (profile: ConfigProfile) => {
-  return createConfig(profile).getAll();
-};
+export const createFullConfig = () => createConfig(CONFIG_PROFILES.full);
+export const createApiGatewayConfig = () => createConfig(CONFIG_PROFILES['api-gateway']);
+export const createAuthServiceConfig = () => createConfig(CONFIG_PROFILES['auth-service']);
+export const createWalletRegistryConfig = () => createConfig(CONFIG_PROFILES['wallet-registry']);
+export const createCoreServiceConfig = () => createConfig(CONFIG_PROFILES['core-service']);
+export const createAggregatorServiceConfig = () => createConfig(CONFIG_PROFILES['aggregator-service']);
+export const createSwapOrchestratorConfig = () => createConfig(CONFIG_PROFILES['swap-orchestrator']);
+export const createPositionIndexerConfig = () => createConfig(CONFIG_PROFILES['position-indexer']);
+export const createNotifyServiceConfig = () => createConfig(CONFIG_PROFILES['notify-service']);
+export const createWebSocketGatewayConfig = () => createConfig(CONFIG_PROFILES['websocket-gateway']);
+export const createNotificationHubConfig = () => createConfig(CONFIG_PROFILES['notification-hub']);
+export const createPriceCrawlerConfig = () => createConfig(CONFIG_PROFILES['price-crawler']);
+export const createOrderExecutorConfig = () => createConfig(CONFIG_PROFILES['order-executor']);
+export const createWebConfig = () => createConfig(CONFIG_PROFILES.web);
 
 // Export schemas for extending
 export {

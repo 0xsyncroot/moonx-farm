@@ -3,14 +3,6 @@ import { CacheService } from './cacheService';
 import { DatabaseService } from './databaseService';
 import { createConfig } from '@moonx-farm/configs';
 
-interface UserSyncStatus {
-  userId: string;
-  walletAddress: string;
-  lastSyncAt: Date;
-  syncFrequency: number; // minutes
-  priorityLevel: 'high' | 'normal' | 'low';
-}
-
 interface TriggeredSync {
   userId: string;
   walletAddress: string;
@@ -28,15 +20,28 @@ interface SyncStats {
   syncErrors: number;
 }
 
+interface RateLimitInfo {
+  userId: string;
+  requestCount: number;
+  lastRequestAt: Date;
+  windowStart: Date;
+}
+
 export class AutoSyncService {
   private portfolioService: PortfolioService;
   private cacheService: CacheService;
   private db: DatabaseService;
   private syncInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
-  private config: any;
   private syncErrors = 0;
   private lastProcessedAt?: Date;
+  private activeSync: Set<string> = new Set(); // Track active syncs
+  private rateLimitMap: Map<string, RateLimitInfo> = new Map(); // Rate limiting
+
+  // Rate limiting config
+  private readonly RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+  private readonly RATE_LIMIT_MAX_REQUESTS = 5; // Max 5 sync requests per 15 minutes per user
+  private readonly MIN_SYNC_INTERVAL = 5 * 60 * 1000; // Minimum 5 minutes between syncs
 
   constructor(
     portfolioService: PortfolioService, 
@@ -46,9 +51,6 @@ export class AutoSyncService {
     this.portfolioService = portfolioService;
     this.cacheService = cacheService;
     this.db = databaseService;
-    
-    // Get Core Service configuration
-    this.config = createConfig('core-service');
     
     console.log('✅ AutoSyncService initialized with Core Service configuration');
   }
@@ -65,13 +67,21 @@ export class AutoSyncService {
     try {
       this.isRunning = true;
       this.syncErrors = 0;
+      this.activeSync.clear();
+      this.rateLimitMap.clear();
+      
       console.log('🔄 AutoSync Service started');
 
-      // Run sync check every 2 minutes
+      // Run sync check every 2 minutes (reduced frequency for better performance)
       this.syncInterval = setInterval(async () => {
         try {
           await this.processSyncQueue();
           this.lastProcessedAt = new Date();
+          
+          // Clean up old rate limit data every 30 minutes
+          if (this.lastProcessedAt.getMinutes() % 30 === 0) {
+            this.cleanupRateLimitData();
+          }
         } catch (error) {
           this.syncErrors++;
           console.error('AutoSync processing error:', error);
@@ -111,6 +121,9 @@ export class AutoSyncService {
       }
       
       this.isRunning = false;
+      this.activeSync.clear();
+      this.rateLimitMap.clear();
+      
       console.log('⏹️ AutoSync Service stopped gracefully');
     } catch (error) {
       console.error('Error stopping AutoSync Service:', error);
@@ -118,36 +131,169 @@ export class AutoSyncService {
   }
 
   /**
-   * Trigger immediate sync for a user
+   * Check if user can trigger sync (rate limiting)
    */
-  async triggerUserSync(userId: string, walletAddress: string, priority: 'high' | 'normal' | 'low' = 'normal'): Promise<void> {
-    if (!userId || !walletAddress) {
-      throw new Error('User ID and wallet address are required for sync trigger');
-    }
-
-    try {
-      // Trigger immediate sync for user (e.g., when they login or make a trade)
-      const syncKey = `sync_trigger:${userId}:${walletAddress}`;
-      
-      const triggerData: TriggeredSync = {
+  private checkRateLimit(userId: string): { allowed: boolean; remainingRequests?: number; resetTime?: Date } {
+    const userKey = `user:${userId}`;
+    const now = new Date();
+    
+    let rateLimitInfo = this.rateLimitMap.get(userKey);
+    
+    if (!rateLimitInfo) {
+      // First request
+      rateLimitInfo = {
         userId,
-        walletAddress,
-        priority,
-        triggeredAt: new Date(),
-        reason: priority === 'high' ? 'user_action' : 'auto_trigger'
+        requestCount: 1,
+        lastRequestAt: now,
+        windowStart: now
       };
+      this.rateLimitMap.set(userKey, rateLimitInfo);
+      return { allowed: true, remainingRequests: this.RATE_LIMIT_MAX_REQUESTS - 1 };
+    }
+    
+    // Check if window has expired
+    if (now.getTime() - rateLimitInfo.windowStart.getTime() > this.RATE_LIMIT_WINDOW) {
+      // Reset window
+      rateLimitInfo.requestCount = 1;
+      rateLimitInfo.windowStart = now;
+      rateLimitInfo.lastRequestAt = now;
+      this.rateLimitMap.set(userKey, rateLimitInfo);
+      return { allowed: true, remainingRequests: this.RATE_LIMIT_MAX_REQUESTS - 1 };
+    }
+    
+    // Check if exceeded rate limit
+    if (rateLimitInfo.requestCount >= this.RATE_LIMIT_MAX_REQUESTS) {
+      const resetTime = new Date(rateLimitInfo.windowStart.getTime() + this.RATE_LIMIT_WINDOW);
+      return { allowed: false, remainingRequests: 0, resetTime };
+    }
+    
+    // Check minimum interval between requests
+    if (now.getTime() - rateLimitInfo.lastRequestAt.getTime() < this.MIN_SYNC_INTERVAL) {
+      return { allowed: false, remainingRequests: this.RATE_LIMIT_MAX_REQUESTS - rateLimitInfo.requestCount };
+    }
+    
+    // Allow request
+    rateLimitInfo.requestCount++;
+    rateLimitInfo.lastRequestAt = now;
+    this.rateLimitMap.set(userKey, rateLimitInfo);
+    
+    return { allowed: true, remainingRequests: this.RATE_LIMIT_MAX_REQUESTS - rateLimitInfo.requestCount };
+  }
 
-      await this.cacheService.set(syncKey, triggerData, 300); // 5 minutes TTL
-
-      console.log(`🚀 Triggered ${priority} priority sync for user ${userId}`);
-    } catch (error) {
-      console.error(`Failed to trigger sync for user ${userId}:`, error);
-      throw error;
+  /**
+   * Clean up old rate limit data
+   */
+  private cleanupRateLimitData(): void {
+    const now = new Date();
+    for (const [key, rateLimitInfo] of this.rateLimitMap.entries()) {
+      if (now.getTime() - rateLimitInfo.windowStart.getTime() > this.RATE_LIMIT_WINDOW) {
+        this.rateLimitMap.delete(key);
+      }
     }
   }
 
   /**
-   * Process the sync queue with priority ordering
+   * Check if user sync is already active
+   */
+  private isSyncActive(userId: string, walletAddress: string): boolean {
+    const syncKey = `${userId}:${walletAddress}`;
+    return this.activeSync.has(syncKey);
+  }
+
+  /**
+   * Mark sync as active
+   */
+  private markSyncActive(userId: string, walletAddress: string): void {
+    const syncKey = `${userId}:${walletAddress}`;
+    this.activeSync.add(syncKey);
+  }
+
+  /**
+   * Mark sync as completed
+   */
+  private markSyncCompleted(userId: string, walletAddress: string): void {
+    const syncKey = `${userId}:${walletAddress}`;
+    this.activeSync.delete(syncKey);
+  }
+
+  /**
+   * Trigger user sync manually (for API calls) with rate limiting
+   */
+  async triggerUserSync(userId: string, walletAddress: string, priority: 'high' | 'normal' | 'low' = 'normal'): Promise<{
+    success: boolean;
+    message: string;
+    rateLimitInfo?: { remainingRequests: number; resetTime?: Date };
+  }> {
+    try {
+      // Check rate limit
+      const rateLimitCheck = this.checkRateLimit(userId);
+      if (!rateLimitCheck.allowed) {
+        return {
+          success: false,
+          message: 'Rate limit exceeded. Please wait before triggering another sync.',
+          rateLimitInfo: {
+            remainingRequests: rateLimitCheck.remainingRequests || 0,
+            resetTime: rateLimitCheck.resetTime
+          }
+        };
+      }
+
+      // Check if sync is already active
+      if (this.isSyncActive(userId, walletAddress)) {
+        return {
+          success: false,
+          message: 'Sync is already in progress for this user.',
+          rateLimitInfo: {
+            remainingRequests: rateLimitCheck.remainingRequests || 0
+          }
+        };
+      }
+
+      // Add to triggered syncs queue
+      const triggeredSync: TriggeredSync = {
+        userId,
+        walletAddress,
+        priority,
+        triggeredAt: new Date(),
+        reason: 'manual_trigger'
+      };
+
+      // Add to global trigger queue
+      await this.addToTriggerQueue(triggeredSync);
+
+      console.log(`📨 Manual sync triggered for user ${userId} with ${priority} priority`);
+
+      // If service is running, try to process immediately
+      if (this.isRunning) {
+        // Process triggered syncs immediately for high priority
+        if (priority === 'high') {
+          setTimeout(() => {
+            this.processTriggeredSyncs().catch(error => {
+              console.error('Error processing immediate sync:', error);
+            });
+          }, 1000);
+        }
+      }
+
+      return {
+        success: true,
+        message: 'Sync triggered successfully',
+        rateLimitInfo: {
+          remainingRequests: rateLimitCheck.remainingRequests || 0
+        }
+      };
+
+    } catch (error) {
+      console.error('Error triggering user sync:', error);
+      return {
+        success: false,
+        message: 'Failed to trigger sync due to internal error'
+      };
+    }
+  }
+
+  /**
+   * Process the sync queue with priority ordering and concurrent processing
    */
   private async processSyncQueue(): Promise<void> {
     if (!this.isRunning) {
@@ -158,16 +304,33 @@ export class AutoSyncService {
     try {
       console.log('🔄 Processing sync queue...');
 
-      // 1. Check triggered syncs (high priority)
-      await this.processTriggeredSyncs();
+      // Process all types concurrently but with limited concurrency
+      const maxConcurrent = 3; // Maximum 3 concurrent syncs
+      const currentActive = this.activeSync.size;
       
-      // 2. Check scheduled syncs (normal priority)
-      await this.processScheduledSyncs();
+      if (currentActive >= maxConcurrent) {
+        console.log(`Sync queue processing skipped - ${currentActive} active syncs (max: ${maxConcurrent})`);
+        return;
+      }
+
+      const availableSlots = maxConcurrent - currentActive;
       
-      // 3. Check stale data (low priority)
-      await this.processStaleSyncs();
+      // 1. Process triggered syncs first (highest priority)
+      await this.processTriggeredSyncs(availableSlots);
       
-      console.log('✅ Sync queue processing completed');
+      // 2. Process scheduled syncs if slots available
+      const remainingSlots = maxConcurrent - this.activeSync.size;
+      if (remainingSlots > 0) {
+        await this.processScheduledSyncs(remainingSlots);
+      }
+      
+      // 3. Process stale syncs with lowest priority
+      const finalSlots = maxConcurrent - this.activeSync.size;
+      if (finalSlots > 0) {
+        await this.processStaleSyncs(finalSlots);
+      }
+      
+      console.log(`✅ Sync queue processing completed (${this.activeSync.size} active syncs)`);
       
     } catch (error) {
       console.error('Error processing sync queue:', error);
@@ -176,11 +339,10 @@ export class AutoSyncService {
   }
 
   /**
-   * Process high-priority triggered syncs
+   * Process high-priority triggered syncs with concurrency limit
    */
-  private async processTriggeredSyncs(): Promise<void> {
+  private async processTriggeredSyncs(maxSlots: number = 3): Promise<void> {
     try {
-      // Check for users who need immediate sync (login, trades, etc.)
       const triggeredUsers = await this.getTriggeredSyncs();
       
       if (triggeredUsers.length === 0) {
@@ -189,20 +351,31 @@ export class AutoSyncService {
 
       console.log(`Found ${triggeredUsers.length} triggered syncs to process`);
       
-      for (const user of triggeredUsers) {
+      // Process up to maxSlots syncs concurrently
+      const toProcess = triggeredUsers.slice(0, maxSlots);
+      const promises = toProcess.map(async (user) => {
         try {
+          if (this.isSyncActive(user.userId, user.walletAddress)) {
+            return; // Skip if already active
+          }
+          
           console.log(`🔄 Processing triggered sync for user ${user.userId} (reason: ${user.reason})`);
           
+          this.markSyncActive(user.userId, user.walletAddress);
           await this.performUserSync(user.userId, user.walletAddress, 'triggered');
           
-          // Remove from triggered queue
-          await this.cacheService.del(`sync_trigger:${user.userId}:${user.walletAddress}`);
-          
         } catch (error) {
-          console.error(`Failed triggered sync for user ${user.userId}:`, error);
-          // Continue with other users
+          console.error(`Error processing triggered sync for user ${user.userId}:`, error);
+        } finally {
+          this.markSyncCompleted(user.userId, user.walletAddress);
+          
+          // Remove from trigger queue
+          await this.removeFromTriggerQueue(user.userId, user.walletAddress);
         }
-      }
+      });
+
+      await Promise.all(promises);
+      
     } catch (error) {
       console.error('Error processing triggered syncs:', error);
     }
@@ -211,7 +384,7 @@ export class AutoSyncService {
   /**
    * Process normal-priority scheduled syncs
    */
-  private async processScheduledSyncs(): Promise<void> {
+  private async processScheduledSyncs(maxSlots: number = 3): Promise<void> {
     try {
       // Find users whose portfolios need scheduled refresh
       const usersNeedingSync = await this.getUsersNeedingSync();
@@ -222,17 +395,24 @@ export class AutoSyncService {
 
       console.log(`Found ${usersNeedingSync.length} users needing scheduled sync`);
       
-      // Limit concurrent syncs to avoid overwhelming APIs
-      const maxConcurrentSyncs = 3; // Reduced for stability
-      const batch = usersNeedingSync.slice(0, maxConcurrentSyncs);
+      // Filter out users already being synced and limit to available slots
+      const availableUsers = usersNeedingSync.filter(user => 
+        !this.isSyncActive(user.userId, user.walletAddress)
+      );
+      
+      const batch = availableUsers.slice(0, maxSlots);
       
       const syncPromises = batch.map(async (user) => {
         try {
           console.log(`🔄 Processing scheduled sync for user ${user.userId}`);
-          return await this.performUserSync(user.userId, user.walletAddress, 'scheduled');
+          
+          this.markSyncActive(user.userId, user.walletAddress);
+          await this.performUserSync(user.userId, user.walletAddress, 'scheduled');
+          
         } catch (error) {
           console.error(`Failed scheduled sync for user ${user.userId}:`, error);
-          return null;
+        } finally {
+          this.markSyncCompleted(user.userId, user.walletAddress);
         }
       });
       
@@ -245,7 +425,7 @@ export class AutoSyncService {
   /**
    * Process low-priority stale syncs
    */
-  private async processStaleSyncs(): Promise<void> {
+  private async processStaleSyncs(maxSlots: number = 3): Promise<void> {
     try {
       // Find portfolios that are very stale (> 1 hour old)
       const stalePortfolios = await this.getStalePortfolios();
@@ -256,45 +436,39 @@ export class AutoSyncService {
 
       console.log(`Found ${stalePortfolios.length} stale portfolios`);
       
-      // Process 1 stale sync per cycle (low priority)
-      const portfolio = stalePortfolios[0];
+      // Filter out users already being synced and limit to 1 slot (low priority)
+      const availablePortfolios = stalePortfolios.filter(portfolio => 
+        !this.isSyncActive(portfolio.userId, portfolio.walletAddress)
+      );
       
-      if (portfolio) {
+      const batch = availablePortfolios.slice(0, Math.min(maxSlots, 1)); // Max 1 stale sync at a time
+      
+      const syncPromises = batch.map(async (portfolio) => {
         try {
           console.log(`🔄 Processing stale sync for user ${portfolio.userId}`);
+          
+          this.markSyncActive(portfolio.userId, portfolio.walletAddress);
           await this.performUserSync(portfolio.userId, portfolio.walletAddress, 'stale');
+          
         } catch (error) {
           console.error(`Failed stale sync for user ${portfolio.userId}:`, error);
+        } finally {
+          this.markSyncCompleted(portfolio.userId, portfolio.walletAddress);
         }
-      }
+      });
+      
+      await Promise.allSettled(syncPromises);
     } catch (error) {
       console.error('Error processing stale syncs:', error);
     }
   }
 
   /**
-   * Perform actual user sync with locking mechanism
+   * Perform actual user sync (no cache locking needed - using activeSync tracking)
    */
   private async performUserSync(userId: string, walletAddress: string, reason: string): Promise<void> {
-    const syncLockKey = `sync_lock:${userId}:${walletAddress}`;
-    
     try {
-      // Check if already syncing
-      const isLocked = await this.cacheService.exists(syncLockKey);
-      
-      if (isLocked) {
-        console.log(`⏭️ Skipping sync for ${userId} - already in progress`);
-        return;
-      }
-
-      // Set sync lock (10 minutes)
-      await this.cacheService.set(syncLockKey, { 
-        startedAt: new Date(), 
-        reason,
-        pid: process.pid 
-      }, 600);
-
-      console.log(`🔒 Acquired sync lock for user ${userId}`);
+      console.log(`🔄 Starting ${reason} sync for user ${userId}`);
 
       // Perform sync
       const syncOperation = await this.portfolioService.syncPortfolio(userId, {
@@ -310,14 +484,55 @@ export class AutoSyncService {
     } catch (error) {
       console.error(`❌ Sync failed for user ${userId}:`, error);
       throw error;
-    } finally {
-      // Always release lock
-      try {
-        await this.cacheService.del(syncLockKey);
-        console.log(`🔓 Released sync lock for user ${userId}`);
-      } catch (lockError) {
-        console.warn(`Failed to release sync lock for user ${userId}:`, lockError);
-      }
+    }
+  }
+
+  /**
+   * Add triggered sync to queue
+   */
+  private async addToTriggerQueue(triggeredSync: TriggeredSync): Promise<void> {
+    try {
+      // Get current queue
+      const queueData = await this.cacheService.get('sync_trigger_queue');
+      const currentQueue: TriggeredSync[] = queueData && Array.isArray(queueData) ? queueData : [];
+      
+      // Remove any existing trigger for same user/wallet
+      const filteredQueue = currentQueue.filter(item => 
+        !(item.userId === triggeredSync.userId && item.walletAddress === triggeredSync.walletAddress)
+      );
+      
+      // Add new trigger
+      filteredQueue.push(triggeredSync);
+      
+      // Update queue in cache (5 minutes TTL)
+      await this.cacheService.set('sync_trigger_queue', filteredQueue, 300);
+      
+    } catch (error) {
+      console.error('Error adding to trigger queue:', error);
+    }
+  }
+
+  /**
+   * Remove triggered sync from queue
+   */
+  private async removeFromTriggerQueue(userId: string, walletAddress: string): Promise<void> {
+    try {
+      // Get current queue
+      const queueData = await this.cacheService.get('sync_trigger_queue');
+      if (!queueData || !Array.isArray(queueData)) return;
+      
+      const currentQueue: TriggeredSync[] = queueData;
+      
+      // Remove trigger for user/wallet
+      const filteredQueue = currentQueue.filter(item => 
+        !(item.userId === userId && item.walletAddress === walletAddress)
+      );
+      
+      // Update queue in cache
+      await this.cacheService.set('sync_trigger_queue', filteredQueue, 300);
+      
+    } catch (error) {
+      console.error('Error removing from trigger queue:', error);
     }
   }
 
@@ -326,14 +541,35 @@ export class AutoSyncService {
    */
   private async getTriggeredSyncs(): Promise<TriggeredSync[]> {
     try {
-      // In production, you'd use Redis SCAN to find triggered sync keys
-      // For now, simplified implementation using a known pattern
-      const triggers: TriggeredSync[] = [];
+      // Get triggered sync queue from cache
+      const queueData = await this.cacheService.get('sync_trigger_queue');
       
-      // This is a simplified version - in production you'd scan Redis keys
-      // matching pattern "sync_trigger:*" and parse the data
+      if (!queueData) {
+        return [];
+      }
       
-      return triggers;
+      const triggers: TriggeredSync[] = Array.isArray(queueData) 
+        ? queueData 
+        : [];
+      
+      // Filter out expired triggers (older than 5 minutes)
+      const now = new Date();
+      const validTriggers = triggers.filter(trigger => {
+        const triggerTime = new Date(trigger.triggeredAt);
+        const timeDiff = now.getTime() - triggerTime.getTime();
+        return timeDiff < 5 * 60 * 1000; // 5 minutes
+      });
+      
+      // Sort by priority (high -> normal -> low) and triggered time
+      validTriggers.sort((a, b) => {
+        const priorityOrder = { 'high': 0, 'normal': 1, 'low': 2 };
+        const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+        if (priorityDiff !== 0) return priorityDiff;
+        
+        return new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime();
+      });
+      
+      return validTriggers;
     } catch (error) {
       console.error('Error getting triggered syncs:', error);
       return [];
@@ -409,17 +645,14 @@ export class AutoSyncService {
    */
   private async updateUserSyncStatus(userId: string, walletAddress: string, reason: string): Promise<void> {
     try {
+      // Use the helper function from the migration
       const query = `
-        INSERT INTO user_sync_status (user_id, wallet_address, last_sync_at, sync_reason, updated_at)
-        VALUES ($1, $2, NOW(), $3, NOW())
-        ON CONFLICT (user_id, wallet_address) 
-        DO UPDATE SET 
-          last_sync_at = NOW(),
-          sync_reason = $3,
-          updated_at = NOW()
+        SELECT upsert_user_sync_status($1, $2, $3, 'portfolio', 'completed', 0, 0, 0, NULL, '{}')
       `;
       
       await this.db.query(query, [userId, walletAddress, reason]);
+      
+      console.log(`✅ Updated sync status for user ${userId} - reason: ${reason}`);
     } catch (error) {
       console.warn('Error updating sync status:', error);
       // Don't throw - sync status update failure shouldn't break the main flow
@@ -631,6 +864,515 @@ export class AutoSyncService {
     } catch (error) {
       console.error('Error getting all users:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get sync status for specific user
+   */
+  async getUserSyncStatus(userId: string, walletAddress: string): Promise<{
+    userId: string;
+    walletAddress: string;
+    lastSyncAt: Date | null;
+    syncStatus: 'current' | 'recent' | 'stale' | 'never';
+    isRunning: boolean;
+    activeSyncOperations: number;
+    totalTokens: number;
+    totalValueUsd: number;
+    syncFrequency: number;
+    nextScheduledSync: Date | null;
+  }> {
+    try {
+      const lastSyncTime = await this.getLastSyncTime(userId, walletAddress);
+      
+      // Check if user has running sync operations
+      const runningOpsQuery = `
+        SELECT COUNT(*) as count
+        FROM sync_operations 
+        WHERE user_id = $1 AND wallet_address = $2 AND status IN ('pending', 'running')
+      `;
+      const runningOpsResult = await this.db.query(runningOpsQuery, [userId, walletAddress]);
+      const activeSyncOperations = parseInt(runningOpsResult.rows?.[0]?.count || '0');
+
+      // Get portfolio summary
+      const portfolioQuery = `
+        SELECT 
+          COUNT(*) as token_count,
+          COALESCE(SUM(value_usd), 0) as total_value_usd
+        FROM user_token_holdings 
+        WHERE user_id = $1 AND wallet_address = $2
+      `;
+      const portfolioResult = await this.db.query(portfolioQuery, [userId, walletAddress]);
+      const totalTokens = parseInt(portfolioResult.rows?.[0]?.token_count || '0');
+      const totalValueUsd = parseFloat(portfolioResult.rows?.[0]?.total_value_usd || '0');
+
+      // Determine sync status
+      let syncStatus: 'current' | 'recent' | 'stale' | 'never' = 'never';
+      if (lastSyncTime) {
+        const now = new Date();
+        const timeDiff = now.getTime() - lastSyncTime.getTime();
+        const minutesDiff = timeDiff / (1000 * 60);
+        
+        if (minutesDiff <= 5) {
+          syncStatus = 'current';
+        } else if (minutesDiff <= 60) {
+          syncStatus = 'recent';
+        } else {
+          syncStatus = 'stale';
+        }
+      }
+
+      // Calculate next scheduled sync (every 15 minutes for active users)
+      const nextScheduledSync = lastSyncTime 
+        ? new Date(lastSyncTime.getTime() + (15 * 60 * 1000))
+        : new Date(Date.now() + (15 * 60 * 1000));
+
+      return {
+        userId,
+        walletAddress,
+        lastSyncAt: lastSyncTime,
+        syncStatus,
+        isRunning: activeSyncOperations > 0,
+        activeSyncOperations,
+        totalTokens,
+        totalValueUsd,
+        syncFrequency: 15, // minutes
+        nextScheduledSync
+      };
+
+    } catch (error) {
+      console.error('Error getting user sync status:', error);
+      return {
+        userId,
+        walletAddress,
+        lastSyncAt: null,
+        syncStatus: 'never',
+        isRunning: false,
+        activeSyncOperations: 0,
+        totalTokens: 0,
+        totalValueUsd: 0,
+        syncFrequency: 15,
+        nextScheduledSync: null
+      };
+    }
+  }
+
+  /**
+   * Get sync operations history for specific user
+   */
+  async getUserSyncOperations(userId: string, walletAddress: string, options: {
+    limit?: number;
+    status?: 'pending' | 'running' | 'completed' | 'failed';
+    type?: 'portfolio' | 'trades' | 'full';
+    days?: number;
+  } = {}): Promise<Array<{
+    id: string;
+    type: string;
+    status: string;
+    priority: string;
+    startedAt: Date;
+    completedAt: Date | null;
+    duration: number | null;
+    tokensLynced: number;
+    chainsLynced: number;
+    totalValueUsd: number;
+    error: string | null;
+    retryCount: number;
+  }>> {
+    try {
+      const {
+        limit = 20,
+        status,
+        type,
+        days = 7
+      } = options;
+
+      let query = `
+        SELECT 
+          id, type, status, priority, started_at, completed_at, 
+          duration_ms, tokens_synced, chains_synced, total_value_usd, 
+          error, retry_count
+        FROM sync_operations 
+        WHERE user_id = $1 AND wallet_address = $2
+      `;
+      
+      const params: any[] = [userId, walletAddress];
+      let paramIndex = 3;
+
+      // Add filters
+      if (status) {
+        query += ` AND status = $${paramIndex}`;
+        params.push(status);
+        paramIndex++;
+      }
+
+      if (type) {
+        query += ` AND type = $${paramIndex}`;
+        params.push(type);
+        paramIndex++;
+      }
+
+      if (days) {
+        query += ` AND started_at >= NOW() - INTERVAL '${days} days'`;
+      }
+
+      query += ` ORDER BY started_at DESC LIMIT $${paramIndex}`;
+      params.push(limit);
+
+      const result = await this.db.query(query, params);
+      
+      return result.rows?.map((row: any) => ({
+        id: row.id,
+        type: row.type,
+        status: row.status,
+        priority: row.priority,
+        startedAt: new Date(row.started_at),
+        completedAt: row.completed_at ? new Date(row.completed_at) : null,
+        duration: row.duration_ms,
+        tokensLynced: row.tokens_synced || 0,
+        chainsLynced: row.chains_synced || 0,
+        totalValueUsd: parseFloat(row.total_value_usd || '0'),
+        error: row.error,
+        retryCount: row.retry_count || 0
+      })) || [];
+
+    } catch (error) {
+      console.error('Error getting user sync operations:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Trigger bulk sync for multiple users
+   */
+  async triggerBulkSync(options: {
+    userIds?: string[];
+    walletAddresses?: string[];
+    priority?: 'high' | 'normal' | 'low';
+    syncType?: 'portfolio' | 'trades' | 'full';
+    batchSize?: number;
+  }): Promise<{
+    totalRequests: number;
+    successfulTriggers: number;
+    failedTriggers: number;
+  }> {
+    try {
+      const { userIds = [], walletAddresses = [], priority = 'low', syncType = 'portfolio', batchSize = 10 } = options;
+      
+      let totalRequests = 0;
+      let successfulTriggers = 0;
+      let failedTriggers = 0;
+      
+      // Process userIds
+      if (userIds.length > 0) {
+        // Get wallet addresses for userIds
+        const userQuery = `
+          SELECT id, wallet_address 
+          FROM users 
+          WHERE id = ANY($1)
+        `;
+        const userResult = await this.db.query(userQuery, [userIds]);
+        
+        for (const user of userResult.rows) {
+          try {
+            await this.triggerUserSync(user.id, user.wallet_address, priority);
+            successfulTriggers++;
+          } catch (error) {
+            console.error(`Failed to trigger sync for user ${user.id}:`, error);
+            failedTriggers++;
+          }
+          totalRequests++;
+        }
+      }
+      
+      // Process walletAddresses
+      if (walletAddresses.length > 0) {
+        // Get userIds for wallet addresses
+        const walletQuery = `
+          SELECT id, wallet_address 
+          FROM users 
+          WHERE wallet_address = ANY($1)
+        `;
+        const walletResult = await this.db.query(walletQuery, [walletAddresses]);
+        
+        for (const user of walletResult.rows) {
+          try {
+            await this.triggerUserSync(user.id, user.wallet_address, priority);
+            successfulTriggers++;
+          } catch (error) {
+            console.error(`Failed to trigger sync for wallet ${user.wallet_address}:`, error);
+            failedTriggers++;
+          }
+          totalRequests++;
+        }
+      }
+      
+      console.log(`📊 Bulk sync completed: ${successfulTriggers}/${totalRequests} successful`);
+      
+      return {
+        totalRequests,
+        successfulTriggers,
+        failedTriggers
+      };
+      
+    } catch (error) {
+      console.error('Error in bulk sync:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Pause sync service
+   */
+  async pauseService(reason?: string): Promise<{
+    success: boolean;
+    previousState: boolean;
+    currentState: boolean;
+    reason?: string;
+  }> {
+    try {
+      const previousState = this.isRunning;
+      this.isRunning = false;
+      
+      // Cache pause reason
+      if (reason) {
+        await this.cacheService.set('sync_pause_reason', reason, 3600); // 1 hour
+      }
+
+      console.log(`🔴 AutoSync service paused. Reason: ${reason || 'No reason provided'}`);
+      
+      return {
+        success: true,
+        previousState,
+        currentState: this.isRunning,
+        reason
+      };
+
+    } catch (error) {
+      console.error('Error pausing sync service:', error);
+      return {
+        success: false,
+        previousState: this.isRunning,
+        currentState: this.isRunning
+      };
+    }
+  }
+
+  /**
+   * Resume sync service
+   */
+  async resumeService(): Promise<{
+    success: boolean;
+    previousState: boolean;
+    currentState: boolean;
+    pauseReason?: string;
+  }> {
+    try {
+      const previousState = this.isRunning;
+      
+      // Get pause reason if exists
+      const pauseReason = await this.cacheService.get('sync_pause_reason') as string | undefined;
+      
+      this.isRunning = true;
+      
+      // Clear pause reason
+      await this.cacheService.del('sync_pause_reason');
+
+      console.log(`🟢 AutoSync service resumed. Was paused for: ${pauseReason || 'Unknown reason'}`);
+      
+      return {
+        success: true,
+        previousState,
+        currentState: this.isRunning,
+        pauseReason
+      };
+
+    } catch (error) {
+      console.error('Error resuming sync service:', error);
+      return {
+        success: false,
+        previousState: this.isRunning,
+        currentState: this.isRunning
+      };
+    }
+  }
+
+  /**
+   * Get detailed sync statistics
+   */
+  async getDetailedSyncStats(timeframe: string = '24h', breakdown: string = 'type'): Promise<{
+    timeframe: string;
+    breakdown: string;
+    summary: {
+      totalSyncs: number;
+      successfulSyncs: number;
+      failedSyncs: number;
+      averageDuration: number;
+      totalTokensSynced: number;
+      totalValueSynced: number;
+    };
+    breakdownData: Array<{
+      category: string;
+      count: number;
+      successRate: number;
+      avgDuration: number;
+      totalValue: number;
+    }>;
+    serviceStatus: {
+      isRunning: boolean;
+      lastProcessedAt: Date | null;
+      queueLength: number;
+    };
+  }> {
+    try {
+      // Calculate time range
+      const hours = timeframe === '24h' ? 24 : timeframe === '7d' ? 168 : 720; // 30d = 720h
+      
+      // Get summary statistics
+      const summaryQuery = `
+        SELECT 
+          COUNT(*) as total_syncs,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as successful_syncs,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_syncs,
+          AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms ELSE 0 END) as avg_duration,
+          SUM(tokens_synced) as total_tokens_synced,
+          SUM(total_value_usd) as total_value_synced
+        FROM sync_operations 
+        WHERE started_at >= NOW() - INTERVAL '${hours} hours'
+      `;
+      const summaryResult = await this.db.query(summaryQuery);
+      const summary = summaryResult.rows[0];
+      
+      // Get breakdown data
+      let breakdownQuery = '';
+      if (breakdown === 'type') {
+        breakdownQuery = `
+          SELECT 
+            type as category,
+            COUNT(*) as count,
+            ROUND(AVG(CASE WHEN status = 'completed' THEN 1.0 ELSE 0.0 END) * 100, 2) as success_rate,
+            AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms ELSE 0 END) as avg_duration,
+            SUM(total_value_usd) as total_value
+          FROM sync_operations 
+          WHERE started_at >= NOW() - INTERVAL '${hours} hours'
+          GROUP BY type
+          ORDER BY count DESC
+        `;
+      } else if (breakdown === 'chain') {
+        breakdownQuery = `
+          SELECT 
+            'chain_' || chains_synced as category,
+            COUNT(*) as count,
+            ROUND(AVG(CASE WHEN status = 'completed' THEN 1.0 ELSE 0.0 END) * 100, 2) as success_rate,
+            AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms ELSE 0 END) as avg_duration,
+            SUM(total_value_usd) as total_value
+          FROM sync_operations 
+          WHERE started_at >= NOW() - INTERVAL '${hours} hours'
+          GROUP BY chains_synced
+          ORDER BY count DESC
+        `;
+      } else {
+        // breakdown by user
+        breakdownQuery = `
+          SELECT 
+            user_id as category,
+            COUNT(*) as count,
+            ROUND(AVG(CASE WHEN status = 'completed' THEN 1.0 ELSE 0.0 END) * 100, 2) as success_rate,
+            AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms ELSE 0 END) as avg_duration,
+            SUM(total_value_usd) as total_value
+          FROM sync_operations 
+          WHERE started_at >= NOW() - INTERVAL '${hours} hours'
+          GROUP BY user_id
+          ORDER BY count DESC
+          LIMIT 10
+        `;
+      }
+      
+      const breakdownResult = await this.db.query(breakdownQuery);
+      
+      // Get service status
+      const queueQuery = `
+        SELECT COUNT(*) as queue_length
+        FROM sync_operations 
+        WHERE status IN ('pending', 'running')
+      `;
+      const queueResult = await this.db.query(queueQuery);
+      
+      return {
+        timeframe,
+        breakdown,
+        summary: {
+          totalSyncs: parseInt(summary.total_syncs) || 0,
+          successfulSyncs: parseInt(summary.successful_syncs) || 0,
+          failedSyncs: parseInt(summary.failed_syncs) || 0,
+          averageDuration: parseFloat(summary.avg_duration) || 0,
+          totalTokensSynced: parseInt(summary.total_tokens_synced) || 0,
+          totalValueSynced: parseFloat(summary.total_value_synced) || 0
+        },
+        breakdownData: breakdownResult.rows.map((row: any) => ({
+          category: row.category,
+          count: parseInt(row.count),
+          successRate: parseFloat(row.success_rate) || 0,
+          avgDuration: parseFloat(row.avg_duration) || 0,
+          totalValue: parseFloat(row.total_value) || 0
+        })),
+        serviceStatus: {
+          isRunning: this.isRunning,
+          lastProcessedAt: this.lastProcessedAt || null,
+          queueLength: parseInt(queueResult.rows[0].queue_length) || 0
+        }
+      };
+      
+    } catch (error) {
+      console.error('Error getting detailed sync stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel specific sync operation
+   */
+  async cancelSyncOperation(operationId: string, userId: string): Promise<{
+    found: boolean;
+    cancelled: boolean;
+    previousStatus?: string;
+  }> {
+    try {
+      // Find the operation
+      const findQuery = `
+        SELECT id, status, user_id
+        FROM sync_operations 
+        WHERE id = $1 AND user_id = $2
+      `;
+      const result = await this.db.query(findQuery, [operationId, userId]);
+      
+      if (result.rows.length === 0) {
+        return { found: false, cancelled: false };
+      }
+      
+      const operation = result.rows[0];
+      const previousStatus = operation.status;
+      
+      // Can only cancel pending operations
+      if (operation.status !== 'pending') {
+        return { found: true, cancelled: false, previousStatus };
+      }
+      
+      // Update status to cancelled
+      const updateQuery = `
+        UPDATE sync_operations 
+        SET status = 'cancelled', completed_at = NOW()
+        WHERE id = $1 AND user_id = $2
+      `;
+      await this.db.query(updateQuery, [operationId, userId]);
+      
+      console.log(`❌ Cancelled sync operation ${operationId} for user ${userId}`);
+      
+      return { found: true, cancelled: true, previousStatus };
+      
+    } catch (error) {
+      console.error('Error cancelling sync operation:', error);
+      throw error;
     }
   }
 } 

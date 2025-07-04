@@ -195,6 +195,165 @@ export async function portfolioRoutes(
     }
   }, portfolioController.getRecentTrades.bind(portfolioController));
 
+  fastify.post('/portfolio/trades', {
+    schema: {
+      tags: ['Portfolio', 'Trading'],
+      summary: 'Add new trade record',
+      description: 'Record a new trade after successful swap execution for immediate portfolio updates',
+      body: {
+        type: 'object',
+        required: ['txHash', 'chainId', 'fromToken', 'toToken', 'gasFeeUSD'],
+        properties: {
+          txHash: { 
+            type: 'string',
+            description: 'Transaction hash of the swap'
+          },
+          chainId: { 
+            type: 'integer',
+            description: 'Blockchain chain ID'
+          },
+          blockNumber: { 
+            type: 'integer',
+            description: 'Block number (optional, can be updated later)'
+          },
+          timestamp: { 
+            type: 'string',
+            format: 'date-time',
+            description: 'Trade execution timestamp (defaults to current time)'
+          },
+          type: { 
+            type: 'string',
+            enum: ['swap', 'buy', 'sell'],
+            default: 'swap',
+            description: 'Type of trade'
+          },
+          status: { 
+            type: 'string',
+            enum: ['pending', 'completed', 'failed'],
+            default: 'completed',
+            description: 'Trade status'
+          },
+          fromToken: {
+            type: 'object',
+            required: ['address', 'symbol', 'name', 'decimals', 'amount', 'amountFormatted', 'priceUSD', 'valueUSD'],
+            properties: {
+              address: { type: 'string' },
+              symbol: { type: 'string' },
+              name: { type: 'string' },
+              decimals: { type: 'integer' },
+              amount: { type: 'string' },
+              amountFormatted: { type: 'number' },
+              priceUSD: { type: 'number' },
+              valueUSD: { type: 'number' }
+            }
+          },
+          toToken: {
+            type: 'object',
+            required: ['address', 'symbol', 'name', 'decimals', 'amount', 'amountFormatted', 'priceUSD', 'valueUSD'],
+            properties: {
+              address: { type: 'string' },
+              symbol: { type: 'string' },
+              name: { type: 'string' },
+              decimals: { type: 'integer' },
+              amount: { type: 'string' },
+              amountFormatted: { type: 'number' },
+              priceUSD: { type: 'number' },
+              valueUSD: { type: 'number' }
+            }
+          },
+          gasFeeETH: { 
+            type: 'number',
+            description: 'Gas fee in ETH (optional)'
+          },
+          gasFeeUSD: { 
+            type: 'number',
+            description: 'Gas fee in USD'
+          },
+          protocolFeeUSD: { 
+            type: 'number',
+            description: 'Protocol fee in USD (optional)'
+          },
+          slippage: { 
+            type: 'number',
+            description: 'Slippage percentage (optional)'
+          },
+          priceImpact: { 
+            type: 'number',
+            description: 'Price impact percentage (optional)'
+          },
+          dexName: { 
+            type: 'string',
+            description: 'DEX name (optional)'
+          },
+          routerAddress: { 
+            type: 'string',
+            description: 'Router contract address (optional)'
+          },
+          aggregator: { 
+            type: 'string',
+            enum: ['lifi', '1inch', 'relay', 'jupiter'],
+            description: 'Aggregator used (optional)'
+          }
+        }
+      }
+    }
+  }, portfolioController.addTrade.bind(portfolioController));
+
+  fastify.put('/portfolio/trades/:txHash', {
+    schema: {
+      tags: ['Portfolio', 'Trading'],
+      summary: 'Update trade record',
+      description: 'Update trade status, block number, or P&L data after blockchain confirmation',
+      params: {
+        type: 'object',
+        required: ['txHash'],
+        properties: {
+          txHash: { 
+            type: 'string',
+            description: 'Transaction hash of the trade to update'
+          }
+        }
+      },
+      body: {
+        type: 'object',
+        properties: {
+          status: { 
+            type: 'string',
+            enum: ['pending', 'completed', 'failed'],
+            description: 'Updated trade status'
+          },
+          blockNumber: { 
+            type: 'integer',
+            description: 'Confirmed block number'
+          },
+          timestamp: { 
+            type: 'string',
+            format: 'date-time',
+            description: 'Updated timestamp'
+          },
+          gasFeeETH: { 
+            type: 'number',
+            description: 'Updated gas fee in ETH'
+          },
+          gasFeeUSD: { 
+            type: 'number',
+            description: 'Updated gas fee in USD'
+          },
+          pnl: {
+            type: 'object',
+            properties: {
+              realizedPnlUSD: { type: 'number' },
+              feesPaidUSD: { type: 'number' },
+              netPnlUSD: { type: 'number' },
+              unrealizedPnlUSD: { type: 'number' }
+            },
+            description: 'P&L calculation results'
+          }
+        }
+      }
+    }
+  }, portfolioController.updateTrade.bind(portfolioController));
+
   // System Status Routes
   fastify.get('/portfolio/sync-status', {
     schema: {

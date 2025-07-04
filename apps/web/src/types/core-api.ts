@@ -14,12 +14,14 @@ export interface TokenHolding {
   tokenName: string
   tokenAddress: string
   chainId: number
-  balance: string
-  balanceFormatted: string
+  balance: string // Raw balance in token units
+  balanceFormatted: number // Human readable balance (changed from string to number)
   valueUSD: number
   priceUSD: number
   logoUrl?: string
   isSpam: boolean
+  // Computed field added by frontend
+  allocation?: number
 }
 
 export interface Portfolio {

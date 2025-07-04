@@ -135,7 +135,7 @@ const quote = await aggregatorAPI.getQuote({
 - **ZeroDev SDK v5.4+**: Complete session key lifecycle
 - **Wallet Settings UI**: 48KB comprehensive management
 - **Multi-chain Config**: 205 lines supporting Base + BSC
-- **Jupiter-like Design**: Glass morphism, responsive
+- **Design**: Glass morphism, responsive
 - **Direct API Integration**: No API gateway needed
 
 ### 2. Core Service (✅ Complete - Port 3007)

@@ -30,12 +30,28 @@ export function useAutoChainSwitch(fromToken: Token | null) {
     isSuccess: false,
     error: null,
     targetChainId: null,
-    smartWalletClient: defaultSmartWalletClient
+    smartWalletClient: null // 🚀 FIXED: Will be set by useEffect
   })
 
   // Track last processed chainId to prevent infinite loops
   const lastProcessedChainIdRef = useRef<number | null>(null)
   const switchingRef = useRef(false)
+  
+  // 🚀 FIXED: Track current chain ID stable với useRef
+  const currentChainIdRef = useRef<number | null>(defaultSmartWalletClient?.chain?.id || null)
+  
+  // Update ref when defaultSmartWalletClient changes
+  useEffect(() => {
+    currentChainIdRef.current = defaultSmartWalletClient?.chain?.id || null
+    
+    // 🚀 FIXED: Also sync switchState.smartWalletClient if not set
+    if (!switchState.smartWalletClient && defaultSmartWalletClient) {
+      setSwitchState(prev => ({
+        ...prev,
+        smartWalletClient: defaultSmartWalletClient
+      }))
+    }
+  }, [defaultSmartWalletClient?.chain?.id, defaultSmartWalletClient, switchState.smartWalletClient])
 
   // Debug logging để hiểu state
   useEffect(() => {
@@ -48,15 +64,16 @@ export function useAutoChainSwitch(fromToken: Token | null) {
         hasAddress: !!defaultSmartWalletClient?.account?.address,
         fromTokenChain: fromToken?.chainId,
         fromTokenSymbol: fromToken?.symbol,
-        currentSmartWalletChain: defaultSmartWalletClient?.chain?.id,
+        currentSmartWalletChain: currentChainIdRef.current,
         lastProcessed: lastProcessedChainIdRef.current,
-        isReady: privyReady && !!user && !!defaultSmartWalletClient && !!getClientForChain
+        isReady: privyReady && !!user && !!getClientForChain
       })
     }
-  }, [privyReady, user, defaultSmartWalletClient, getClientForChain, fromToken])
+  }, [privyReady, user, fromToken]) // 🚀 FIXED: Remove unstable dependencies
 
   /**
    * Function để switch sang chain mới
+   * 🚀 FIXED: Memoize với stable dependencies
    */
   const switchToChain = useCallback(async (targetChainId: number) => {
     if (!user) {
@@ -90,13 +107,13 @@ export function useAutoChainSwitch(fromToken: Token | null) {
     }
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`🔄 Starting auto chain switch to ${chainConfig.name} (${targetChainId})`)
+      console.log(`🔄 Starting auto chain switch to ${chainConfig?.name || 'Unknown'} (${targetChainId})`)
     }
     
     // Dispatch start event for header
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('auto-chain-switch-start', {
-        detail: { chainId: targetChainId, chainName: chainConfig.name }
+        detail: { chainId: targetChainId, chainName: chainConfig?.name || 'Unknown' }
       }))
     }
     
@@ -111,12 +128,12 @@ export function useAutoChainSwitch(fromToken: Token | null) {
     try {
       // 1. Switch EOA wallet (embedded wallet) first
       if (process.env.NODE_ENV === 'development') {
-        console.log(`📱 Switching EOA wallet to ${chainConfig.name}`)
+        console.log(`📱 Switching EOA wallet to ${chainConfig?.name || 'Unknown'}`)
       }
       try {
         await switchChain({ chainId: targetChainId })
         if (process.env.NODE_ENV === 'development') {
-          console.log(`✅ EOA wallet switched to ${chainConfig.name}`)
+          console.log(`✅ EOA wallet switched to ${chainConfig?.name || 'Unknown'}`)
         }
       } catch (eoaError) {
         if (process.env.NODE_ENV === 'development') {
@@ -127,7 +144,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
 
       // 2. Get smart wallet client for target chain
       if (process.env.NODE_ENV === 'development') {
-        console.log(`🔧 Creating smart wallet client for ${chainConfig.name}`)
+        console.log(`🔧 Creating smart wallet client for ${chainConfig?.name || 'Unknown'}`)
       }
       
       const newSmartWalletClient = await getClientForChain({
@@ -139,21 +156,21 @@ export function useAutoChainSwitch(fromToken: Token | null) {
       }
 
       // 🔍 VALIDATION: Verify smart wallet is on correct chain
-      const actualChainId = newSmartWalletClient.chain?.id
+      const actualChainId = newSmartWalletClient?.chain?.id
       if (actualChainId !== targetChainId && process.env.NODE_ENV === 'development') {
         console.warn(`⚠️ Chain mismatch detected:`, {
           expectedChain: targetChainId,
           actualChain: actualChainId,
-          expectedChainName: chainConfig.name,
-          actualChainName: getChainConfig(actualChainId)?.name || 'Unknown'
+          expectedChainName: chainConfig?.name || 'Unknown',
+          actualChainName: actualChainId ? getChainConfig(actualChainId)?.name || 'Unknown' : 'No Chain'
         })
       }
 
       if (process.env.NODE_ENV === 'development') {
-        console.log(`✅ Smart wallet client created for ${chainConfig.name}:`, {
+        console.log(`✅ Smart wallet client created for ${chainConfig?.name || 'Unknown'}:`, {
           targetChainId,
           actualChainId,
-          address: newSmartWalletClient.account?.address,
+          address: newSmartWalletClient?.account?.address,
           chainMatch: actualChainId === targetChainId
         })
       }
@@ -172,7 +189,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
         window.dispatchEvent(new CustomEvent('auto-chain-switch-success', {
           detail: { 
             chainId: targetChainId, 
-            chainName: chainConfig.name,
+            chainName: chainConfig?.name || 'Unknown',
             smartWalletClient: newSmartWalletClient,
             chainInfo: chainConfig
           }
@@ -181,7 +198,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
 
       // 5. Show success notification
       toast.success(
-        `Switched to ${chainConfig.name} successfully`,
+        `Switched to ${chainConfig?.name || 'Unknown'} successfully`,
         { 
           duration: 3000
         }
@@ -201,7 +218,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
       // Dispatch error event for header
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('auto-chain-switch-error', {
-          detail: { chainId: targetChainId, chainName: chainConfig.name, error: errorMessage }
+          detail: { chainId: targetChainId, chainName: chainConfig?.name || 'Unknown', error: errorMessage }
         }))
       }
       
@@ -209,11 +226,11 @@ export function useAutoChainSwitch(fromToken: Token | null) {
         ...prev,
         isLoading: false,
         error: errorMessage,
-        smartWalletClient: defaultSmartWalletClient // Fallback to default
+        smartWalletClient: defaultSmartWalletClient // Fallback to default - but will be updated by ref tracking
       }))
 
       toast.error(
-        `Failed to switch to ${chainConfig.name}: ${errorMessage}`,
+        `Failed to switch to ${chainConfig?.name || 'Unknown'}: ${errorMessage}`,
         { 
           duration: 4000
         }
@@ -221,7 +238,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
     } finally {
       switchingRef.current = false
     }
-  }, [user, getClientForChain, switchChain, defaultSmartWalletClient])
+  }, [user, getClientForChain, switchChain]) // 🚀 FIXED: Stable dependencies only
 
   /**
    * Auto-switch effect khi fromToken thay đổi
@@ -229,7 +246,8 @@ export function useAutoChainSwitch(fromToken: Token | null) {
    */
   useEffect(() => {
     // Check if we have all necessary dependencies
-    const isReady = privyReady && !!user && !!fromToken && !!getClientForChain && !!defaultSmartWalletClient
+    // 🚀 FIXED: Check getClientForChain directly since not in dependencies
+    const isReady = privyReady && !!user && !!fromToken && !!getClientForChain && currentChainIdRef.current !== undefined
 
     if (!isReady) {
       if (process.env.NODE_ENV === 'development') {
@@ -238,15 +256,16 @@ export function useAutoChainSwitch(fromToken: Token | null) {
           hasUser: !!user,
           hasFromToken: !!fromToken,
           hasGetClientForChain: !!getClientForChain,
-          hasDefaultClient: !!defaultSmartWalletClient
+          currentChainId: currentChainIdRef.current
         })
       }
       return
     }
 
     const targetChainId = fromToken.chainId
-    const currentSmartWalletChainId = switchState.smartWalletClient?.chain?.id || defaultSmartWalletClient?.chain?.id
-    const wagmiChainId = defaultSmartWalletClient?.chain?.id // EOA chain từ wagmi
+    // 🚀 FIXED: Use stable chain ID comparison
+    const currentSmartWalletChainId = switchState.smartWalletClient?.chain?.id || currentChainIdRef.current
+    const wagmiChainId = currentChainIdRef.current // EOA chain từ wagmi
 
     // ✅ Enhanced checks để xác định có cần switch không
     const isAlreadyOnTargetChain = targetChainId === currentSmartWalletChainId
@@ -270,7 +289,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
         currentSmartWalletChainId,
         currentSmartWalletChainName: getChainConfig(currentSmartWalletChainId)?.name,
         wagmiChainId,
-        wagmiChainName: getChainConfig(wagmiChainId)?.name,
+        wagmiChainName: wagmiChainId ? getChainConfig(wagmiChainId)?.name : 'Unknown',
         lastProcessed: lastProcessedChainIdRef.current,
         lastProcessedChainName: lastProcessedChainIdRef.current ? getChainConfig(lastProcessedChainIdRef.current)?.name : 'None',
         // Check results
@@ -313,8 +332,8 @@ export function useAutoChainSwitch(fromToken: Token | null) {
     user,
     fromToken?.chainId,
     fromToken?.symbol,
-    getClientForChain,
-    defaultSmartWalletClient,
+    // 🚀 FIXED: Remove unstable dependencies
+    // getClientForChain, defaultSmartWalletClient removed - using refs instead
     switchState.smartWalletClient?.chain?.id,
     switchState.isLoading,
     switchState.isSuccess,
@@ -348,7 +367,7 @@ export function useAutoChainSwitch(fromToken: Token | null) {
       lastProcessedChainIdRef.current = null
       switchingRef.current = false
     }
-  }, [user, fromToken, defaultSmartWalletClient])
+  }, [user, fromToken]) // 🚀 FIXED: Remove defaultSmartWalletClient dependency
 
   /**
    * ✅ Reset lastProcessed khi fromToken thay đổi symbol (khác token)
@@ -378,8 +397,8 @@ export function useAutoChainSwitch(fromToken: Token | null) {
     // Manual switch function
     switchToChain,
     
-    // Helper to get current chain info
-    currentChain: switchState.smartWalletClient?.chain || defaultSmartWalletClient?.chain,
+    // Helper to get current chain info - safely handle undefined chain
+    currentChain: switchState.smartWalletClient?.chain || defaultSmartWalletClient?.chain || null,
   }
 }
 
@@ -393,7 +412,7 @@ export function useSmartWalletForChain(chainId: number | null) {
   const [isLoading, setIsLoading] = useState(false)
 
   const getClientForSpecificChain = useCallback(async (targetChainId: number) => {
-    if (!getClientForChain) return null
+    if (!getClientForChain || !targetChainId) return null
 
     setIsLoading(true)
     try {

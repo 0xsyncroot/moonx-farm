@@ -111,19 +111,8 @@ func (a *AggregatorService) orderTokensOptimally(tokenMap map[string]*models.Tok
 
 // Helper methods for token categorization
 func (a *AggregatorService) isPopularToken(token *models.Token) bool {
-	if token.Metadata != nil {
-		if popular, ok := token.Metadata["isPopular"].(bool); ok {
-			return popular
-		}
-	}
-
-	// Fallback to address-based detection
-	popularAddresses := map[string]bool{
-		"0x0000000000000000000000000000000000000000": true, // ETH
-		"0x4200000000000000000000000000000000000006": true, // WETH (Base)
-		"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": true, // WETH (Ethereum)
-	}
-	return popularAddresses[strings.ToLower(token.Address)]
+	// Use the comprehensive check from config
+	return config.IsPopularTokenByToken(token)
 }
 
 func (a *AggregatorService) isStablecoin(token *models.Token) bool {
@@ -133,12 +122,8 @@ func (a *AggregatorService) isStablecoin(token *models.Token) bool {
 		}
 	}
 
-	// Fallback to symbol-based detection
-	stableSymbols := map[string]bool{
-		"USDC": true, "USDT": true, "DAI": true, "FRAX": true,
-		"USDB": true, "USDBC": true, "USDbC": true,
-	}
-	return stableSymbols[strings.ToUpper(token.Symbol)]
+	// Use the centralized check from config
+	return config.IsStablecoin(token.Symbol)
 }
 
 func (a *AggregatorService) isVerifiedToken(token *models.Token) bool {
@@ -347,7 +332,7 @@ func (a *AggregatorService) buildTokenFromConfig(symbol, address string, chainID
 		token.Decimals = 18
 		token.LogoURI = "https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png"
 		token.IsNative = true
-	case "USDC", "USDbC":
+	case "USDC": // Removed USDbC due to low liquidity
 		token.Name = "USD Coin"
 		token.Decimals = 6
 		if chainID == 56 { // BSC has 18 decimals for USDC
@@ -365,10 +350,7 @@ func (a *AggregatorService) buildTokenFromConfig(symbol, address string, chainID
 		token.Name = "Dai Stablecoin"
 		token.Decimals = 18
 		token.LogoURI = "https://assets.coingecko.com/coins/images/9956/large/Badge_Dai.png"
-	case "BUSD":
-		token.Name = "Binance USD"
-		token.Decimals = 18
-		token.LogoURI = "https://assets.coingecko.com/coins/images/9576/large/BUSD.png"
+	// Note: BUSD removed due to Binance deprecation
 	default:
 		token.Name = symbol
 		token.Decimals = 18
@@ -385,18 +367,25 @@ func (a *AggregatorService) extractBinanceSymbols(tokens []*models.Token) []stri
 	var symbols []string
 
 	for _, token := range tokens {
+		// Skip USDT as it is handled with fixed $1.00 price
+		if strings.ToUpper(token.Symbol) == "USDT" {
+			continue
+		}
+
 		var binanceSymbol string
 		switch token.Symbol {
-		case "ETH":
+		case "ETH", "WETH": // Both native and wrapped ETH use same price
 			binanceSymbol = "ETHUSDT"
-		case "BTC", "WBTC":
+		case "BTC", "WBTC": // Both native and wrapped BTC use same price
 			binanceSymbol = "BTCUSDT"
-		case "USDC", "USDT":
-			binanceSymbol = "USDCUSDT"
-		case "BNB":
+		case "BNB", "WBNB": // Both native and wrapped BNB use same price
 			binanceSymbol = "BNBUSDT"
-		case "MATIC":
+		case "MATIC", "WMATIC": // Both native and wrapped MATIC use same price
 			binanceSymbol = "MATICUSDT"
+		case "USDC": // USDC can have price fluctuation, get from Binance
+			binanceSymbol = "USDCUSDT"
+		// Only USDT is handled separately with fixed $1.00 price
+		// case "USDT": handled separately
 		default:
 			continue // Skip tokens not available on Binance
 		}
@@ -413,18 +402,31 @@ func (a *AggregatorService) extractBinanceSymbols(tokens []*models.Token) []stri
 // mergeTokensWithBinancePrices merges token data with Binance price data
 func (a *AggregatorService) mergeTokensWithBinancePrices(tokens []*models.Token, priceData map[string]interface{}) []*models.Token {
 	for _, token := range tokens {
+		// Skip USDT as it should have fixed $1.00 price
+		if strings.ToUpper(token.Symbol) == "USDT" {
+			// Apply fixed price for USDT
+			token.PriceUSD = decimal.NewFromFloat(1.00)
+			token.Change24h = decimal.NewFromFloat(0.0)
+			token.Volume24h = decimal.NewFromFloat(0.0)
+			token.LastUpdated = time.Now()
+			token.Source = "usdt_fixed"
+			continue
+		}
+
 		var binanceSymbol string
 		switch token.Symbol {
-		case "ETH":
+		case "ETH", "WETH": // Both native and wrapped ETH use same price
 			binanceSymbol = "ETHUSDT"
-		case "BTC", "WBTC":
+		case "BTC", "WBTC": // Both native and wrapped BTC use same price
 			binanceSymbol = "BTCUSDT"
-		case "USDC", "USDT":
-			binanceSymbol = "USDCUSDT"
-		case "BNB":
+		case "BNB", "WBNB": // Both native and wrapped BNB use same price
 			binanceSymbol = "BNBUSDT"
-		case "MATIC":
+		case "MATIC", "WMATIC": // Both native and wrapped MATIC use same price
 			binanceSymbol = "MATICUSDT"
+		case "USDC": // USDC can have price fluctuation, get from Binance
+			binanceSymbol = "USDCUSDT"
+			// Only USDT is handled separately with fixed $1.00 price
+			// case "USDT": handled separately above
 		}
 
 		if binanceSymbol != "" && priceData[binanceSymbol] != nil {
@@ -675,7 +677,7 @@ func (a *AggregatorService) BuildTokenFromConfigWithTestnet(symbol, address stri
 		token.Decimals = 18
 		token.LogoURI = "https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png"
 		token.IsNative = true
-	case "USDC", "USDbC":
+	case "USDC": // Removed USDbC due to low liquidity
 		token.Name = "USD Coin"
 		token.Decimals = 6
 		if chainID == 56 { // BSC has 18 decimals for USDC
@@ -693,10 +695,7 @@ func (a *AggregatorService) BuildTokenFromConfigWithTestnet(symbol, address stri
 		token.Name = "Dai Stablecoin"
 		token.Decimals = 18
 		token.LogoURI = "https://assets.coingecko.com/coins/images/9956/large/Badge_Dai.png"
-	case "BUSD":
-		token.Name = "Binance USD"
-		token.Decimals = 18
-		token.LogoURI = "https://assets.coingecko.com/coins/images/9576/large/BUSD.png"
+	// Note: BUSD removed due to Binance deprecation
 	default:
 		token.Name = symbol
 		token.Decimals = 18

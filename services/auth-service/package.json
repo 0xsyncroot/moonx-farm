@@ -17,9 +17,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@moonx-farm/common": "^1.0.5",
-    "@moonx-farm/configs": "^1.0.0",
-    "@moonx-farm/infrastructure": "^1.0.7",
+    "@moonx-farm/common": "^1.0.6",
+    "@moonx-farm/configs": "^1.0.1",
+    "@moonx-farm/infrastructure": "^1.0.8",
     "@fastify/cors": "^10.1.0",
     "@fastify/helmet": "^12.0.1",
     "@fastify/jwt": "^9.1.0",

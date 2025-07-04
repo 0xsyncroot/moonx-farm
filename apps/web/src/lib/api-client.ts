@@ -12,6 +12,7 @@ export interface TokenSearchParams {
   q: string
   chainId?: number
   limit?: number
+  testnet?: boolean
 }
 
 export interface TokenListResponse {
@@ -386,6 +387,9 @@ class ApiClient {
     if (params.limit) {
       searchParams.append('limit', params.limit.toString())
     }
+    if (params.testnet !== undefined) {
+      searchParams.append('testnet', params.testnet.toString())
+    }
 
     const response = await this.aggregatorClient.get(`/tokens/search?${searchParams}`)
     return response.data
@@ -409,17 +413,21 @@ class ApiClient {
     return response.data
   }
 
-  public async getPopularTokens(chainId?: number): Promise<TokenListResponse> {
-    const response = await this.aggregatorClient.get('/tokens/popular')
-    const data = response.data
+  public async getPopularTokens(params?: { chainId?: number; testnet?: boolean }): Promise<TokenListResponse> {
+    const searchParams = new URLSearchParams()
     
-    // Filter by chainId if specified
-    if (chainId && data.tokens) {
-      data.tokens = data.tokens.filter((token: Token) => token.chainId === chainId)
-      data.total = data.tokens.length
+    if (params?.chainId) {
+      searchParams.append('chainId', params.chainId.toString())
     }
-
-    return data
+    
+    if (params?.testnet !== undefined) {
+      searchParams.append('testnet', params.testnet.toString())
+    }
+    
+    const url = `/tokens/popular${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.aggregatorClient.get(url)
+    
+    return response.data
   }
 
   // ============ HEALTH CHECKS ============
@@ -524,6 +532,49 @@ class ApiClient {
     return response.data
   }
 
+  public async recordTrade(tradeData: {
+    walletAddress: string
+    txHash: string
+    chainId: number
+    blockNumber?: number
+    timestamp?: string
+    type: 'swap' | 'buy' | 'sell'
+    status?: 'pending' | 'completed' | 'failed'
+    fromToken: {
+      address: string
+      symbol: string
+      name: string
+      decimals: number
+      amount: string
+      amountFormatted: number
+      priceUSD: number
+      valueUSD: number
+    }
+    toToken: {
+      address: string
+      symbol: string
+      name: string
+      decimals: number
+      amount: string
+      amountFormatted: number
+      priceUSD: number
+      valueUSD: number
+    }
+    gasFeeETH?: number
+    gasFeeUSD: number
+    protocolFeeUSD?: number
+    slippage?: number
+    priceImpact?: number
+    dexName?: string
+    routerAddress?: string
+    aggregator?: 'lifi' | '1inch' | 'relay' | 'jupiter'
+    executedAt?: string
+  }): Promise<any> {
+
+    const response = await this.coreClient.post('/portfolio/trades', tradeData)
+    return response.data
+  }
+
   // Order Management
   public async createOrder(orderData: any): Promise<any> {
     const response = await this.coreClient.post('/orders', orderData)
@@ -610,7 +661,7 @@ export const authApi = {
 export const aggregatorApi = {
   searchTokens: (params: TokenSearchParams) => apiClient.searchTokens(params),
   getQuote: (params: QuoteRequest) => apiClient.getQuote(params),
-  getPopularTokens: (chainId?: number) => apiClient.getPopularTokens(chainId),
+  getPopularTokens: (params?: { chainId?: number; testnet?: boolean }) => apiClient.getPopularTokens(params),
   checkAggregatorHealth: () => apiClient.checkAggregatorHealth(),
 }
 
@@ -633,6 +684,7 @@ export const coreApi = {
   // Trading History
   getRecentTrades: (params?: { limit?: number; days?: number; chainIds?: string }) => 
     apiClient.getRecentTrades(params),
+  recordTrade: (tradeData: any) => apiClient.recordTrade(tradeData),
     
   // Order Management
   createOrder: (orderData: any) => apiClient.createOrder(orderData),

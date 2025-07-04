@@ -374,6 +374,26 @@ export class PnLService {
   }
 
   private mapRowToRealTrade(row: any): RealTrade {
+    // Fix JSON parsing - PostgreSQL JSONB fields return objects, not strings
+    let fromToken, toToken, pnl;
+    
+    try {
+      fromToken = row.from_token 
+        ? (typeof row.from_token === 'object' ? row.from_token : JSON.parse(row.from_token))
+        : {};
+      toToken = row.to_token 
+        ? (typeof row.to_token === 'object' ? row.to_token : JSON.parse(row.to_token))
+        : {};
+      pnl = row.pnl 
+        ? (typeof row.pnl === 'object' ? row.pnl : JSON.parse(row.pnl))
+        : undefined;
+    } catch (error) {
+      console.error('❌ Error parsing trade JSON fields:', error);
+      fromToken = {};
+      toToken = {};
+      pnl = undefined;
+    }
+
     const trade: RealTrade = {
       id: row.id,
       userId: row.user_id,
@@ -384,11 +404,11 @@ export class PnLService {
       timestamp: new Date(row.timestamp),
       type: row.type,
       status: row.status,
-      fromToken: JSON.parse(row.from_token || '{}'),
-      toToken: JSON.parse(row.to_token || '{}'),
+      fromToken,
+      toToken,
       gasFeeETH: parseFloat(row.gas_fee_eth || '0'),
       gasFeeUSD: parseFloat(row.gas_fee_usd || '0'),
-      pnl: row.pnl ? JSON.parse(row.pnl) : undefined
+      pnl
     };
 
     // Handle optional properties

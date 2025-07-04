@@ -126,6 +126,18 @@ export const ServicesConfigSchema = z.object({
   // Notify Service
   NOTIFY_SERVICE_PORT: z.coerce.number().default(3006),
   NOTIFY_SERVICE_HOST: z.string().default('localhost'),
+  
+  // WebSocket Gateway  
+  WEBSOCKET_GATEWAY_PORT: z.coerce.number().default(3008),
+  WEBSOCKET_GATEWAY_HOST: z.string().default('localhost'),
+  
+  // Notification Hub
+  NOTIFICATION_HUB_PORT: z.coerce.number().default(3009),
+  NOTIFICATION_HUB_HOST: z.string().default('localhost'),
+  
+  // Service URLs for inter-service communication
+  AUTH_SERVICE_URL: z.string().default('http://localhost:3001'),
+  CORE_SERVICE_URL: z.string().default('http://localhost:3007'),
 });
 
 /**
@@ -177,6 +189,9 @@ export const ExternalApisConfigSchema = z.object({
   ALCHEMY_API_KEY: z.string().optional(),
   INFURA_API_KEY: z.string().optional(),
   QUICKNODE_API_KEY: z.string().optional(),
+  
+  // Push Notifications
+  FIREBASE_SERVER_KEY: z.string().optional(),
 });
 
 /**
