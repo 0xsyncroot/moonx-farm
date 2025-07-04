@@ -62,8 +62,8 @@ export class Scheduler {
     console.log("[START] Scheduler Run All Jobs On Startup.");
     try {  
       //top
-      await this.runJob(JobType.PRICE, TokenType.TOP);
       await this.runJob(JobType.METADATA, TokenType.TOP);
+      await this.runJob(JobType.PRICE, TokenType.TOP);
       
       //trending
       const chains = Object.values(configs.chainIdMapGoPlus);

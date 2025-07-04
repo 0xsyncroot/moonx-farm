@@ -43,7 +43,7 @@ const configs = {
     avalanche: "43114",
     fantom: "250",
   },
-  TopLimit: 100, // Số lượng top coin mặc định
+  TopLimit: 20, // Số lượng top coin mặc định
   TrendingLimit: 20, // Số lượng trending token mặc định
 };
 

@@ -92,7 +92,8 @@ export class Worker {
       }
       
     } catch (error) {
-      this.logger.error( "Error processing job", error);
+      this.logger.error(`[Worker] Error processing job: ${job_type} for ${token_type}`, error);
+      console.log(`[Worker] Error processing job: ${job_type} for ${token_type}`, error);
     }
   }
 }
