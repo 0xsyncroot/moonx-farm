@@ -18,12 +18,16 @@ export class KafkaConsumer {
   private kafka: Kafka | null = null;
 
   async connect(topics: string[]): Promise<void> {
+
     this.kafka = new Kafka({
       clientId: configs.kafka.consumerConfig.clientId || "price-crawler-consumer",
       brokers: configs.kafka.consumerConfig.brokers || ["localhost:9092"],
     });
+
     this.consumer = this.kafka.consumer({ groupId: "price-crawler-group" });
+
     await this.consumer.connect();
+    
     for (const topic of topics) {
       await this.consumer.subscribe({ topic, fromBeginning: false });
     }

@@ -22,12 +22,12 @@ const configs = {
     },
     producerConfig: {
       clientId: "price-crawler-producer",
-      brokers: ["localhost:9092"]
+      brokers: ["185.192.97.148:19092"]
     },
     consumerConfig: {
       groupId: "price-crawler-consumer-group",
       clientId: "price-crawler-consumer",
-      brokers: ["localhost:9092"],
+      brokers: ["185.192.97.148:19092"],
       allowAutoTopicCreation: true
     }
   },

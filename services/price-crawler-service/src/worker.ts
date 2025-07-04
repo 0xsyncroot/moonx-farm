@@ -35,6 +35,7 @@ export class Worker {
       "price-crawler.metadata.request",
       "price-crawler.audit.request",
     ];
+    
     await this.consumer.connect(topics);
     await this.consumer.onMessage(async (topic, payload) => {
       await this.handleJob(topic, payload);
