@@ -9,6 +9,7 @@ import { orderRoutes } from './routes/orders';
 import { portfolioRoutes } from './routes/portfolio';
 import { bitqueryRoutes } from './routes/bitquery';
 import { chainRoutes } from './routes/chains';
+import { syncRoutes } from './routes/sync';
 
 const logger = createLogger('core-service');
 
@@ -155,6 +156,16 @@ const startServer = async () => {
         autoSyncService
       });
     });
+
+    // Sync Management Routes (mixed: user routes need auth, admin routes need admin auth)
+    fastify.register(async function (fastify) {
+      // Register sync routes - they handle their own authentication internally
+      await syncRoutes(fastify, {
+        databaseService,
+        cacheService,
+        portfolioService
+      });
+    }, { prefix: '/sync' });
 
     // Order Management Routes with authentication
     fastify.register(async function (fastify) {

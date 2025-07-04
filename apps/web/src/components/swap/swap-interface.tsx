@@ -15,6 +15,8 @@ import { useQuoteCountdown } from '@/hooks/use-quote-countdown'
 import { useChainInfo } from '@/hooks/use-chain-info'
 import { useShare } from '@/hooks/use-share'
 import { useAutoChainSwitch } from '@/hooks/use-auto-chain-switch'
+import { useTestnet } from '@/hooks/use-testnet'
+import { SwapInterfaceShimmer, SwapInterfaceProgressiveShimmer } from './swap-interface-shimmer'
 
 // Components
 import { SwapHeader } from './swap-header'
@@ -33,6 +35,13 @@ import { getChainConfig } from '@/config/chains'
 /**
  * SwapInterface Component - Jupiter-style Enhanced Version
  * 
+ * 🚀 PERFORMANCE OPTIMIZATIONS:
+ * - NO artificial delays - shimmer shows only when data is actually loading
+ * - Reduced timeouts: URL retry (500ms), URL sync (50ms), UI feedback (300ms), button debounce (500ms)
+ * - Immediate shimmer display during actual loading states (no delay for UX)
+ * - Optimized loading conditions - only show shimmer when genuinely waiting for data
+ * - No blocking patterns - everything loads optimistically and shows appropriate feedback
+ * 
  * Key improvements:
  * - Better state management and clearing logic
  * - Enhanced error handling and recovery
@@ -40,6 +49,7 @@ import { getChainConfig } from '@/config/chains'
  * - Auto-reset states when tokens/amounts change
  * - Improved URL synchronization
  * - Better countdown management
+ * - Optimized shimmer usage without performance impact
  */
 export function SwapInterface() {
   const { walletInfo } = useAuth()
@@ -60,14 +70,17 @@ export function SwapInterface() {
     amount?: string
   }>({})
   
-  // 🚀 FIXED: Track initialization with state (reactive) instead of ref for proper dependencies
+  // 🚀 IMPROVEMENT: Optimistic loading without blocking states
   const [isInitialized, setIsInitialized] = useState(false)
-  const [isTestnetReady, setIsTestnetReady] = useState(false)
   const lastSearchParamsRef = useRef<string>('')
   const urlLoadAttemptsRef = useRef(0)
   const maxRetryAttempts = 3
   
-  const { getTokenBySymbol, searchToken, isTestnet } = useTokens()
+  // 🚀 NEW: Use unified testnet hook with optimistic loading  
+  const { isTestnet, isHydrated, isTestnetSwitching } = useTestnet({
+    skipIfAutoSwitching: true // Prevent conflict with cross-chain swap logic
+  })
+  const { getTokenBySymbol, searchToken } = useTokens()
 
   // Main quote hook - initially without auto chain switch
   const {
@@ -90,7 +103,7 @@ export function SwapInterface() {
     refetch,
   } = useQuote()
 
-  // 🚀 FIXED: Auto chain switch only AFTER URL initialization to prevent race conditions  
+  // 🚀 IMPROVEMENT: Auto chain switch with optimistic loading
   const {
     isLoading: isChainSwitching,
     isSuccess: chainSwitchSuccess,
@@ -99,9 +112,11 @@ export function SwapInterface() {
     switchToChain,
     currentChain
   } = useAutoChainSwitch(
-    // 🔧 FIX: Only pass fromToken AFTER URL params are loaded AND testnet is ready
-    (isInitialized && isTestnetReady) ? fromToken : null
+    // 🔧 IMPROVEMENT: Pass fromToken immediately after URL initialization (no need to wait for testnet)
+    isInitialized ? fromToken : null
   )
+
+  // 🚀 IMPROVEMENT: isTestnetSwitching now comes from useTestnet hook above
 
   // URL synchronization
   const { markInitialized } = useUrlSync({
@@ -192,25 +207,8 @@ export function SwapInterface() {
     }
   }, [fromToken?.address, toToken?.address, amount, clearDependentStates, isInitialized])
 
-  // 🚀 NEW: Wait for testnet mode to be ready before loading URL params
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔧 Testnet mode changed, resetting ready state. New mode:', isTestnet)
-    }
-    
-    // Reset ready state when testnet mode changes
-    setIsTestnetReady(false)
-    
-    // Small delay to ensure localStorage has been read and testnet mode is stable
-    const timeoutId = setTimeout(() => {
-      setIsTestnetReady(true)
-      if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Testnet mode ready:', isTestnet)
-      }
-    }, 100)
-    
-    return () => clearTimeout(timeoutId)
-  }, [isTestnet])
+  // 🚀 IMPROVEMENT: No need to wait for testnet mode with optimistic loading
+  // The optimized hook provides immediate value, so we can skip the waiting logic
 
   // ✅ Check if balance is sufficient - ONLY after URL params are fully loaded
   const hasInsufficientBalance = useMemo(() => {
@@ -315,32 +313,26 @@ export function SwapInterface() {
     }
   }, [clearDependentStates, fromToken, toToken, amount, refetch])
 
-  // 🚀 NEW: Trigger manual chain switch after initialization completes
+  // 🚀 IMPROVEMENT: Trigger manual chain switch after initialization completes
   useEffect(() => {
     // When initialization completes and we have a fromToken that requires chain switch
-    if (isInitialized && isTestnetReady && fromToken && smartWalletClient?.chain?.id !== fromToken.chainId) {
+    if (isInitialized && fromToken && smartWalletClient?.chain?.id !== fromToken.chainId) {
       if (process.env.NODE_ENV === 'development') {
         console.log('🔄 Post-initialization chain switch check:', {
           fromTokenChain: fromToken.chainId,
           currentChain: smartWalletClient?.chain?.id,
           needsSwitch: smartWalletClient?.chain?.id !== fromToken.chainId,
-          isTestnet: isTestnet,
-          isTestnetReady: isTestnetReady
+          isTestnet: isTestnet
         })
       }
       // The useAutoChainSwitch hook will now receive fromToken and handle the switch
     }
-  }, [isInitialized, isTestnetReady, fromToken?.chainId, smartWalletClient?.chain?.id, isTestnet])
+  }, [isInitialized, fromToken?.chainId, smartWalletClient?.chain?.id, isTestnet])
 
-  // 🔧 FIX: Comprehensive URL params loading with proper error handling and retry
+  // 🔧 IMPROVEMENT: Optimistic URL params loading without blocking
   useEffect(() => {
-    // 🚀 CRITICAL: Don't load URL params until testnet mode is ready
-    if (!isTestnetReady) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('⏳ Waiting for testnet mode to be ready before loading URL params')
-      }
-      return
-    }
+    // 🚀 IMPROVEMENT: Load URL params immediately with optimistic testnet mode
+    // No need to wait since we have immediate testnet value
 
     const currentSearchParams = searchParams.toString()
     
@@ -418,7 +410,7 @@ export function SwapInterface() {
           hasAmount: !!amount,
           hasSlippage: !!slippage,
           isTestnet: isTestnet,
-          isTestnetReady: isTestnetReady
+          isHydrated: isHydrated
         })
       }
 
@@ -542,11 +534,11 @@ export function SwapInterface() {
         
         // Retry logic
         if (attemptNumber < maxRetryAttempts) {
-          console.log(`🔄 Retrying URL load in 1 second (attempt ${attemptNumber + 1}/${maxRetryAttempts})`)
+          console.log(`🔄 Retrying URL load in 500ms (attempt ${attemptNumber + 1}/${maxRetryAttempts})`)
           setTimeout(() => {
             // Trigger retry by clearing lastSearchParamsRef
             lastSearchParamsRef.current = ''
-          }, 1000)
+          }, 500)
         } else {
           // Give up after max attempts
           console.error('❌ Max retry attempts reached, marking as initialized anyway')
@@ -565,7 +557,6 @@ export function SwapInterface() {
     }
   }, [
     searchParams.toString(),
-    isTestnetReady,
     isTestnet,
     setAmount,
     setSlippage,
@@ -574,7 +565,7 @@ export function SwapInterface() {
     markInitialized,
     getTokenBySymbol,
     searchToken
-    // 🔧 FIX: Only essential stable dependencies
+    // 🔧 IMPROVEMENT: Removed isTestnetReady - no longer needed with optimistic loading
   ])
 
   // 🔧 FIX: Listen to auto chain switch events and update URL accordingly
@@ -694,7 +685,7 @@ export function SwapInterface() {
             console.log('🔗 Triggered URL sync via fromToken update')
           }
         }
-      }, 100)
+      }, 50)
       
       return () => clearTimeout(timeoutId)
     }
@@ -812,7 +803,7 @@ export function SwapInterface() {
       // Trigger error recovery
       handleErrorRecovery()
     } finally {
-      setTimeout(() => setIsRefreshing(false), 500)
+      setTimeout(() => setIsRefreshing(false), 300)
     }
   }, [refetch, handleErrorRecovery])
 
@@ -890,6 +881,46 @@ export function SwapInterface() {
     }
   }, [])
 
+  // 🚀 OPTIMIZED: Show shimmer loading ONLY during early initialization - no artificial delay
+  if (!isInitialized && !isHydrated) {
+    return (
+      <SwapInterfaceProgressiveShimmer
+        loadingStage="initialization"
+        className="animate-pulse"
+      />
+    )
+  }
+
+  // 🚀 OPTIMIZED: Show shimmer ONLY when waiting for tokens to load from URL - immediate check
+  if (isInitialized && !isHydrated && (searchParams.get('from') || searchParams.get('to'))) {
+    return (
+      <SwapInterfaceProgressiveShimmer
+        loadingStage="tokens"
+        className="animate-pulse"
+      />
+    )
+  }
+
+  // 🚀 OPTIMIZED: Show shimmer ONLY during active chain switching - no delay, immediate feedback
+  if (isChainSwitching && fromToken && toToken) {
+    return (
+      <SwapInterfaceShimmer
+        showCrossChainIndicator={!!chainInfo.isCrossChain}
+        className="animate-pulse"
+      />
+    )
+  }
+
+  // 🚀 OPTIMIZED: Show shimmer ONLY during active testnet switching - immediate response
+  if (isTestnetSwitching && (fromToken || toToken)) {
+    return (
+      <SwapInterfaceShimmer
+        showCrossChainIndicator={false}
+        className="animate-pulse"
+      />
+    )
+  }
+
   return (
     <div className="w-full max-w-md mx-auto">
       {/* Main Swap Card */}
@@ -914,6 +945,20 @@ export function SwapInterface() {
                 <div className="text-sm font-medium">Switching network...</div>
                 <div className="text-xs text-blue-600 dark:text-blue-300 mt-1">
                   Preparing smart wallet for {fromToken ? getChainConfig(fromToken.chainId)?.name : 'target chain'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Testnet Switch Indicator */}
+          {isTestnetSwitching && (
+            <div className="flex items-center gap-3 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 
+                           rounded-2xl text-orange-700 dark:text-orange-400">
+              <div className="w-5 h-5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <div>
+                <div className="text-sm font-medium">Switching testnet mode...</div>
+                <div className="text-xs text-orange-600 dark:text-orange-300 mt-1">
+                  Preparing smart wallet for network change
                 </div>
               </div>
             </div>
@@ -963,35 +1008,45 @@ export function SwapInterface() {
             />
           )}
 
-          {/* From Token Input */}
-          <TokenInput
-            type="from"
-            token={fromToken}
-            amount={amount}
-            onAmountChange={handleAmountChange}
-            onTokenClick={() => setShowFromTokenSelector(true)}
-            balance={fromTokenBalance}
-            hasInsufficientBalance={hasInsufficientBalance}
-            chainInfo={chainInfo.fromChain || undefined}
-          />
+          {/* 🚀 NEW: Show shimmer for token inputs when loading */}
+          {(!fromToken || !toToken) && isInitialized && !isHydrated ? (
+            <SwapInterfaceProgressiveShimmer
+              loadingStage="tokens"
+              className="animate-pulse"
+            />
+          ) : (
+            <>
+              {/* From Token Input */}
+              <TokenInput
+                type="from"
+                token={fromToken}
+                amount={amount}
+                onAmountChange={handleAmountChange}
+                onTokenClick={() => setShowFromTokenSelector(true)}
+                balance={fromTokenBalance}
+                hasInsufficientBalance={hasInsufficientBalance}
+                chainInfo={chainInfo.fromChain || undefined}
+              />
 
-          {/* Swap Arrow */}
-          <SwapArrow
-            onSwap={swapTokens}
-            disabled={!fromToken || !toToken}
-          />
+              {/* Swap Arrow */}
+              <SwapArrow
+                onSwap={swapTokens}
+                disabled={!fromToken || !toToken}
+              />
 
-          {/* To Token Input */}
-          <TokenInput
-            type="to"
-            token={toToken}
-            amount=""
-            onTokenClick={() => setShowToTokenSelector(true)}
-            balance={toTokenBalance}
-            displayValue={formatQuoteAmount(activeQuote?.toAmount, toToken)}
-            readOnly={true}
-            chainInfo={chainInfo.toChain || undefined}
-          />
+              {/* To Token Input */}
+              <TokenInput
+                type="to"
+                token={toToken}
+                amount=""
+                onTokenClick={() => setShowToTokenSelector(true)}
+                balance={toTokenBalance}
+                displayValue={formatQuoteAmount(activeQuote?.toAmount, toToken)}
+                readOnly={true}
+                chainInfo={chainInfo.toChain || undefined}
+              />
+            </>
+          )}
 
           {/* Quote Display */}
           {activeQuote && isValidRequest && (
@@ -1017,7 +1072,7 @@ export function SwapInterface() {
             />
           )}
 
-          {/* Loading Skeleton when no active quote */}
+          {/* 🚀 IMPROVED: Enhanced loading skeleton with better UX */}
           {(isLoading || isAutoRefreshing) && !activeQuote && isValidRequest && !error && (
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden relative">
               <div className="p-3">
@@ -1039,7 +1094,9 @@ export function SwapInterface() {
                 <div className="absolute inset-0 flex items-center justify-center bg-white/40 dark:bg-gray-900/40 backdrop-blur-sm">
                   <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400 bg-white/95 dark:bg-gray-800/95 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-gray-700">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm font-medium">Finding best quote...</span>
+                    <span className="text-sm font-medium">
+                      {isAutoRefreshing ? 'Auto-refreshing quote...' : 'Finding best quote...'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1076,7 +1133,7 @@ export function SwapInterface() {
             toToken={toToken}
             fromAmount={amount}
             quote={activeQuote || null}
-            disabled={!fromToken || !toToken || !amount || amount === '0' || isLoading || hasInsufficientBalance || isChainSwitching}
+            disabled={!fromToken || !toToken || !amount || amount === '0' || isLoading || hasInsufficientBalance || isChainSwitching || isTestnetSwitching}
             priceImpactTooHigh={activeQuote?.priceImpact ? Math.abs(parseFloat(activeQuote.priceImpact)) > 15 : false}
             hasInsufficientBalance={hasInsufficientBalance}
             onPauseCountdown={pauseCountdown}

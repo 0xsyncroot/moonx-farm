@@ -1,34 +1,33 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { Suspense } from 'react'
+import { RedirectHandler } from '@/components/redirect-handler'
+import { SwapInterfaceProgressiveShimmer } from '@/components/swap/swap-interface-shimmer'
 
-export default function HomePage() {
-  const router = useRouter()
-
-  useEffect(() => {
-    // Fallback client-side redirect in case middleware doesn't work
-    // Preserve all current query parameters
-    const timer = setTimeout(() => {
-      const currentSearch = window.location.search
-      router.replace(`/swap${currentSearch}`)
-    }, 100)
-
-    return () => clearTimeout(timer)
-  }, [router])
-
-  // Minimal loading skeleton while middleware redirects
+/**
+ * Root page - redirects to /swap
+ * 
+ * Note: If using middleware, this component won't be reached since 
+ * middleware handles the redirect. This is only used when middleware 
+ * is disabled (e.g., for static export).
+ */
+export default function RootPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="container mx-auto px-4 py-8">
-        {/* Skeleton that matches swap page structure */}
-        <div className="text-center mb-12">
-          <div className="flex items-center justify-center mb-6">
-            <LoadingSpinner size="lg" />
-          </div>
+        <div className="flex justify-center items-center min-h-[60vh]">
+          {/* Show loading shimmer while redirecting */}
+          <SwapInterfaceProgressiveShimmer
+            loadingStage="initialization"
+            className="animate-pulse"
+          />
         </div>
       </div>
+      
+      {/* Handle client-side redirect */}
+      <Suspense fallback={null}>
+        <RedirectHandler />
+      </Suspense>
     </div>
   )
 } 

@@ -101,7 +101,7 @@ export class AuthMiddleware {
     }
   }
 
-  // Helper to get current user ID
+  // Helper method to get current user ID from authenticated request
   getCurrentUserId(request: AuthenticatedRequest): string {
     if (!request.user) {
       throw new Error('User not authenticated');
@@ -109,12 +109,25 @@ export class AuthMiddleware {
     return request.user.id;
   }
 
-  // Helper to get current user wallet address
+  // Helper method to get current wallet address from authenticated request
   getCurrentWalletAddress(request: AuthenticatedRequest): string {
     if (!request.user) {
       throw new Error('User not authenticated');
     }
     return request.user.walletAddress;
+  }
+
+  // Helper method to get full user object from authenticated request
+  getCurrentUser(request: AuthenticatedRequest): {
+    id: string;
+    privyId: string;
+    walletAddress: string;
+    email?: string;
+  } {
+    if (!request.user) {
+      throw new Error('User not authenticated');
+    }
+    return request.user;
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@moonx-farm/configs",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Centralized configuration manager for MoonX Farm DEX",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

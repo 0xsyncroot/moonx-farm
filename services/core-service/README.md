@@ -1,14 +1,14 @@
 # MoonXFarm Core Service
 
-Central Platform Service providing **Order Management**, **Portfolio Sync**, **P&L Analytics**, **Trading History**, và **Chain Management** cho MoonXFarm platform.
+Central Platform Service providing **Order Management**, **Portfolio Sync**, **P&L Analytics**, **Trading History**, **Sync Management**, và **Chain Management** cho MoonXFarm platform.
 
 ## 🏗️ Architecture
 
 **Port**: 3007 (configured in @moonx-farm/configs)  
 **Framework**: Fastify v5 with TypeScript  
 **Infrastructure**: @moonx/infrastructure, @moonx-farm/configs, @moonx/common  
-**Authentication**: JWT verification via Auth Service + Admin API key for chain management  
-**Database**: PostgreSQL với orders, order_executions, user_trades, chains tables  
+**Authentication**: JWT verification via Auth Service + Admin API key for admin operations  
+**Database**: PostgreSQL với orders, order_executions, user_trades, chains, sync_operations tables  
 **Caching**: Redis with intelligent TTL strategies + auto-refresh cache  
 **External APIs**: Alchemy API (5 chains: Ethereum, Polygon, Optimism, Arbitrum, Base)
 
@@ -18,6 +18,7 @@ Central Platform Service providing **Order Management**, **Portfolio Sync**, **P
 - ✅ **Order Management**: Complete CRUD với LIMIT/DCA orders
 - ✅ **Portfolio Sync**: Alchemy integration với auto-sync system
 - ✅ **P&L Analytics**: Real-time P&L với cost basis tracking
+- ✅ **Sync Management**: Manual sync triggers, status monitoring, và admin controls
 - ✅ **Chain Management**: Centralized blockchain network configuration với admin controls
 - ✅ **ApiResponse**: Standardized response format
 - ✅ **Router Structure**: Organized routes với proper OpenAPI docs
@@ -50,6 +51,19 @@ Central Platform Service providing **Order Management**, **Portfolio Sync**, **P
 ### 🔷 Trading History
 - `GET /api/v1/portfolio/trades` - Recent trades (read-only, last 30 days)
 
+### 🔷 Sync Management (User + Admin)
+**User Endpoints (Authentication required):**
+- `POST /api/v1/sync/trigger` - Manual sync for current user
+- `GET /api/v1/sync/status` - Get sync status for current user
+- `GET /api/v1/sync/operations` - Get sync operations history
+- `DELETE /api/v1/sync/operations/:operationId` - Cancel sync operation
+
+**Admin Endpoints (x-api-key required):**
+- `GET /api/v1/sync/queue` - Get sync queue status
+- `POST /api/v1/sync/bulk` - Trigger bulk sync for multiple users
+- `PUT /api/v1/sync/pause` - Pause/resume sync service
+- `GET /api/v1/sync/stats` - Get detailed sync statistics
+
 ### 🔷 Chain Management (Public + Admin)
 **Public Endpoints (No Authentication):**
 - `GET /api/v1/chains` - Get all supported blockchain networks
@@ -68,6 +82,297 @@ Central Platform Service providing **Order Management**, **Portfolio Sync**, **P
 - `GET /api/v1/health` - Service health check
 
 ## 📋 API Detailed Documentation
+
+### **Sync Management APIs**
+
+#### `POST /api/v1/sync/trigger` - Manual Sync for Current User
+**Purpose**: Trigger manual portfolio sync for authenticated user
+
+**Request Body**:
+```json
+{
+  "priority": "high" | "normal" | "low",     // Optional: default "normal"
+  "syncType": "portfolio" | "trades" | "full", // Optional: default "portfolio"
+  "forceRefresh": boolean                      // Optional: default false
+}
+```
+
+**Response (202)**:
+```json
+{
+  "success": true,
+  "data": {
+    "syncTriggered": true,
+    "userId": "user-uuid",
+    "walletAddress": "0x...",
+    "priority": "high",
+    "syncType": "portfolio",
+    "forceRefresh": true,
+    "message": "Sync initiated successfully. Check sync status for progress."
+  },
+  "message": "portfolio sync triggered with high priority",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/sync/status` - Get User Sync Status
+**Purpose**: Get detailed sync status for authenticated user
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "user-uuid",
+    "walletAddress": "0x...",
+    "lastSyncAt": "2024-01-15T10:25:00Z",
+    "syncStatus": "current",  // "current" | "recent" | "stale" | "never"
+    "isRunning": false,
+    "activeSyncOperations": 0,
+    "totalTokens": 23,
+    "totalValueUsd": 12459.34,
+    "syncFrequency": 1800,     // seconds (30 minutes)
+    "nextScheduledSync": "2024-01-15T11:00:00Z"
+  },
+  "message": "User sync status retrieved",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/sync/operations` - Get Sync Operations History
+**Purpose**: Get sync operations history for authenticated user
+
+**Query Parameters**:
+```typescript
+{
+  limit?: number;    // Default: 20, Max: 100
+  status?: "pending" | "running" | "completed" | "failed";
+  type?: "portfolio" | "trades" | "full";
+  days?: number;     // Default: 7, Max: 90
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "operations": [
+      {
+        "id": "sync-operation-uuid",
+        "type": "portfolio",
+        "status": "completed",
+        "priority": "high",
+        "startedAt": "2024-01-15T10:25:00Z",
+        "completedAt": "2024-01-15T10:25:15Z",
+        "duration": 15000,         // milliseconds
+        "tokensLynced": 23,
+        "chainsLynced": 5,
+        "totalValueUsd": 12459.34,
+        "error": null,
+        "retryCount": 0
+      }
+    ],
+    "count": 15,
+    "filters": {
+      "limit": 20,
+      "status": "completed",
+      "days": 7
+    }
+  },
+  "message": "Retrieved 15 sync operations",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `DELETE /api/v1/sync/operations/:operationId` - Cancel Sync Operation
+**Purpose**: Cancel a pending sync operation for authenticated user
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "operationId": "sync-operation-uuid",
+    "cancelled": true,
+    "previousStatus": "pending",
+    "cancelledAt": "2024-01-15T10:30:00Z"
+  },
+  "message": "Sync operation cancelled successfully",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**Error Response (404)**:
+```json
+{
+  "success": false,
+  "error": "Sync operation not found",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/sync/queue` - Get Sync Queue Status (Admin Only)
+**Purpose**: Get current sync queue status and statistics
+
+**Headers**:
+```
+x-api-key: your-admin-api-key
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalUsers": 1250,
+    "usersNeedingSync": 45,
+    "stalePortfolios": 12,
+    "isRunning": true,
+    "lastProcessedAt": "2024-01-15T10:29:30Z",
+    "syncErrors": 3
+  },
+  "message": "Sync queue status retrieved",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `POST /api/v1/sync/bulk` - Trigger Bulk Sync (Admin Only)
+**Purpose**: Trigger sync for multiple users or wallets
+
+**Headers**:
+```
+x-api-key: your-admin-api-key
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "userIds": ["user-uuid-1", "user-uuid-2"],      // Optional
+  "walletAddresses": ["0x...", "0x..."],          // Optional
+  "priority": "low",                               // Optional: default "low"
+  "syncType": "portfolio",                         // Optional: default "portfolio"
+  "batchSize": 10                                  // Optional: default 10, max 50
+}
+```
+
+**Response (202)**:
+```json
+{
+  "success": true,
+  "data": {
+    "bulkSyncTriggered": true,
+    "totalRequests": 50,
+    "successfulTriggers": 48,
+    "failedTriggers": 2,
+    "priority": "low",
+    "syncType": "portfolio",
+    "batchSize": 10
+  },
+  "message": "Bulk sync initiated for 50 targets",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `PUT /api/v1/sync/pause` - Pause/Resume Sync Service (Admin Only)
+**Purpose**: Pause or resume the automatic sync service
+
+**Headers**:
+```
+x-api-key: your-admin-api-key
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "action": "pause" | "resume",   // Required
+  "reason": "Maintenance period"  // Optional
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "action": "pause",
+    "success": true,
+    "previousState": true,    // was running
+    "currentState": false,    // now paused
+    "reason": "Maintenance period",
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "Sync service paused successfully",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/sync/stats` - Get Detailed Sync Statistics (Admin Only)
+**Purpose**: Get comprehensive sync statistics with breakdown
+
+**Headers**:
+```
+x-api-key: your-admin-api-key
+```
+
+**Query Parameters**:
+```typescript
+{
+  timeframe?: "24h" | "7d" | "30d";      // Default: "24h"
+  breakdown?: "user" | "chain" | "type"; // Default: "type"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "timeframe": "24h",
+    "breakdown": "type",
+    "summary": {
+      "totalSyncs": 1250,
+      "successfulSyncs": 1205,
+      "failedSyncs": 45,
+      "averageDuration": 4500,    // milliseconds
+      "totalTokensSynced": 28750,
+      "totalValueSynced": 15750000.50
+    },
+    "breakdownData": [
+      {
+        "category": "portfolio",
+        "count": 980,
+        "successRate": 96.5,
+        "avgDuration": 4200,
+        "totalValue": 12500000.00
+      },
+      {
+        "category": "trades",
+        "count": 180,
+        "successRate": 94.2,
+        "avgDuration": 2800,
+        "totalValue": 2250000.50
+      },
+      {
+        "category": "full",
+        "count": 90,
+        "successRate": 91.1,
+        "avgDuration": 8500,
+        "totalValue": 1000000.00
+      }
+    ],
+    "serviceStatus": {
+      "isRunning": true,
+      "lastProcessedAt": "2024-01-15T10:29:30Z",
+      "queueLength": 15
+    }
+  },
+  "message": "Sync statistics for 24h retrieved",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
 
 ### **Order Management APIs**
 

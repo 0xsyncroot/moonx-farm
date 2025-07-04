@@ -2,7 +2,7 @@
 
 import { usePrivy } from '@privy-io/react-auth'
 import { useAuth } from '@/hooks/use-auth'
-import { Token } from '@/lib/api-client'
+import { Token, coreApi } from '@/lib/api-client'
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useSwap } from '@/hooks/use-swap'
 import { cn } from '@/lib/utils'
@@ -47,7 +47,7 @@ const Button = ({ children, onClick, disabled, variant, size, className, loading
     if (disabled || loading) return
     
     const now = Date.now()
-    if (now - lastClickRef.current < 1000) return // 1s debounce for safety
+    if (now - lastClickRef.current < 500) return // 500ms debounce - reduced for better UX
     
     lastClickRef.current = now
     onClick?.()
@@ -230,9 +230,72 @@ export function SwapButton({
       setOnInputReset(onInputReset)
     }
     
-    // Success callback
+    // Success callback with trade recording
     if (onSwapSuccess) {
-      setOnSwapSuccess(onSwapSuccess)
+      setOnSwapSuccess(async (hash: string, quote: Quote) => {
+        console.log('🎉 Swap successful, recording trade:', {
+          hash,
+          fromToken: quote.fromToken?.symbol,
+          toToken: quote.toToken?.symbol,
+          fromAmount: quote.fromAmount,
+          toAmount: quote.toAmount
+        })
+        
+                  // 🆕 Record trade in database for P&L tracking
+          try {
+            const tradeData = {
+              walletAddress: smartWalletClient?.account?.address,
+              txHash: hash,
+              chainId: quote.fromToken?.chainId || 1,
+              type: 'swap',
+              fromToken: {
+                symbol: quote.fromToken?.symbol || 'Unknown',
+                name: quote.fromToken?.name || quote.fromToken?.symbol || 'Unknown',
+                address: quote.fromToken?.address || '',
+                decimals: quote.fromToken?.decimals || 18,
+                amount: quote.fromAmount || '0',
+                amountFormatted: parseFloat(quote.fromAmount || '0') / Math.pow(10, quote.fromToken?.decimals || 18),
+                priceUSD: quote.fromToken?.priceUSD || 0,
+                valueUSD: (quote.fromToken?.priceUSD || 0) * (parseFloat(quote.fromAmount || '0') / Math.pow(10, quote.fromToken?.decimals || 18))
+              },
+              toToken: {
+                symbol: quote.toToken?.symbol || 'Unknown',
+                name: quote.toToken?.name || quote.toToken?.symbol || 'Unknown',
+                address: quote.toToken?.address || '',
+                decimals: quote.toToken?.decimals || 18,
+                amount: quote.toAmount || '0',
+                amountFormatted: parseFloat(quote.toAmount || '0') / Math.pow(10, quote.toToken?.decimals || 18),
+                priceUSD: quote.toToken?.priceUSD || 0,
+                valueUSD: (quote.toToken?.priceUSD || 0) * (parseFloat(quote.toAmount || '0') / Math.pow(10, quote.toToken?.decimals || 18))
+              },
+              gasFeeETH: 0, // Will be updated by backend from tx receipt
+              gasFeeUSD: 0, // Will be calculated by backend
+              dexName: quote.metadata?.tool || quote.provider || 'Unknown',
+              slippage: quote.slippageTolerance || 0.5,
+              executedAt: new Date().toISOString()
+            }
+          
+          // Call core-service to record trade using api-client
+          const result = await coreApi.recordTrade(tradeData)
+          
+          console.log('✅ Trade recorded successfully:', {
+            tradeId: result.data?.trade?.id,
+            txHash: hash,
+            pnl: result.data?.trade?.pnl
+          })
+          
+          // Call original success callback
+          onSwapSuccess(hash, quote)
+          
+        } catch (error) {
+          console.error('❌ Failed to record trade:', error)
+          // Don't fail the swap success, just log the error
+          // User's swap was successful, we just couldn't record it
+          
+          // Still call original success callback
+          onSwapSuccess(hash, quote)
+        }
+      })
     }
     
     return () => {
@@ -246,7 +309,7 @@ export function SwapButton({
         clearTimeout(successInteractionTimeoutRef.current)
       }
     }
-  }, [setOnSwapComplete, setOnBalanceReload, setOnInputReset, setOnSwapSuccess, onBalanceReload, onInputReset, onSwapSuccess])
+  }, [setOnSwapComplete, setOnBalanceReload, setOnInputReset, setOnSwapSuccess, onBalanceReload, onInputReset, onSwapSuccess, smartWalletClient?.account?.address])
 
   // 🚀 KEY IMPROVEMENT: Jupiter-style state tracking for countdown control
   useEffect(() => {

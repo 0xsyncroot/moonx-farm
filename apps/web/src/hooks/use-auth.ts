@@ -6,18 +6,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '@/lib/api-client'
 import { toast } from 'react-hot-toast'
 
-interface BackendUser {
-  id: string
-  privyUserId: string
-  email?: string
-  walletAddress?: string
-  displayName?: string
-  profileImage?: string
-  isActive: boolean
-  createdAt: string
-  updatedAt: string
-}
-
 export function useAuth() {
   const queryClient = useQueryClient()
   const { 
@@ -88,7 +76,6 @@ export function useAuth() {
             queryClient.invalidateQueries({ queryKey: ['currentUser'] })
           }, 50)
         }, 100)
-        toast.success('Successfully connected to MoonX!')
       } else {
         console.error('❌ Backend login failed:', response)
         clearAttemptedUser() // Allow retry on failure

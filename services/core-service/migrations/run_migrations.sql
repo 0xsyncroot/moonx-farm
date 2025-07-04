@@ -10,6 +10,9 @@
 -- 3. Create Portfolio and Sync Management tables
 \i create_portfolio_tables.sql
 
+-- 4. Create User Sync Status table
+\i create_sync_status_table.sql
+
 -- Verify all tables were created successfully
 SELECT 
     schemaname,
@@ -22,6 +25,7 @@ WHERE tablename IN (
     'user_trades',
     'user_token_holdings',
     'user_token_holdings_history',
-    'sync_operations'
+    'sync_operations',
+    'user_sync_status'
 )
 ORDER BY tablename; 

@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export', // Enable static export
+  // Removed output: 'export' to enable middleware support
 
   // Tắt X-Powered-By header để bảo mật
   poweredByHeader: false,
 
-  // Trailing slash cho static export
+  // Trailing slash for consistent URLs
   trailingSlash: true,
 
   swcMinify: true,
@@ -25,7 +25,7 @@ const nextConfig = {
   transpilePackages: ['@moonx-farm/common', '@moonx-farm/configs'],
 
   images: {
-    unoptimized: true, // Required cho static export
+    // Removed unoptimized: true since we're no longer using static export
     remotePatterns: [
       {
         protocol: 'https',
@@ -46,8 +46,8 @@ const nextConfig = {
     },
   },
 
-  // Headers không hoạt động với static export
-  // Sẽ được cấu hình ở web server level (nginx, cloudflare, etc.)
+  // Headers can now be configured since we're using Next.js server
+  // Add custom headers here if needed
 
   webpack: (config, { dev, isServer }) => {
     // Fallback cho Node.js modules
@@ -107,7 +107,7 @@ const nextConfig = {
         },
       };
 
-      // Disable source maps trong production để giảm bundle size
+      // Disable source maps in production to reduce bundle size
       config.devtool = false;
     }
 

@@ -532,6 +532,49 @@ class ApiClient {
     return response.data
   }
 
+  public async recordTrade(tradeData: {
+    walletAddress: string
+    txHash: string
+    chainId: number
+    blockNumber?: number
+    timestamp?: string
+    type: 'swap' | 'buy' | 'sell'
+    status?: 'pending' | 'completed' | 'failed'
+    fromToken: {
+      address: string
+      symbol: string
+      name: string
+      decimals: number
+      amount: string
+      amountFormatted: number
+      priceUSD: number
+      valueUSD: number
+    }
+    toToken: {
+      address: string
+      symbol: string
+      name: string
+      decimals: number
+      amount: string
+      amountFormatted: number
+      priceUSD: number
+      valueUSD: number
+    }
+    gasFeeETH?: number
+    gasFeeUSD: number
+    protocolFeeUSD?: number
+    slippage?: number
+    priceImpact?: number
+    dexName?: string
+    routerAddress?: string
+    aggregator?: 'lifi' | '1inch' | 'relay' | 'jupiter'
+    executedAt?: string
+  }): Promise<any> {
+
+    const response = await this.coreClient.post('/portfolio/trades', tradeData)
+    return response.data
+  }
+
   // Order Management
   public async createOrder(orderData: any): Promise<any> {
     const response = await this.coreClient.post('/orders', orderData)
@@ -641,6 +684,7 @@ export const coreApi = {
   // Trading History
   getRecentTrades: (params?: { limit?: number; days?: number; chainIds?: string }) => 
     apiClient.getRecentTrades(params),
+  recordTrade: (tradeData: any) => apiClient.recordTrade(tradeData),
     
   // Order Management
   createOrder: (orderData: any) => apiClient.createOrder(orderData),

@@ -1,8 +1,8 @@
 'use client'
 
-import { Suspense } from 'react'
+import React from 'react'
 import { Header } from '@/components/layout/header'
-import { SwapInterface } from '@/components/swap/swap-interface'
+import { SwapInterfaceWrapper } from '@/components/swap/swap-interface-wrapper'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { 
   ArrowUpDown, 
@@ -24,22 +24,7 @@ import {
 } from 'lucide-react'
 import { ChainIcon } from '@/components/ui/chain-icon'
 
-// Simple loading fallback for SwapInterface
-function SwapInterfaceLoading() {
-  return (
-    <div className="w-full max-w-md mx-auto">
-      <div className="animate-pulse bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-        <div className="space-y-4">
-          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded"></div>
-          <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-          <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-          <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-          <div className="h-12 bg-gradient-to-r from-orange-200 to-red-200 dark:from-orange-800 dark:to-red-800 rounded-xl"></div>
-        </div>
-      </div>
-    </div>
-  )
-}
+
 
 export default function SwapPage() {
   return (
@@ -214,9 +199,7 @@ export default function SwapPage() {
 
           {/* Center - Swap Interface */}
           <div className="lg:col-span-6 order-1 lg:order-2">
-            <Suspense fallback={<SwapInterfaceLoading />}>
-              <SwapInterface />
-            </Suspense>
+            <SwapInterfaceWrapper />
           </div>
 
           {/* Right Sidebar - Enhanced Activity - Hidden on mobile */}
