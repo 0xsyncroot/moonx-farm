@@ -1,10 +1,11 @@
 {
   "scripts": {
     "build": "tsc",
-    "start": "node dist/services/price-crawler-service/src/main.js",
+    "start": "node dist/main.js",
     "dev": "ts-node src/main.ts"
   },
   "dependencies": {
+    "@moonx-farm/infrastructure": "^1.0.8",
     "axios": "^1.10.0",
     "kafkajs": "^2.2.4",
     "pg": "^8.16.3"

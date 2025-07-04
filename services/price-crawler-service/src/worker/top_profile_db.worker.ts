@@ -2,7 +2,7 @@
 import { upsertTokenPg, upsertTokenPricePg } from "../db/upsert_pg";
 import { pool, connectPgDb } from "../db/pgdb";
 import { JobMessage } from "../types/job_message";
-import { JobType } from "src/models";
+import { JobType } from "../models/index";
 
 // Hàm nhận diện stablecoin đơn giản (có thể mở rộng)
 function isStablecoin(symbol: string): boolean {

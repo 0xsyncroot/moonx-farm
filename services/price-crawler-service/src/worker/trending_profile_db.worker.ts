@@ -1,9 +1,8 @@
 import { TrendingTokenFetcher } from "../fetchers/trendingTokenFetcher";
-import { getTokenAuditGoPlus } from "../fetcher/goplus.fetcher";
 import { upsertTokenPg, upsertTokenPricePg, upsertTokenAuditPg } from "../db/upsert_pg";
-import { pool, connectPgDb } from "../db/pgdb";
+import { pool } from "../db/pgdb";
 import { JobMessage } from "../types/job_message";
-import { logger } from "../../../../packages/common/src/logger";
+import { logger } from "@moonx-farm/common"; 
 
 // Hàm nhận diện stablecoin đơn giản (có thể mở rộng)
 function isStablecoin(symbol: string): boolean {

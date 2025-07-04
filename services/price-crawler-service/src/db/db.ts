@@ -1,4 +1,4 @@
-import { createDatabase, createDatabaseConfig, DatabaseManager } from "../../../../packages/infrastructure/src/database";
+import { createDatabase, createDatabaseConfig, DatabaseManager } from "@moonx-farm/infrastructure";
 
 // Khởi tạo kết nối DB sử dụng DATABASE_URL từ env
 const dbConfig = createDatabaseConfig();
