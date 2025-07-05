@@ -48,6 +48,7 @@ export async function getTokenProfileDexscreener(address: string): Promise<Token
     const markets = normalizeMarkets(data.pairs);
 
     return {
+      address: mainPool.baseToken.address,
       name: mainPool.baseToken.name,
       symbol: mainPool.baseToken.symbol,
       decimals: mainPool.baseToken.decimals,

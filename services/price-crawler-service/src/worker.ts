@@ -35,7 +35,7 @@ export class Worker {
       "price-crawler.metadata.request",
       "price-crawler.audit.request",
     ];
-    
+
     await this.consumer.connect(topics);
     await this.consumer.onMessage(async (topic, payload) => {
       await this.handleJob(topic, payload);
@@ -46,11 +46,13 @@ export class Worker {
   // Xử lý pipeline cho từng loại job - thực hiện gọi đến các job đã thiết kế
   async handleJob(topic: string, payload: KafkaJobPayload) {
     // Phân loại job theo topic, lấy dữ liệu top coin hoặc trending token theo TokenType
-    const { job_type, token_type, contracts, symbols , chain_id} = payload;
+    const { job_type, token_type, contracts, symbols, chain } = payload;
 
     try {
       if (token_type === TokenType.TOP) {
-        let profiles = await this.topCoinFetcher.getTopCoins(configs.TopLimit || 100);
+        let profiles = await this.topCoinFetcher.getTopCoins(
+          configs.TopLimit || 100
+        );
         if (profiles.length === 0) {
           this.logger.warn("No top coins found");
           return;
@@ -64,14 +66,16 @@ export class Worker {
             chain: profile.chain,
             address: profile.address,
             coingeckoId: profile.coingeckoId,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           };
-          handleTopJob(jobMessage);
+          handleTopJob(jobMessage, profile);
         }
-        
       } else if (token_type === TokenType.TRENDING) {
+        let profiles = await this.trendingTokenFetcher.getTrendingTokens(
+          chain.id,
+          configs.TrendingLimit || 20
+        );
 
-        let profiles = await this.trendingTokenFetcher.getTrendingTokens(chain_id, configs.TrendingLimit || 20);
         if (profiles.length === 0) {
           this.logger.warn("No trending tokens found");
           return;
@@ -82,18 +86,23 @@ export class Worker {
           const jobMessage: JobMessage = {
             job_type: job_type as JobType, //ép kiểu từ string sang JobType
             token_type: TokenType.TRENDING,
-            chain: profile.chain,
+            chain: chain,
             address: profile.address,
             coingeckoId: profile.coingeckoId,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           };
           handleTrendingJob(jobMessage);
         }
       }
-      
     } catch (error) {
-      this.logger.error(`[Worker] Error processing job: ${job_type} for ${token_type}`, error);
-      console.log(`[Worker] Error processing job: ${job_type} for ${token_type}`, error);
+      this.logger.error(
+        `[Worker] Error processing job: ${job_type} for ${token_type}`,
+        error
+      );
+      console.log(
+        `[Worker] Error processing job: ${job_type} for ${token_type}`,
+        error
+      );
     }
   }
 }

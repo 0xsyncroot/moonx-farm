@@ -19,9 +19,11 @@ function normalizeSocials(links: any = {}): SocialLinks {
 
 function normalizeContracts(platforms: any = {}): ContractsMap {
   const contracts: ContractsMap = {};
+
   Object.entries(platforms).forEach(([chain, addr]) => {
     if (addr) contracts[chain] = addr as string;
   });
+
   return contracts;
 }
 
@@ -74,6 +76,7 @@ export async function getCoinProfileCoingecko(id: string): Promise<TokenProfile 
   }
 
   return {
+    address: data.id,
     name: data.name,
     symbol: data.symbol,
     decimals: decimals || undefined,

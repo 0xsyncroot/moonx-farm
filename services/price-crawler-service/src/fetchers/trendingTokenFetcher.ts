@@ -23,9 +23,13 @@ export interface TrendingTokenProfile {
   audit?: any;
 }
 
-import {getTrendingTokensFromGeckoTerminal, getTokenProfileGeckoTerminal} from "../fetcher/geckoterminal.fetcher";
-import {getTokenProfileDexscreener} from "../fetcher/dexscreener.fetcher";
-import {getTokenAuditGoPlus } from "../fetcher/goplus.fetcher"; // Chưa triển khai
+import {
+  getTrendingTokensFromGeckoTerminal,
+  getTokenProfileGeckoTerminal,
+} from "../fetcher/geckoterminal.fetcher";
+import { getTokenProfileDexscreener } from "../fetcher/dexscreener.fetcher";
+import { getTokenAuditGoPlus } from "../fetcher/goplus.fetcher"; // Chưa triển khai
+import { getCoinProfileCoingecko } from "../fetcher/coingecko.fetcher"; // Chưa triển khai
 
 export class TrendingTokenFetcher {
   // Lấy danh sách trending token (chỉ khung)
@@ -39,11 +43,15 @@ export class TrendingTokenFetcher {
   }
 
   // Lấy profile chi tiết cho từng token (chỉ khung)
-  async getTokenProfile(chain: string, address: string): Promise<TrendingTokenProfile | null> {
+  async getTokenProfile(
+    chainId: string,
+    address: string
+  ): Promise<TrendingTokenProfile | null> {
     // TODO: Triển khai lấy profile từ Dexscreener/GeckoTerminal
-    var profile =  await getTokenProfileDexscreener(address);
-    if (!profile) profile = await getTokenProfileGeckoTerminal(chain, address);
-    // if (!profile && coingeckoId) profile = await getCoinProfileCoingecko(coingeckoId);
+    var profile = await getTokenProfileDexscreener(address);
+    if (!profile) {
+      profile = await getTokenProfileGeckoTerminal(chainId, address);
+    }
 
     if (profile) {
       return profile;
@@ -51,10 +59,15 @@ export class TrendingTokenFetcher {
     return null;
   }
 
-  // Lấy audit info cho token (chỉ khung)
-  async getTokenAudit(chain: string, address: string): Promise<any> {
+  /**
+   * Lấy audit info cho token (chỉ khung)
+   * @param chainId chain Id Go Plus
+   * @param address địa chỉ token
+   * @returns thông tin audit
+   */
+  async getTokenAudit(chainId: string, address: string): Promise<any> {
     // TODO: Triển khai lấy audit từ GoPlus
-    const audit = await getTokenAuditGoPlus(chain, address);
+    const audit = await getTokenAuditGoPlus(chainId, address);
     if (audit) {
       return audit;
     }

@@ -34,6 +34,7 @@ export interface AuditInfo {
 }
 
 export interface TokenProfile {
+  address: string; // PK
   name: string;
   symbol: string;
   decimals?: number;
