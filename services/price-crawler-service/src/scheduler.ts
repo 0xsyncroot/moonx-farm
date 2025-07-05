@@ -37,14 +37,14 @@ export class Scheduler {
    * Hàm khởi tạo các job định kỳ
    */
   async initScheduledJobs() {
-    // Price - Top 100: mỗi 5s
-    cron.schedule(configs.scheduler.priceCron || "*/5 * * * * *", async () => {
-      await this.runJob(JobType.PRICE, TokenType.TOP);
-    });
-
     // Metadata - Top 100: mỗi 24h
     cron.schedule(configs.scheduler.metadataCron || "0 0 * * *", async () => {
       await this.runJob(JobType.METADATA, TokenType.TOP);
+    });
+
+    // Price - Top 100: mỗi 5s
+    cron.schedule(configs.scheduler.priceCron || "*/5 * * * * *", async () => {
+      await this.runJob(JobType.PRICE, TokenType.TOP);
     });
 
     // Lấy danh sách chain
