@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { SyncController } from '../controllers/syncController';
-import { AutoSyncService } from '../services/autoSyncService';
+import { SyncProxyService } from '../services/syncProxyService';
 import { AuthMiddleware } from '../middleware/authMiddleware';
 import { AdminMiddleware } from '../middleware/adminMiddleware';
 import { CacheService } from '../services/cacheService';
@@ -17,30 +17,36 @@ export async function syncRoutes(
   fastify: FastifyInstance,
   options: SyncRoutesOptions
 ) {
+  const { databaseService, cacheService, portfolioService } = options;
+
   // Initialize services
-  const autoSyncService = new AutoSyncService(
-    options.portfolioService,
-    options.cacheService,
-    options.databaseService
-  );
-  
+  const syncProxyService = new SyncProxyService();
+  await syncProxyService.initialize();
+
+  // Initialize middleware (no constructor arguments)
   const authMiddleware = new AuthMiddleware();
   const adminMiddleware = new AdminMiddleware();
   
-  const syncController = new SyncController(autoSyncService, authMiddleware);
+  // Initialize controller
+  const syncController = new SyncController(syncProxyService, authMiddleware);
 
-  // USER SYNC ROUTES (Require authentication)
+  // Ensure proxy service is properly shut down on app shutdown
+  fastify.addHook('onClose', async () => {
+    await syncProxyService.shutdown();
+  });
 
-  // POST /sync/trigger - Manual sync for current user
+  // USER SYNC ROUTES (Require user authentication)
+
+  // POST /sync/trigger - Trigger sync for current user
   fastify.post('/trigger', {
     preHandler: authMiddleware.authenticate.bind(authMiddleware),
     schema: {
       body: {
         type: 'object',
         properties: {
-          priority: { type: 'string', enum: ['high', 'normal', 'low'] },
-          syncType: { type: 'string', enum: ['portfolio', 'trades', 'full'] },
-          forceRefresh: { type: 'boolean' }
+          priority: { type: 'string', enum: ['high', 'medium', 'low'], default: 'medium' },
+          syncType: { type: 'string', enum: ['portfolio', 'trades', 'full'], default: 'portfolio' },
+          forceRefresh: { type: 'boolean', default: false }
         }
       },
       response: {
@@ -51,23 +57,35 @@ export async function syncRoutes(
             data: {
               type: 'object',
               properties: {
-                syncTriggered: { type: 'boolean' },
-                userId: { type: 'string' },
-                walletAddress: { type: 'string' },
-                priority: { type: 'string' },
                 syncType: { type: 'string' },
-                forceRefresh: { type: 'boolean' },
-                message: { type: 'string' }
+                priority: { type: 'string' },
+                remainingRequests: { type: 'integer' },
+                resetTime: { type: 'string', format: 'date-time' }
               }
             },
             message: { type: 'string' },
             timestamp: { type: 'string' }
           }
+        },
+        429: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            data: {
+              type: 'object',
+              properties: {
+                remainingRequests: { type: 'integer' },
+                resetTime: { type: 'string', format: 'date-time' }
+              }
+            },
+            timestamp: { type: 'string' }
+          }
         }
       },
       tags: ['Sync'],
-      summary: 'Trigger manual sync for current user',
-      description: 'Manually trigger portfolio sync for the authenticated user with specified priority'
+      summary: 'Trigger sync for current user',
+      description: 'Manually trigger portfolio sync for the authenticated user with rate limiting'
     }
   }, syncController.triggerUserSync.bind(syncController));
 

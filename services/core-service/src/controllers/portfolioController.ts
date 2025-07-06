@@ -2,7 +2,6 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { PortfolioService } from '../services/portfolioService';
 import { PnLService } from '../services/pnlService';
 import { TradesService } from '../services/tradesService';
-import { AutoSyncService } from '../services/autoSyncService';
 import { AuthenticatedRequest, AuthMiddleware } from '../middleware/authMiddleware';
 import { PortfolioSyncRequest, PortfolioFilters, PnLRequest } from '../types';
 import { ApiResponse } from '../types';
@@ -38,7 +37,6 @@ export class PortfolioController {
     private portfolioService: PortfolioService,
     private pnlService: PnLService,
     private tradesService: TradesService,
-    private autoSyncService: AutoSyncService,
     private authMiddleware: AuthMiddleware
   ) {}
 
@@ -52,31 +50,28 @@ export class PortfolioController {
       let portfolio = await this.portfolioService.getPortfolio(userId, walletAddress, request.query);
       
       if (!portfolio) {
-        // No portfolio data - trigger high priority sync and return loading state
-        await this.autoSyncService.onUserAccess(userId, walletAddress);
+        // No portfolio data - sync is now handled by sync worker
+        // User should use sync endpoints to trigger sync if needed
         
         return reply.code(202).send(createSuccessResponse({
           portfolio: null,
-          status: 'syncing',
-          message: 'Portfolio is being synced. Please check back in a few moments.'
-        }, 'Portfolio sync initiated'));
+          status: 'no_data',
+          message: 'No portfolio data available. Please use /sync/trigger to initiate sync.'
+        }, 'Portfolio data not found'));
       }
 
       // Check if data is stale (> 15 minutes old)
       const now = new Date();
       const diffMinutes = (now.getTime() - portfolio.lastSynced.getTime()) / (1000 * 60);
       
-      if (diffMinutes > 15) {
-        // Trigger background sync for fresh data (don't wait)
-        setImmediate(() => {
-          this.autoSyncService.onUserAccess(userId, walletAddress);
-        });
-      }
+      // Note: Background sync is now handled by sync worker
+      // Users can manually trigger sync via /sync/trigger endpoint
 
       return reply.send(createSuccessResponse({ 
         portfolio,
-        syncStatus: diffMinutes > 15 ? 'refreshing' : 'current',
-        lastSynced: portfolio.lastSynced
+        syncStatus: diffMinutes > 15 ? 'stale' : 'current',
+        lastSynced: portfolio.lastSynced,
+        note: diffMinutes > 15 ? 'Data is stale. Consider using /sync/trigger to refresh.' : undefined
       }, `Portfolio retrieved with ${portfolio.holdings?.length || 0} holdings`));
     } catch (error) {
       logger.error('Get portfolio error', { error: error instanceof Error ? error.message : String(error) });
@@ -93,16 +88,13 @@ export class PortfolioController {
       // Quick data should always be available (short cache)
       const quickData = await this.portfolioService.getQuickPortfolio(userId, walletAddress);
       
-      // Trigger auto sync if no data or data is old
-      if (!quickData.lastSynced || quickData.totalValueUSD === 0) {
-        setImmediate(() => {
-          this.autoSyncService.onUserAccess(userId, walletAddress);
-        });
-      }
+      // Note: Auto sync is now handled by sync worker
+      // User can manually trigger sync if needed via /sync/trigger
       
       return reply.send(createSuccessResponse({
         ...quickData,
-        status: quickData.totalValueUSD > 0 ? 'ready' : 'syncing'
+        status: quickData.totalValueUSD > 0 ? 'ready' : 'no_data',
+        note: quickData.totalValueUSD === 0 ? 'No portfolio data. Use /sync/trigger to sync.' : undefined
       }, `Quick portfolio overview: $${quickData.totalValueUSD.toFixed(2)}`));
     } catch (error) {
       logger.error('Get quick portfolio error', { error: error instanceof Error ? error.message : String(error) });
@@ -116,13 +108,14 @@ export class PortfolioController {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
 
-      // Force high priority sync
-      await this.autoSyncService.triggerUserSync(userId, walletAddress, 'high');
+      // Note: Portfolio refresh is now handled by sync worker
+      // User should use /sync/trigger endpoint instead
 
       return reply.send(createSuccessResponse({
-        message: 'Portfolio refresh initiated. Check back in a few moments for updated data.',
-        status: 'refreshing'
-      }, 'Portfolio refresh initiated'));
+        message: 'Portfolio refresh has been moved to sync worker. Please use /api/v1/sync/trigger endpoint.',
+        redirect: '/api/v1/sync/trigger',
+        status: 'delegated'
+      }, 'Portfolio refresh delegated to sync worker'));
     } catch (error) {
       logger.error('Portfolio refresh error', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send(createErrorResponse('Failed to refresh portfolio'));
@@ -397,14 +390,13 @@ export class PortfolioController {
       // Add trade to database
       const savedTrade = await this.tradesService.addTrade(tradeData);
 
-      // Trigger portfolio sync in background for fresh data
-      setImmediate(() => {
-        this.autoSyncService.onUserTrade(userId, walletAddress);
-      });
+      // Note: Portfolio sync is now handled by sync worker
+      // Users can manually trigger sync via /sync/trigger endpoint after adding trades
 
       return reply.code(201).send(createSuccessResponse({
         trade: savedTrade,
-        portfolioSyncTriggered: true
+        portfolioSyncTriggered: false,
+        note: 'Trade added successfully. Use /sync/trigger to refresh portfolio if needed.'
       }, `Trade ${txHash} added successfully`));
 
     } catch (error) {
@@ -478,10 +470,17 @@ export class PortfolioController {
   // GET /portfolio/sync-status - Get sync status
   async getSyncStatus(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const stats = await this.autoSyncService.getSyncStats();
-      
-      return reply.send(createSuccessResponse({ syncStats: stats }, 
-        'Sync statistics retrieved successfully'));
+      const syncStatus = {
+        status: 'delegated_to_sync_worker',
+        message: 'Sync operations are handled by the dedicated sync worker service',
+        timestamp: new Date().toISOString()
+      };
+
+      return reply.send(createSuccessResponse({
+        syncStatus,
+        queueStats: { pending: 0, processing: 0, completed: 0 },
+        lastSync: null
+      }, 'Sync status retrieved (delegated to sync worker)'));
     } catch (error) {
       logger.error('Get sync status error', { error: error instanceof Error ? error.message : String(error) });
       return reply.code(500).send(createErrorResponse('Failed to get sync status'));

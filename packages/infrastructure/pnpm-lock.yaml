@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@moonx-farm/common':
+        specifier: ^1.0.6
+        version: 1.0.6
+      '@moonx-farm/configs':
         specifier: ^1.0.5
         version: 1.0.5
-      '@moonx-farm/configs':
-        specifier: ^1.0.1
-        version: 1.0.1
       ioredis:
         specifier: ^5.3.2
         version: 5.6.1
@@ -355,11 +355,11 @@ packages:
   '@jridgewell/trace-mapping@0.3.25':
     resolution: {integrity: sha512-vNk6aEwybGtawWmy/PzwnGDOjCkLWSD2wqvjGGAgOAwCGWySYXfYoxt00IJkTF+8Lb57DwOb3Aa0o9CApepiYQ==}
 
-  '@moonx-farm/common@1.0.5':
-    resolution: {integrity: sha512-ww6DO/lj/2mUVqpw+ajFmpNOsRp2mACYP+nCuL9T4ZC6fwigO3ch0y+cRvDmGfWuBUEe7rN2YudhNnaVu58aUw==}
+  '@moonx-farm/common@1.0.6':
+    resolution: {integrity: sha512-s1jXZ5tJKhrnOS6eL8lfXoApminGKUeA+aA2XOsCpm4M7Z8rmUGNVC0caLS45vlkPeNre+Xj65kW82RPueHIdg==}
 
-  '@moonx-farm/configs@1.0.1':
-    resolution: {integrity: sha512-mGtBTnGbgtytDtz23yLtkxRTlFOu02l/QzA+DUa1waPXpQt56w9Lte9y3DKuZoigfk4rpF3lUvO48ZBPdnhElw==}
+  '@moonx-farm/configs@1.0.5':
+    resolution: {integrity: sha512-kZxmRnsFeRQTSUwlUdIMbAc1DOxDrU9dF42UDoyVWiZJwyb2l3rJ7oo6r6AP5yu9GTXyns8eW3n+LNNVcP5N7g==}
 
   '@noble/curves@1.2.0':
     resolution: {integrity: sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw==}
@@ -2223,9 +2223,9 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.0
 
-  '@moonx-farm/common@1.0.5':
+  '@moonx-farm/common@1.0.6':
     dependencies:
-      '@moonx-farm/configs': 1.0.1
+      '@moonx-farm/configs': 1.0.5
       ethers: 6.14.4
       nanoid: 3.3.11
       winston: 3.17.0
@@ -2234,7 +2234,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@moonx-farm/configs@1.0.1':
+  '@moonx-farm/configs@1.0.5':
     dependencies:
       dotenv: 16.6.1
       zod: 3.25.67

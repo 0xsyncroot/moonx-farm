@@ -1,8 +1,8 @@
 # MoonXFarm DEX - Active Context
 
-**Ngày cập nhật**: 31/12/2024  
-**Phiên bản**: v1.9  
-**Trạng thái**: AI Agent Integration Complete - Lili Assistant with LangChain Streaming & Interactive Features  
+**Ngày cập nhật**: 06/01/2025  
+**Phiên bản**: v2.0  
+**Trạng thái**: Hybrid Sync Architecture Complete - Dual-Sync System với Core Service Auto-sync + Dedicated Sync Worker  
 
 ## 🎯 Current Work Focus
 
@@ -13,14 +13,46 @@
 - ✅ **Frontend**: Complete Next.js app với ZeroDev Account Abstraction + Wallet Management (100% complete)
 - ✅ **AI Agent**: Complete Lili assistant với streaming chat, screen walker, LangChain API integration (100% complete)
 - ✅ **Landing Page**: Professional marketing website với real team photos (100% complete)
-- ✅ **Core Service**: Order Management + Portfolio + P&L + Auto-sync (100% complete)
+- ✅ **Core Service**: Order Management + Portfolio + P&L + Auto-sync system (100% complete)
+- ✅ **Sync Worker**: Complete dedicated worker service với DatabaseService integration, SyncProcessor, cluster management (100% complete)
 - ✅ **Auth Service**: Production-ready authentication (100% complete)
 - ✅ **Aggregator Service**: Multi-tier quote aggregation (100% complete)
 - ✅ **Smart Contracts**: Diamond proxy với environment variables (100% complete)
 - ✅ **Session Keys**: ZeroDev integration với automated trading permissions (100% complete)
 - 📋 **Notify Service**: Real-time notifications (final phase)
+- ❌ **Wallet Registry**: Eliminated - Privy handles AA wallets directly
+- ❌ **Swap Orchestrator**: Eliminated - Frontend interacts với contracts directly
+- ❌ **API Gateway**: Eliminated - Direct service connections for better performance
 
 ## 📋 Recent Changes & Discoveries
+
+### **🏗️ ARCHITECTURE EVOLUTION: Hybrid Dual-Sync Implementation (January 2025)**
+
+#### **✅ Major Architectural Advancement**
+
+**Hybrid Sync Architecture Completed**:
+- ✅ **Core Service Auto-sync**: Integrated portfolio sync cho immediate user requests
+- ✅ **Sync Worker Service**: Complete dedicated worker service cho heavy-duty background operations
+- ✅ **DatabaseService Integration**: Full database connection management với initialize/disconnect methods
+- ✅ **SyncProcessor**: Complete Alchemy + Database integration với job processing
+- ✅ **SyncQueue**: Job queue management với cluster support
+- ✅ **Cluster Management**: Multi-worker architecture với graceful shutdown
+- ✅ **Unified Database Schema**: Migration 004 - unified portfolio schema với sync_operations, user_sync_status tables
+- ✅ **Dual Approach**: Best of both worlds - instant responses + heavy batch processing
+
+**Critical Cache Serialization Bug Fixes**:
+- ✅ **Fixed**: JSON serialization errors in `pnlService.ts` - Date objects được convert to ISO strings
+- ✅ **Fixed**: JSON serialization errors in `tradesService.ts` - proper safe number handling
+- ✅ **Added**: `safeNumber()` helper methods to validate all numeric values (NaN/Infinity protection)
+- ✅ **Added**: `createCleanTrade()` methods for safe trade serialization
+- ✅ **Enhanced**: `cacheService.ts` với automatic corrupted cache detection và cleanup
+- ✅ **Eliminated**: `"[object Object]"` serialization errors completely
+
+**Performance & Reliability Improvements**:
+- ✅ **Simplified**: Direct service connections without unnecessary middleware
+- ✅ **Optimized**: Reduced service complexity và improved maintainability
+- ✅ **Enhanced**: Better error handling và logging throughout the system
+- ✅ **Improved**: User experience với fully automatic sync (no manual intervention needed)
 
 ### **🤖 BREAKTHROUGH: AI Agent Integration Complete (31/12/2024)**
 

@@ -19,9 +19,13 @@ export class PnLService {
       let cached: PnLSummary | null = null;
       try {
         cached = await this.cacheService.get<PnLSummary>(cacheKey);
-        if (cached && this.isCacheValid(cached.lastCalculated, request.timeframe)) {
-          console.log(`✅ P&L cache hit for user ${userId}, timeframe ${request.timeframe}`);
-          return cached;
+        if (cached) {
+          // Normalize cached data to ensure Date objects are properly handled
+          const normalizedCached = this.normalizeCachedPnL(cached);
+          if (this.isCacheValid(normalizedCached.lastCalculated, request.timeframe)) {
+            console.log(`✅ P&L cache hit for user ${userId}, timeframe ${request.timeframe}`);
+            return normalizedCached;
+          }
         }
       } catch (cacheError) {
         console.warn(`⚠️ Cache error for key ${cacheKey}, proceeding with fresh calculation:`, cacheError);
@@ -335,9 +339,56 @@ export class PnLService {
     return { startDate, endDate };
   }
 
-  private isCacheValid(lastCalculated: Date, timeframe: string): boolean {
+  private normalizeCachedPnL(cached: any): PnLSummary {
+    try {
+      // Ensure lastCalculated is a proper Date object
+      if (cached.lastCalculated && typeof cached.lastCalculated === 'string') {
+        cached.lastCalculated = new Date(cached.lastCalculated);
+      }
+      
+      // Ensure numeric values are properly typed
+      cached.totalVolumeUSD = Number(cached.totalVolumeUSD) || 0;
+      cached.totalFeesUSD = Number(cached.totalFeesUSD) || 0;
+      cached.realizedPnlUSD = Number(cached.realizedPnlUSD) || 0;
+      cached.unrealizedPnlUSD = Number(cached.unrealizedPnlUSD) || 0;
+      cached.netPnlUSD = Number(cached.netPnlUSD) || 0;
+      cached.winRate = Number(cached.winRate) || 0;
+      cached.avgTradeSize = Number(cached.avgTradeSize) || 0;
+      cached.biggestWinUSD = Number(cached.biggestWinUSD) || 0;
+      cached.biggestLossUSD = Number(cached.biggestLossUSD) || 0;
+      cached.currentPortfolioValueUSD = Number(cached.currentPortfolioValueUSD) || 0;
+      cached.portfolioChangeUSD = Number(cached.portfolioChangeUSD) || 0;
+      cached.portfolioChangePercent = Number(cached.portfolioChangePercent) || 0;
+      cached.totalTrades = Number(cached.totalTrades) || 0;
+      
+      return cached as PnLSummary;
+    } catch (error) {
+      console.error('Error normalizing cached P&L data:', error);
+      throw error;
+    }
+  }
+
+  private isCacheValid(lastCalculated: Date | string, timeframe: string): boolean {
     const now = new Date();
-    const diffMinutes = (now.getTime() - lastCalculated.getTime()) / (1000 * 60);
+    
+    // Handle both Date object and string from cache
+    let calculatedDate: Date;
+    if (typeof lastCalculated === 'string') {
+      calculatedDate = new Date(lastCalculated);
+    } else if (lastCalculated instanceof Date) {
+      calculatedDate = lastCalculated;
+    } else {
+      console.warn('Invalid lastCalculated type:', typeof lastCalculated);
+      return false;
+    }
+    
+    // Validate the date
+    if (isNaN(calculatedDate.getTime())) {
+      console.warn('Invalid date in cache:', lastCalculated);
+      return false;
+    }
+    
+    const diffMinutes = (now.getTime() - calculatedDate.getTime()) / (1000 * 60);
     
     // Different cache validity based on timeframe
     switch (timeframe) {

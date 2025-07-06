@@ -15,8 +15,6 @@ export class AuthMiddleware {
   private authServiceUrl: string;
 
   constructor() {
-    const config = createCoreServiceConfig();
-    
     // Get service URLs using the utility function
     const serviceUrls = getServiceUrls('core-service');
     this.authServiceUrl = serviceUrls.authService;

@@ -1310,7 +1310,7 @@ src/
 │   ├── pnlService.ts
 │   ├── tradesService.ts
 │   ├── chainService.ts      # Chain management với cache
-│   └── autoSyncService.ts
+│   └── syncProxyService.ts           # Communicates with sync worker
 ├── models/
 │   └── chain.ts             # Chain database model
 ├── schemas/

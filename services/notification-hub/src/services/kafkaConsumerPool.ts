@@ -1,173 +1,183 @@
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
-import { logger } from '../utils/logger';
+import { 
+  KafkaManager, 
+  ConsumerOptions 
+} from '@moonx-farm/infrastructure';
+import { createLogger } from '@moonx-farm/common';
 import { NotificationProcessor } from './notificationProcessor';
+import { kafkaService } from './kafkaService';
 
-interface KafkaConfig {
-  brokers: string[];
-  groupId: string;
-  clientId: string;
-}
+const logger = createLogger('KafkaConsumerPool');
 
 interface TopicHandlers {
   [topic: string]: (message: any) => Promise<void>;
 }
 
 export class KafkaConsumerPool {
-  private kafka: Kafka;
-  private consumers: Map<string, Consumer> = new Map();
-  private config: KafkaConfig;
+  private kafka: KafkaManager;
   private notificationProcessor: NotificationProcessor;
   private isRunning: boolean = false;
   private topics: string[] = [];
+  private activeConsumers: Set<string> = new Set();
 
-  constructor(config: KafkaConfig, notificationProcessor: NotificationProcessor) {
-    this.config = config;
+  constructor(notificationProcessor: NotificationProcessor) {
     this.notificationProcessor = notificationProcessor;
     
-    this.kafka = new Kafka({
-      clientId: config.clientId,
-      brokers: config.brokers,
-      retry: {
-        initialRetryTime: 100,
-        retries: 5
-      }
-    });
+    // Use kafkaService singleton instead of creating own KafkaManager
+    this.kafka = kafkaService.getKafka();
   }
 
   async start(topicHandlers: TopicHandlers): Promise<void> {
     try {
+      // Ensure kafkaService is initialized
+      if (!kafkaService.isInitialized()) {
+        await kafkaService.initialize();
+      }
+      
       this.topics = Object.keys(topicHandlers);
       
-      // Create consumer for each topic
+      // Create consumer for each topic using infrastructure pattern
       for (const topic of this.topics) {
-        const consumer = this.kafka.consumer({ 
-          groupId: `${this.config.groupId}-${topic}`,
+        const handler = topicHandlers[topic];
+        
+        // Fix TypeScript error - ensure handler exists
+        if (!handler) {
+          logger.warn(`No handler found for topic: ${topic}`);
+          continue;
+        }
+
+        const consumerId = `notification-hub-${topic}`;
+        const consumerOptions: ConsumerOptions = {
+          groupId: `moonx-notification-hub-${topic}`,
           sessionTimeout: 30000,
-          heartbeatInterval: 3000
-        });
+          autoCommit: true,
+          enableDeadLetterQueue: true,
+          deadLetterQueueTopic: `${topic}-dlq`,
+          isolationLevel: 'read_committed'
+        };
 
-        await consumer.connect();
-        await consumer.subscribe({ topic, fromBeginning: false });
-
-        // Set up message handler
-        await consumer.run({
-          eachMessage: async (payload: EachMessagePayload) => {
-            await this.handleMessage(payload, topicHandlers[topic]);
+        // Use infrastructure subscribe method
+        await this.kafka.subscribe(
+          consumerId,
+          [topic],
+          consumerOptions,
+          async (topic: string, message: any, rawMessage: any) => {
+            await this.handleMessage(topic, message, rawMessage, handler);
           }
-        });
+        );
 
-        this.consumers.set(topic, consumer);
+        this.activeConsumers.add(consumerId);
         logger.info(`Kafka consumer started for topic: ${topic}`);
       }
 
       this.isRunning = true;
       logger.info('Kafka consumer pool started successfully');
     } catch (error) {
-      logger.error('Error starting Kafka consumer pool:', error);
+      logger.error(`Error starting Kafka consumer pool: ${error}`);
       throw error;
     }
   }
 
   private async handleMessage(
-    payload: EachMessagePayload,
+    topic: string,
+    message: any,
+    rawMessage: any,
     handler: (message: any) => Promise<void>
   ): Promise<void> {
+    const startTime = Date.now();
+    
     try {
-      const message = JSON.parse(payload.message.value?.toString() || '{}');
-      
-      // Add metadata
-      message.metadata = {
-        topic: payload.topic,
-        partition: payload.partition,
-        offset: payload.message.offset,
-        timestamp: payload.message.timestamp,
-        receivedAt: Date.now()
+      // Add metadata to message
+      const enrichedMessage = {
+        ...message,
+        metadata: {
+          topic,
+          partition: rawMessage.partition,
+          offset: rawMessage.offset,
+          timestamp: rawMessage.timestamp,
+          receivedAt: startTime,
+          key: rawMessage.key?.toString()
+        }
       };
 
-      // Process message
-      await handler(message);
+      // Process message with handler
+      await handler(enrichedMessage);
       
-      // Track metrics
+      // Track success metrics
+      const processingTime = Date.now() - startTime;
       await this.notificationProcessor.trackProcessedMessage(
-        payload.topic,
+        topic,
         'success',
-        Date.now() - Number(payload.message.timestamp)
+        processingTime
       );
 
-      logger.debug(`Message processed successfully from topic: ${payload.topic}`);
+      logger.debug(`Message processed successfully from topic: ${topic} (partition: ${rawMessage.partition}, offset: ${rawMessage.offset}, time: ${processingTime}ms)`);
     } catch (error) {
-      logger.error(`Error processing message from topic ${payload.topic}:`, error);
+      const processingTime = Date.now() - startTime;
       
-      // Track error
+      logger.error(`Error processing message from topic ${topic} (partition: ${rawMessage.partition}, offset: ${rawMessage.offset}, time: ${processingTime}ms): ${error}`);
+      
+      // Track error metrics
       await this.notificationProcessor.trackProcessedMessage(
-        payload.topic,
+        topic,
         'error',
-        Date.now() - Number(payload.message.timestamp)
+        processingTime
       );
 
-      // TODO: Send to dead letter queue
-      await this.sendToDeadLetterQueue(payload, error);
-    }
-  }
-
-  private async sendToDeadLetterQueue(
-    payload: EachMessagePayload,
-    error: any
-  ): Promise<void> {
-    try {
-      const producer = this.kafka.producer();
-      await producer.connect();
-
-      await producer.send({
-        topic: `${payload.topic}-dlq`,
-        messages: [{
-          key: payload.message.key,
-          value: JSON.stringify({
-            originalMessage: payload.message.value?.toString(),
-            error: error.message,
-            timestamp: Date.now(),
-            topic: payload.topic,
-            partition: payload.partition,
-            offset: payload.message.offset
-          })
-        }]
-      });
-
-      await producer.disconnect();
-      logger.info(`Message sent to dead letter queue: ${payload.topic}-dlq`);
-    } catch (dlqError) {
-      logger.error('Error sending message to dead letter queue:', dlqError);
+      // Infrastructure will handle Dead Letter Queue automatically
+      // if enableDeadLetterQueue is true in consumer options
+      throw error; // Re-throw to trigger DLQ
     }
   }
 
   async stop(): Promise<void> {
     try {
-      for (const [topic, consumer] of this.consumers) {
-        await consumer.disconnect();
-        logger.info(`Kafka consumer stopped for topic: ${topic}`);
-      }
-
-      this.consumers.clear();
+      // Infrastructure handles consumer cleanup automatically
+      // Don't disconnect kafkaService here as it's shared singleton
+      // Just clean up our state
+      this.activeConsumers.clear();
       this.isRunning = false;
       logger.info('Kafka consumer pool stopped');
     } catch (error) {
-      logger.error('Error stopping Kafka consumer pool:', error);
+      logger.error(`Error stopping Kafka consumer pool: ${error}`);
     }
   }
 
-  isHealthy(): boolean {
-    return this.isRunning && this.consumers.size === this.topics.length;
+  async isHealthy(): Promise<boolean> {
+    try {
+      return this.isRunning && await kafkaService.healthCheck();
+    } catch (error) {
+      logger.error(`Health check failed: ${error}`);
+      return false;
+    }
   }
 
   getConsumerStats(): any {
+    const metrics = kafkaService.getMetrics();
+    
     return {
-      totalConsumers: this.consumers.size,
+      totalConsumers: this.activeConsumers.size,
       topics: this.topics,
       isRunning: this.isRunning,
-      consumers: Array.from(this.consumers.entries()).map(([topic, consumer]) => ({
-        topic,
-        connected: true // TODO: Check actual connection status
-      }))
+      consumers: Array.from(this.activeConsumers).map(consumerId => ({
+        consumerId,
+        connected: this.isRunning
+      })),
+      metrics: {
+        messagesConsumed: metrics.messagesConsumed,
+        consumerErrors: metrics.consumerErrors,
+        averageConsumeTime: metrics.averageConsumeTime,
+        topicStats: metrics.topicStats
+      }
     };
+  }
+
+  // Additional method to get detailed metrics
+  getMetrics() {
+    return kafkaService.getMetrics();
+  }
+
+  // Reset metrics for monitoring
+  resetMetrics(): void {
+    kafkaService.resetMetrics();
   }
 } 

@@ -65,21 +65,37 @@ export class CacheService {
         return null;
       }
       
-      // Handle JSON parsing safely
+      // Handle both string and object data from Redis
       try {
-        // Check if data contains invalid object representations
-        if (typeof data === 'string' && (
-          data === '[object Object]' || 
-          data.includes('[object Object]') || 
-          data.startsWith('[object Object]') ||
-          data.match(/^\[object\s+Object\]/i)
-        )) {
-          console.warn(`Found invalid cached data (stringified object) for key ${key}, clearing...`);
-          await this.del(key);
-          return null;
+        // If data is already an object, return it directly
+        if (typeof data === 'object' && data !== null) {
+          console.log(`✅ Cache hit for key ${key} (object data)`);
+          return data as T;
         }
         
-        return JSON.parse(data) as T;
+        // If data is a string, check for invalid formats first
+        if (typeof data === 'string') {
+          // Check if data contains invalid object representations
+          if (data === '[object Object]' || 
+              data.includes('[object Object]') || 
+              data.startsWith('[object Object]') ||
+              data.match(/^\[object\s+Object\]/i)) {
+            console.warn(`Found invalid cached data (stringified object) for key ${key}, clearing...`);
+            await this.del(key);
+            return null;
+          }
+          
+          // Try to parse as JSON
+          const parsed = JSON.parse(data);
+          console.log(`✅ Cache hit for key ${key} (JSON string data)`);
+          return parsed as T;
+        }
+        
+        // Handle unexpected data types
+        console.warn(`Unexpected data type for key ${key}: ${typeof data}, clearing...`);
+        await this.del(key);
+        return null;
+        
       } catch (parseError) {
         const dataPreview = typeof data === 'string' ? data.substring(0, 100) : String(data).substring(0, 100);
         console.warn(`Failed to parse cached data for key ${key}: ${parseError instanceof Error ? parseError.message : String(parseError)}, data preview: ${dataPreview}...`);
@@ -103,7 +119,34 @@ export class CacheService {
     }
 
     try {
-      const serialized = JSON.stringify(value);
+      // Validate value before serialization
+      if (value === undefined || value === null) {
+        console.warn(`Cannot cache undefined/null value for key ${key}`);
+        return;
+      }
+
+      // Safely serialize the value
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(value);
+        
+        // Additional validation to prevent [object Object] issue
+        if (serialized === undefined || serialized === 'undefined') {
+          console.warn(`JSON.stringify returned undefined for key ${key}`);
+          return;
+        }
+        
+        // Check if we accidentally got [object Object]
+        if (serialized.includes('[object Object]')) {
+          console.warn(`Detected [object Object] in serialized data for key ${key}, value:`, value);
+          return;
+        }
+      } catch (serializeError) {
+        console.error(`Failed to serialize value for key ${key}:`, serializeError);
+        console.error('Value that failed serialization:', value);
+        return;
+      }
+
       const expiration = ttl || this.defaultTTL;
       
       // Use Redis SET with EX option for TTL
@@ -113,6 +156,9 @@ export class CacheService {
       if (expiration > 0) {
         await this.redis.expire(key, expiration);
       }
+      
+      // Log successful cache set for debugging
+      console.log(`✅ Successfully cached data for key ${key} with TTL ${expiration}s`);
     } catch (error) {
       console.error(`Cache set error for key ${key}:`, error);
       // Don't throw - cache failures shouldn't break the application

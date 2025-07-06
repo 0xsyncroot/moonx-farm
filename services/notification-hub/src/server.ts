@@ -2,7 +2,6 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
-import { createClient } from 'redis';
 import { KafkaConsumerPool } from './services/kafkaConsumerPool';
 import { NotificationProcessor } from './services/notificationProcessor';
 import { DeliveryService } from './services/deliveryService';
@@ -12,12 +11,16 @@ import { SchedulerService } from './services/schedulerService';
 import { AnalyticsService } from './services/analyticsService';
 import { RedisManager } from './services/redisManager';
 import { DatabaseService } from './services/databaseService';
+import { PrometheusService } from './services/prometheusService';
+import { createLogger } from '@moonx-farm/common';
+import { redisService } from './services/redisService';
+import { kafkaService } from './services/kafkaService';
 import { PriorityWorker } from './workers/priorityWorker';
 import { BatchWorker } from './workers/batchWorker';
 import { RetryWorker } from './workers/retryWorker';
-import { logger } from './utils/logger';
-import { PrometheusService } from './services/prometheusService';
-import { createNotificationHubConfig } from '@moonx-farm/configs';
+import { AuthService } from './middleware/auth';
+
+const logger = createLogger('NotificationHub');
 
 interface GatewayMessage {
   type: 'send_notification' | 'broadcast' | 'disconnect_user' | 'update_user_preferences';
@@ -36,23 +39,17 @@ interface HubEvent {
 
 class NotificationHub {
   private fastify: any;
-  private redisClient: any;
-  private gatewayRedisClient: any;
-  private kafkaConsumerPool: KafkaConsumerPool;
-  private notificationProcessor: NotificationProcessor;
-  private deliveryService: DeliveryService;
-  private emailService: EmailService;
-  private pushService: PushNotificationService;
-  private schedulerService: SchedulerService;
-  private analyticsService: AnalyticsService;
-  private redisManager: RedisManager;
-  private databaseService: DatabaseService;
-  private prometheusService: PrometheusService;
-  
-  // Workers
-  private priorityWorker: PriorityWorker;
-  private batchWorker: BatchWorker;
-  private retryWorker: RetryWorker;
+  private kafkaConsumerPool!: KafkaConsumerPool;
+  private notificationProcessor!: NotificationProcessor;
+  private deliveryService!: DeliveryService;
+  private emailService!: EmailService;
+  private pushService!: PushNotificationService;
+  private schedulerService!: SchedulerService;
+  private analyticsService!: AnalyticsService;
+  private redisManager!: RedisManager;
+  private databaseService!: DatabaseService;
+  private prometheusService!: PrometheusService;
+  private authService!: AuthService;
 
   constructor() {
     this.initializeHub();
@@ -60,13 +57,12 @@ class NotificationHub {
 
   private async initializeHub() {
     try {
-      // Load configuration
-      const config = createNotificationHubConfig();
+      logger.info('Initializing Notification Hub...');
       
       // Initialize Fastify
       this.fastify = Fastify({
         logger: {
-          level: config.logging.level,
+          level: process.env['LOG_LEVEL'] || 'info',
           transport: {
             target: 'pino-pretty',
             options: {
@@ -81,43 +77,31 @@ class NotificationHub {
       // Register plugins
       await this.registerPlugins();
 
-      // Initialize Redis connections
-      await this.initializeRedis();
-
-      // Initialize database
-      await this.initializeDatabase();
-
-      // Initialize core services
+      // Initialize services
       await this.initializeServices();
-
-      // Initialize workers
-      await this.initializeWorkers();
 
       // Setup gateway communication
       await this.setupGatewayCommunication();
 
       // Setup routes
-      this.setupRoutes();
+      await this.setupRoutes();
 
       // Start Kafka consumers
       await this.startKafkaConsumers();
-
-      // Start workers
-      await this.startWorkers();
 
       // Start server
       await this.startServer();
 
       logger.info('Notification Hub initialized successfully');
     } catch (error) {
-      logger.error('Failed to initialize Notification Hub:', error);
+      logger.error(`Failed to initialize Notification Hub: ${error}`);
       process.exit(1);
     }
   }
 
   private async registerPlugins() {
     await this.fastify.register(cors, {
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['*'],
+      origin: process.env['ALLOWED_ORIGINS']?.split(',') || ['*'],
       credentials: true
     });
 
@@ -126,136 +110,165 @@ class NotificationHub {
     logger.info('Fastify plugins registered');
   }
 
-  private async initializeRedis() {
-    // Main Redis client for caching and state
-    this.redisClient = createClient({
-      url: process.env.REDIS_URL || 'redis://localhost:6379'
-    });
-
-    // Dedicated Redis client for gateway communication
-    this.gatewayRedisClient = createClient({
-      url: process.env.REDIS_URL || 'redis://localhost:6379'
-    });
-
-    await this.redisClient.connect();
-    await this.gatewayRedisClient.connect();
-
-    logger.info('Redis clients connected');
-  }
-
-  private async initializeDatabase() {
-    this.databaseService = new DatabaseService({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432'),
-      database: process.env.DB_NAME || 'moonx_notifications',
-      username: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'password'
-    });
-
-    await this.databaseService.connect();
-    logger.info('Database connected');
-  }
-
   private async initializeServices() {
-    // Core infrastructure services
-    this.redisManager = new RedisManager(this.redisClient);
+    // Initialize infrastructure services
+    await redisService.initialize();
+    await kafkaService.initialize();
+    
+    // Auto-create Kafka topics if they don't exist
+    await this.ensureKafkaTopicsExist();
+    
+    logger.info('Infrastructure services initialized');
+
+    // Initialize core services
+    this.databaseService = new DatabaseService();
+    this.redisManager = new RedisManager();
     this.prometheusService = new PrometheusService();
     
-    // External delivery services
-    this.emailService = new EmailService({
-      smtp: {
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-          user: process.env.SMTP_USER || '',
-          pass: process.env.SMTP_PASSWORD || ''
-        }
-      },
-      from: process.env.EMAIL_FROM || 'MoonXFarm <noreply@moonx.farm>'
-    });
-
-    this.pushService = new PushNotificationService({
-      firebase: {
-        projectId: process.env.FIREBASE_PROJECT_ID || '',
-        privateKey: process.env.FIREBASE_PRIVATE_KEY || '',
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL || ''
-      }
-    });
-
-    // Core business logic services
+    // Initialize notification processor
     this.notificationProcessor = new NotificationProcessor(
       this.redisManager,
       this.databaseService,
       this.prometheusService
     );
 
+    // Initialize Kafka consumer pool
+    this.kafkaConsumerPool = new KafkaConsumerPool(this.notificationProcessor);
+
+    // Initialize delivery services (to be implemented)
+    this.emailService = new EmailService({
+      sendgrid: {
+        apiKey: process.env['SENDGRID_API_KEY'] || '',
+        fromEmail: process.env['SENDGRID_FROM_EMAIL'] || 'noreply@moonx.farm',
+        fromName: process.env['SENDGRID_FROM_NAME'] || 'MoonX Farm'
+      },
+      smtp: {
+        host: process.env['SMTP_HOST'] || 'smtp.gmail.com',
+        port: parseInt(process.env['SMTP_PORT'] || '587'),
+        secure: process.env['SMTP_SECURE'] === 'true',
+        auth: {
+          user: process.env['SMTP_USER'] || '',
+          pass: process.env['SMTP_PASSWORD'] || ''
+        }
+      },
+      from: process.env['EMAIL_FROM'] || 'MoonXFarm <noreply@moonx.farm>'
+    });
+    
+    this.pushService = new PushNotificationService({
+      firebase: {
+        projectId: process.env['FIREBASE_PROJECT_ID'] || '',
+        privateKey: process.env['FIREBASE_PRIVATE_KEY'] || '',
+        clientEmail: process.env['FIREBASE_CLIENT_EMAIL'] || ''
+      }
+    });
+    
     this.deliveryService = new DeliveryService(
-      this.gatewayRedisClient,
+      redisService.getRedis(),
       this.emailService,
       this.pushService,
       this.redisManager,
       this.prometheusService
     );
-
-    this.schedulerService = new SchedulerService(
-      this.redisManager,
+    
+    // Initialize workers for SchedulerService
+    const priorityWorker = new PriorityWorker(
+      this.deliveryService,
+      this.notificationProcessor
+    );
+    
+    const batchWorker = new BatchWorker(
+      this.deliveryService,
       this.databaseService
     );
-
-    this.analyticsService = new AnalyticsService(
+    
+    const retryWorker = new RetryWorker(
+      this.deliveryService,
       this.databaseService,
       this.redisManager
     );
-
-    // Kafka consumer pool
-    this.kafkaConsumerPool = new KafkaConsumerPool(
-      {
-        brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
-        groupId: 'notification-hub-group',
-        clientId: 'notification-hub'
-      },
-      this.notificationProcessor
+    
+    // Now initialize SchedulerService with proper parameters
+    this.schedulerService = new SchedulerService(
+      this.databaseService,
+      priorityWorker,
+      batchWorker,
+      retryWorker
     );
+    
+    // Note: SchedulerService needs workers - will be initialized after workers are created
+    this.analyticsService = new AnalyticsService(this.databaseService, this.redisManager);
+
+    // Initialize AuthService
+    const authServiceUrl = process.env['AUTH_SERVICE_URL'] || 'http://localhost:3001';
+    this.authService = new AuthService(authServiceUrl);
 
     logger.info('Core services initialized');
   }
 
-  private async initializeWorkers() {
-    this.priorityWorker = new PriorityWorker(
-      this.redisManager,
-      this.deliveryService,
-      this.prometheusService
-    );
-
-    this.batchWorker = new BatchWorker(
-      this.redisManager,
-      this.deliveryService,
-      this.emailService,
-      this.pushService
-    );
-
-    this.retryWorker = new RetryWorker(
-      this.redisManager,
-      this.deliveryService,
-      this.databaseService
-    );
-
-    logger.info('Workers initialized');
+  private async setupGatewayCommunication() {
+    try {
+      const redis = redisService.getRedis();
+      
+      // Subscribe to gateway events
+      await redis.command('SUBSCRIBE', 'hub:events');
+      
+      // Set up message handler for gateway events
+      await redis.command('CONFIG', 'SET', 'notify-keyspace-events', 'Ex');
+      
+      logger.info('WebSocket Gateway communication established');
+      
+      // Listen for WebSocket Gateway events
+      this.listenToGatewayEvents();
+      
+    } catch (error) {
+      logger.error(`Failed to setup gateway communication: ${error}`);
+    }
   }
 
-  private async setupGatewayCommunication() {
-    // Subscribe to events from WebSocket Gateway
-    await this.gatewayRedisClient.subscribe('hub:events', (message: string) => {
-      try {
-        const event: HubEvent = JSON.parse(message);
-        this.handleGatewayEvent(event);
-      } catch (error) {
-        logger.error('Error processing gateway event:', error);
-      }
-    });
+  private async listenToGatewayEvents() {
+    try {
+      // For now, we'll poll for gateway events or use a different approach
+      // The actual Redis pub/sub integration will be implemented when 
+      // infrastructure package supports event listeners
+      
+      logger.info('Gateway event listening setup completed (polling mode)');
+      
+      // Start periodic check for gateway events
+      this.startGatewayEventPolling();
+      
+    } catch (error) {
+      logger.error(`Error setting up gateway event listener: ${error}`);
+    }
+  }
 
-    logger.info('Gateway communication established');
+  private startGatewayEventPolling() {
+    // Poll for gateway events every 5 seconds
+    setInterval(async () => {
+      try {
+        // Check for new gateway events in Redis
+        // This will be implemented once we have proper infrastructure support
+        await this.checkForGatewayEvents();
+      } catch (error) {
+        logger.error(`Error polling gateway events: ${error}`);
+      }
+    }, 5000);
+  }
+
+  private async checkForGatewayEvents() {
+    try {
+      const redis = redisService.getRedis();
+      
+      // Check for events in a queue or list
+      const events = await redis.command('LPOP', 'hub:events:queue');
+      
+      if (events) {
+        const event: HubEvent = JSON.parse(events as string);
+        await this.handleGatewayEvent(event);
+      }
+    } catch (error) {
+      // Silently ignore errors in polling to avoid spam
+      // logger.debug(`Error checking gateway events: ${error}`);
+    }
   }
 
   private async handleGatewayEvent(event: HubEvent) {
@@ -273,9 +286,9 @@ class NotificationHub {
         break;
 
       case 'message_ack':
-        if (event.metadata?.messageId) {
+        if (event.metadata?.['messageId']) {
           await this.analyticsService.trackDelivery(
-            event.metadata.messageId,
+            event.metadata['messageId'],
             'websocket',
             'acknowledged'
           );
@@ -293,158 +306,123 @@ class NotificationHub {
 
   private async sendToGateway(message: GatewayMessage) {
     try {
-      await this.gatewayRedisClient.publish('gateway:commands', JSON.stringify(message));
+      const redis = redisService.getRedis();
+      await redis.command('PUBLISH', 'gateway:commands', JSON.stringify(message));
       this.prometheusService.incrementGatewayMessages();
     } catch (error) {
-      logger.error('Error sending message to gateway:', error);
+      logger.error(`Error sending message to gateway: ${error}`);
     }
   }
 
   private async startKafkaConsumers() {
     // Define topic handlers
     const topicHandlers = {
-      'swap-events': this.handleSwapEvent.bind(this),
-      'order-events': this.handleOrderEvent.bind(this),
-      'price-updates': this.handlePriceUpdate.bind(this),
-      'portfolio-updates': this.handlePortfolioUpdate.bind(this),
-      'system-alerts': this.handleSystemAlert.bind(this),
-      'chart-updates': this.handleChartUpdate.bind(this),
-      'liquidity-updates': this.handleLiquidityUpdate.bind(this)
+      'price.alerts': this.handlePriceAlert.bind(this),
+      'volume.alerts': this.handleVolumeAlert.bind(this),
+      'whale.alerts': this.handleWhaleAlert.bind(this),
+      'wallet.activity': this.handleWalletActivity.bind(this),
+      'system.alerts': this.handleSystemAlert.bind(this),
+      'user.events': this.handleUserEvent.bind(this)
     };
 
     await this.kafkaConsumerPool.start(topicHandlers);
     logger.info('Kafka consumers started');
   }
 
-  private async handleSwapEvent(message: any) {
-    const { type, userId, data } = message;
+  private async handlePriceAlert(message: any) {
+    const { userId, symbol, price, targetPrice, direction } = message;
     
-    if (type === 'swap_completed') {
-      const notification = await this.notificationProcessor.createNotification({
-        userId,
-        type: 'swap_completed',
-        title: 'Swap Completed',
-        body: `Your swap of ${data.fromToken} to ${data.toToken} has completed`,
-        priority: 'high',
-        channels: ['websocket', 'push'],
-        data: {
-          txHash: data.txHash,
-          fromToken: data.fromToken,
-          toToken: data.toToken,
-          amount: data.amount
-        }
-      });
-
-      await this.deliveryService.deliverNotification(notification);
-    }
-  }
-
-  private async handleOrderEvent(message: any) {
-    const { type, userId, data } = message;
-    
-    if (type === 'order_filled') {
-      const notification = await this.notificationProcessor.createNotification({
-        userId,
-        type: 'order_filled',
-        title: 'Order Filled',
-        body: `Your ${data.orderType} order has been executed`,
-        priority: 'high',
-        channels: ['websocket', 'push', 'email'],
-        data: {
-          orderId: data.orderId,
-          orderType: data.orderType,
-          amount: data.amount,
-          price: data.price
-        }
-      });
-
-      await this.deliveryService.deliverNotification(notification);
-    }
-  }
-
-  private async handlePriceUpdate(message: any) {
-    const { symbol, price, timestamp } = message;
-    
-    // Check for price alerts
-    const alerts = await this.databaseService.getPriceAlerts(symbol, price);
-    
-    for (const alert of alerts) {
-      const notification = await this.notificationProcessor.createNotification({
-        userId: alert.userId,
-        type: 'price_alert',
-        title: 'Price Alert',
-        body: `${symbol} has reached your target price of $${alert.targetPrice}`,
-        priority: 'medium',
-        channels: ['websocket', 'push'],
-        data: {
-          symbol,
-          currentPrice: price,
-          targetPrice: alert.targetPrice,
-          direction: alert.direction
-        }
-      });
-
-      await this.deliveryService.deliverNotification(notification);
-    }
-
-    // Send real-time price updates to chart subscribers
-    await this.sendToGateway({
-      type: 'send_notification',
-      targetConnections: await this.redisManager.getRoomConnections(`chart:${symbol}`),
-      message: {
-        type: 'price_update',
+    const notification = await this.notificationProcessor.createNotification({
+      userId,
+      type: 'price_alert',
+      title: 'Price Alert',
+      body: `${symbol} has reached your target price of $${targetPrice}`,
+      priority: 'high',
+      channels: ['websocket', 'push'],
+      data: {
         symbol,
-        price,
-        timestamp
+        currentPrice: price,
+        targetPrice,
+        direction
       }
     });
+
+    await this.deliveryService.deliverNotification(notification);
   }
 
-  private async handlePortfolioUpdate(message: any) {
-    const { userId, totalValue, pnl, pnlPercentage } = message;
+  private async handleVolumeAlert(message: any) {
+    const { userId, symbol, volume, threshold } = message;
     
-    // Send real-time portfolio update
-    const userConnections = await this.redisManager.getUserConnections(userId);
-    
-    await this.sendToGateway({
-      type: 'send_notification',
-      targetConnections: userConnections,
-      message: {
-        type: 'portfolio_update',
-        userId,
-        totalValue,
-        pnl,
-        pnlPercentage,
-        timestamp: Date.now()
+    const notification = await this.notificationProcessor.createNotification({
+      userId,
+      type: 'volume_alert',
+      title: 'Volume Alert',
+      body: `${symbol} volume has spiked to ${volume} (threshold: ${threshold})`,
+      priority: 'medium',
+      channels: ['websocket', 'push'],
+      data: {
+        symbol,
+        volume,
+        threshold
       }
     });
+
+    await this.deliveryService.deliverNotification(notification);
+  }
+
+  private async handleWhaleAlert(message: any) {
+    const { userId, symbol, amount, txHash } = message;
+    
+    const notification = await this.notificationProcessor.createNotification({
+      userId,
+      type: 'whale_alert',
+      title: 'Whale Alert',
+      body: `Large transaction detected: ${amount} ${symbol}`,
+      priority: 'medium',
+      channels: ['websocket', 'push'],
+      data: {
+        symbol,
+        amount,
+        txHash
+      }
+    });
+
+    await this.deliveryService.deliverNotification(notification);
+  }
+
+  private async handleWalletActivity(message: any) {
+    const { userId, walletAddress, activity } = message;
+    
+    const notification = await this.notificationProcessor.createNotification({
+      userId,
+      type: 'wallet_activity',
+      title: 'Wallet Activity',
+      body: `Activity detected on wallet ${walletAddress}`,
+      priority: 'low',
+      channels: ['websocket'],
+      data: {
+        walletAddress,
+        activity
+      }
+    });
+
+    await this.deliveryService.deliverNotification(notification);
   }
 
   private async handleSystemAlert(message: any) {
-    const { type, title, body, filters } = message;
+    const { title, body, priority = 'medium' } = message;
     
-    // Broadcast system message
-    await this.sendToGateway({
-      type: 'broadcast',
-      message: {
-        type: 'system_message',
-        title,
-        body,
-        timestamp: Date.now()
-      }
-    });
-
-    // Also send as persistent notification
-    const users = await this.databaseService.getUsersByFilters(filters);
+    // Get all active users
+    const users = await this.databaseService.getUsersByFilters({ active: true });
     
     for (const user of users) {
       const notification = await this.notificationProcessor.createNotification({
         userId: user.id,
-        type: 'system_maintenance',
+        type: 'system_alert',
         title,
         body,
-        priority: 'medium',
-        channels: ['websocket', 'email'],
+        priority,
+        channels: ['websocket', 'push'],
         data: { systemAlert: true }
       });
 
@@ -452,144 +430,164 @@ class NotificationHub {
     }
   }
 
-  private async handleChartUpdate(message: any) {
-    const { symbol, data } = message;
+  private async handleUserEvent(message: any) {
+    const { userId, eventType, data } = message;
     
-    // Send to chart subscribers
-    await this.sendToGateway({
-      type: 'send_notification',
-      targetConnections: await this.redisManager.getRoomConnections(`chart:${symbol}`),
-      message: {
-        type: 'chart_update',
-        symbol,
-        ...data
-      }
+    const notification = await this.notificationProcessor.createNotification({
+      userId,
+      type: eventType,
+      title: data.title || 'User Event',
+      body: data.body || 'New user event',
+      priority: data.priority || 'low',
+      channels: ['websocket'],
+      data
     });
+
+    await this.deliveryService.deliverNotification(notification);
   }
 
-  private async handleLiquidityUpdate(message: any) {
-    const { pool, liquidity, timestamp } = message;
-    
-    // Send to liquidity pool subscribers
-    await this.sendToGateway({
-      type: 'send_notification',
-      targetConnections: await this.redisManager.getRoomConnections(`liquidity:${pool}`),
-      message: {
-        type: 'liquidity_update',
-        pool,
-        liquidity,
-        timestamp
-      }
-    });
-  }
-
-  private async startWorkers() {
-    // Start priority worker for high-priority notifications
-    this.priorityWorker.start();
-    
-    // Start batch worker for bulk operations
-    this.batchWorker.start();
-    
-    // Start retry worker for failed deliveries
-    this.retryWorker.start();
-    
-    // Start scheduler service for delayed notifications
-    this.schedulerService.start();
-
-    logger.info('All workers started');
-  }
-
-  private setupRoutes() {
-    // Health check
-    this.fastify.get('/health', async (request: any, reply: any) => {
-      const health = {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        services: {
-          redis: this.redisClient.isReady,
-          database: await this.databaseService.isHealthy(),
-          kafka: this.kafkaConsumerPool.isHealthy(),
-          gateway: true // TODO: Check gateway connectivity
-        },
-        metrics: {
-          processedMessages: await this.prometheusService.getProcessedMessages(),
-          deliveredNotifications: await this.prometheusService.getDeliveredNotifications(),
-          failedDeliveries: await this.prometheusService.getFailedDeliveries(),
-          averageProcessingTime: await this.prometheusService.getAverageProcessingTime()
-        },
-        workers: {
-          priorityWorker: this.priorityWorker.isRunning(),
-          batchWorker: this.batchWorker.isRunning(),
-          retryWorker: this.retryWorker.isRunning(),
-          scheduler: this.schedulerService.isRunning()
-        }
-      };
-
-      reply.send(health);
-    });
-
-    // Metrics endpoint
-    this.fastify.get('/metrics', async (request: any, reply: any) => {
-      const metrics = await this.prometheusService.getMetrics();
-      reply.type('text/plain').send(metrics);
-    });
-
-    // Analytics endpoint
-    this.fastify.get('/analytics', async (request: any, reply: any) => {
-      const analytics = await this.analyticsService.getAnalytics(
-        request.query.period || '24h'
-      );
-      reply.send(analytics);
-    });
-
-    // Manual notification endpoint (for testing/admin)
-    this.fastify.post('/notifications/send', async (request: any, reply: any) => {
-      const notification = await this.notificationProcessor.createNotification(request.body);
-      await this.deliveryService.deliverNotification(notification);
+  private async setupRoutes() {
+    try {
+      // Import router registration function
+      const { registerRoutes } = await import('./routes');
       
-      reply.send({ 
-        success: true, 
-        notificationId: notification.id 
+      // Register all routes with services
+      await registerRoutes(this.fastify, {
+        redisService,
+        kafkaService,
+        databaseService: this.databaseService,
+        kafkaConsumerPool: this.kafkaConsumerPool,
+        prometheusService: this.prometheusService,
+        analyticsService: this.analyticsService,
+        schedulerService: this.schedulerService,
+        notificationProcessor: this.notificationProcessor,
+        redisManager: this.redisManager,
+        authService: this.authService
       });
-    });
 
-    logger.info('Routes registered');
+      logger.info('All API routes registered successfully');
+    } catch (error) {
+      logger.error(`Error setting up routes: ${error}`);
+      throw error;
+    }
   }
 
   private async startServer() {
-    const port = parseInt(process.env.PORT || '3008');
-    const host = process.env.HOST || '0.0.0.0';
+    const port = parseInt(process.env['PORT'] || '3008');
+    const host = process.env['HOST'] || '0.0.0.0';
 
     await this.fastify.listen({ port, host });
     logger.info(`Notification Hub listening on ${host}:${port}`);
+  }
+
+  private async ensureKafkaTopicsExist() {
+    try {
+      const kafka = kafkaService.getKafka();
+      
+      const requiredTopics = [
+        {
+          topic: 'price.alerts',
+          numPartitions: 3,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'retention.ms', value: '604800000' }, // 7 days
+            { name: 'cleanup.policy', value: 'delete' },
+          ],
+        },
+        {
+          topic: 'volume.alerts',
+          numPartitions: 3,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'retention.ms', value: '604800000' }, // 7 days
+            { name: 'cleanup.policy', value: 'delete' },
+          ],
+        },
+        {
+          topic: 'whale.alerts',
+          numPartitions: 3,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'retention.ms', value: '604800000' }, // 7 days
+            { name: 'cleanup.policy', value: 'delete' },
+          ],
+        },
+        {
+          topic: 'wallet.activity',
+          numPartitions: 3,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'retention.ms', value: '604800000' }, // 7 days
+            { name: 'cleanup.policy', value: 'delete' },
+          ],
+        },
+        {
+          topic: 'system.alerts',
+          numPartitions: 3,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'retention.ms', value: '2592000000' }, // 30 days
+            { name: 'cleanup.policy', value: 'delete' },
+          ],
+        },
+        {
+          topic: 'user.events',
+          numPartitions: 3,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'retention.ms', value: '604800000' }, // 7 days
+            { name: 'cleanup.policy', value: 'delete' },
+          ],
+        },
+      ];
+
+      // Check existing topics
+      const existingTopics = await kafka.listTopics();
+      logger.info(`Existing Kafka topics: ${existingTopics.join(', ')}`);
+
+      // Filter out topics that already exist
+      const topicsToCreate = requiredTopics.filter(
+        topic => !existingTopics.includes(topic.topic)
+      );
+
+      if (topicsToCreate.length === 0) {
+        logger.info('All required Kafka topics already exist');
+        return;
+      }
+
+      logger.info(`Creating ${topicsToCreate.length} Kafka topics...`);
+      
+      // Create topics
+      await kafka.createTopics(topicsToCreate);
+      
+      logger.info('Kafka topics created successfully:');
+      topicsToCreate.forEach(topic => {
+        logger.info(`  - ${topic.topic} (${topic.numPartitions} partitions, ${topic.replicationFactor} replicas)`);
+      });
+
+    } catch (error) {
+      logger.warn(`Could not create Kafka topics: ${error}`);
+      logger.warn('Topics may need to be created manually or Kafka may not be available');
+    }
   }
 
   public async shutdown() {
     logger.info('Shutting down Notification Hub...');
 
     try {
-      // Stop workers
-      await this.priorityWorker.stop();
-      await this.batchWorker.stop();
-      await this.retryWorker.stop();
-      await this.schedulerService.stop();
-
       // Stop Kafka consumers
       await this.kafkaConsumerPool.stop();
 
-      // Close Redis connections
-      await this.redisClient.quit();
-      await this.gatewayRedisClient.quit();
-
-      // Close database connection
-      await this.databaseService.disconnect();
+      // Shutdown infrastructure services
+      await kafkaService.shutdown();
+      await redisService.shutdown();
 
       // Close HTTP server
       await this.fastify.close();
 
       logger.info('Notification Hub shut down successfully');
     } catch (error) {
-      logger.error('Error during shutdown:', error);
+      logger.error(`Error during shutdown: ${error}`);
     }
   }
 }

@@ -1,9 +1,11 @@
-import { createClient } from 'redis';
 import { EmailService } from './emailService';
 import { PushNotificationService } from './pushNotificationService';
+import { TelegramService } from './telegramService';
 import { RedisManager } from './redisManager';
 import { PrometheusService } from './prometheusService';
-import { logger } from '../utils/logger';
+import { createLogger } from '@moonx-farm/common';
+
+const logger = createLogger('DeliveryService');
 
 interface ProcessedNotification {
   id: string;
@@ -26,7 +28,7 @@ interface ProcessedNotification {
 interface DeliveryResult {
   channel: string;
   success: boolean;
-  error?: string;
+  error?: string | undefined;
   deliveryTime: number;
   metadata?: any;
 }
@@ -35,6 +37,7 @@ export class DeliveryService {
   private gatewayRedis: any;
   private emailService: EmailService;
   private pushService: PushNotificationService;
+  private telegramService: TelegramService;
   private redisManager: RedisManager;
   private prometheusService: PrometheusService;
 
@@ -43,13 +46,25 @@ export class DeliveryService {
     emailService: EmailService,
     pushService: PushNotificationService,
     redisManager: RedisManager,
-    prometheusService: PrometheusService
+    prometheusService: PrometheusService,
+    telegramService?: TelegramService
   ) {
     this.gatewayRedis = gatewayRedis;
     this.emailService = emailService;
     this.pushService = pushService;
     this.redisManager = redisManager;
     this.prometheusService = prometheusService;
+    const adminChats = process.env['TELEGRAM_ADMIN_CHATS']?.split(',');
+    const blockedChats = process.env['TELEGRAM_BLOCKED_CHATS']?.split(',');
+    const webhookUrl = process.env['TELEGRAM_WEBHOOK_URL'];
+    
+    this.telegramService = telegramService || new TelegramService({
+      botToken: process.env['TELEGRAM_BOT_TOKEN'] || '',
+      rateLimitPerSecond: parseInt(process.env['TELEGRAM_RATE_LIMIT'] || '30'),
+      ...(webhookUrl && { webhookUrl }),
+      ...(adminChats && { adminChats }),
+      ...(blockedChats && { blockedChats })
+    });
   }
 
   async deliverNotification(notification: ProcessedNotification): Promise<DeliveryResult[]> {
@@ -81,7 +96,7 @@ export class DeliveryService {
       
       // Process results
       channelResults.forEach((result, index) => {
-        const channel = notification.channels[index];
+        const channel = notification.channels[index] || 'unknown';
         
         if (result.status === 'fulfilled') {
           results.push(result.value);
@@ -89,7 +104,7 @@ export class DeliveryService {
           results.push({
             channel,
             success: false,
-            error: result.reason.message || 'Unknown error',
+            error: result.reason?.message || 'Unknown error',
             deliveryTime: Date.now() - deliveryStartTime
           });
         }
@@ -121,12 +136,13 @@ export class DeliveryService {
       logger.info(`Notification delivered: ${notification.id}, success: ${successCount}/${totalChannels}`);
       return results;
     } catch (error) {
-      logger.error(`Error delivering notification ${notification.id}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error delivering notification ${notification.id}:`, { error: errorMessage });
       
       const errorResult: DeliveryResult = {
         channel: 'all',
         success: false,
-        error: error.message,
+        error: errorMessage,
         deliveryTime: Date.now() - deliveryStartTime
       };
 
@@ -151,17 +167,20 @@ export class DeliveryService {
           return await this.deliverViaPushNotification(notification, startTime);
         case 'email':
           return await this.deliverViaEmail(notification, startTime);
+        case 'telegram':
+          return await this.deliverViaTelegram(notification, startTime);
         case 'sms':
           return await this.deliverViaSMS(notification, startTime);
         default:
           throw new Error(`Unsupported delivery channel: ${channel}`);
       }
     } catch (error) {
-      logger.error(`Error delivering to ${channel}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error delivering to ${channel}:`, { error: errorMessage });
       return {
         channel,
         success: false,
-        error: error.message,
+        error: errorMessage,
         deliveryTime: Date.now() - startTime
       };
     }
@@ -212,7 +231,8 @@ export class DeliveryService {
         metadata: { connections: connections.length }
       };
     } catch (error) {
-      throw new Error(`WebSocket delivery failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`WebSocket delivery failed: ${errorMessage}`);
     }
   }
 
@@ -258,7 +278,8 @@ export class DeliveryService {
         }
       };
     } catch (error) {
-      throw new Error(`Push notification delivery failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Push notification delivery failed: ${errorMessage}`);
     }
   }
 
@@ -280,26 +301,65 @@ export class DeliveryService {
       }
 
       // Send email
-      const result = await this.emailService.sendNotification({
-        to: userEmail,
-        subject: notification.title,
-        body: notification.body,
-        data: notification.data,
-        template: notification.type
-      });
+      const result = await this.emailService.sendNotificationEmail(
+        notification.userId,
+        userEmail,
+        notification.title,
+        notification.body,
+        notification.data
+      );
 
       return {
         channel: 'email',
-        success: result.success,
-        error: result.error,
+        success: result,
+        error: result ? undefined : 'Email sending failed',
         deliveryTime: Date.now() - startTime,
         metadata: {
-          messageId: result.messageId,
           recipient: userEmail
         }
       };
     } catch (error) {
-      throw new Error(`Email delivery failed: ${error.message}`);
+      throw new Error(`Email delivery failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async deliverViaTelegram(
+    notification: ProcessedNotification,
+    startTime: number
+  ): Promise<DeliveryResult> {
+    try {
+      // Get user's Telegram chat ID (from notification data or user preferences)
+      const chatId = notification.data?.telegramChatId || 
+                   notification.data?.chatId;
+      
+      if (!chatId) {
+        return {
+          channel: 'telegram',
+          success: false,
+          error: 'Telegram chat ID not found',
+          deliveryTime: Date.now() - startTime
+        };
+      }
+
+      // Send Telegram notification
+      const result = await this.telegramService.sendNotification(
+        chatId,
+        notification.title,
+        notification.body,
+        notification.data
+      );
+
+      return {
+        channel: 'telegram',
+        success: result,
+        error: result ? undefined : 'Telegram sending failed',
+        deliveryTime: Date.now() - startTime,
+        metadata: {
+          chatId: chatId.toString().replace(/\d(?=\d{4})/g, '*') // Mask chat ID
+        }
+      };
+    } catch (error) {
+      throw new Error(`Telegram delivery failed: ${(error as Error).message}`);
     }
   }
 
@@ -331,7 +391,8 @@ export class DeliveryService {
         }
       };
     } catch (error) {
-      throw new Error(`SMS delivery failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`SMS delivery failed: ${errorMessage}`);
     }
   }
 
@@ -343,7 +404,8 @@ export class DeliveryService {
     try {
       await this.redisManager.updateNotificationStatus(notificationId, status, results);
     } catch (error) {
-      logger.error(`Error updating notification status: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error updating notification status: ${errorMessage}`);
     }
   }
 
@@ -379,7 +441,8 @@ export class DeliveryService {
         }
       }
     } catch (error) {
-      logger.error(`Error handling failed deliveries: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error handling failed deliveries: ${errorMessage}`);
     }
   }
 
@@ -392,7 +455,7 @@ export class DeliveryService {
       'default': 3
     };
 
-    return retryConfig[notificationType] || retryConfig.default;
+    return retryConfig[notificationType] ?? retryConfig['default'] ?? 3;
   }
 
   async deliverBatch(notifications: ProcessedNotification[]): Promise<void> {

@@ -560,7 +560,7 @@ curl https://websocket-gateway.moonx.farm/metrics | grep liquidity
 kafka-topics.sh --list --bootstrap-server localhost:9092
 
 # Check WebSocket connections
-curl http://localhost:3007/stats
+curl http://localhost:3011/stats
 
 # Check logs
 tail -f logs/websocket-gateway.log | grep liquidity

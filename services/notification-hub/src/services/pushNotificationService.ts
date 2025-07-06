@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { createLogger } from '@moonx-farm/common';
+
+const logger = createLogger('PushNotificationService');
 
 interface FCMConfig {
   firebase: {
@@ -39,7 +41,8 @@ export class PushNotificationService {
       // Note: In real implementation, you would use firebase-admin
       logger.info('Firebase FCM initialized for push notifications');
     } catch (error) {
-      logger.error('Failed to initialize Firebase FCM:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Failed to initialize Firebase FCM:', { error: errorMessage });
     }
   }
 
@@ -105,10 +108,11 @@ export class PushNotificationService {
         results: results.map(r => r.status === 'fulfilled' ? r.value : r.reason)
       };
     } catch (error) {
-      logger.error('Error sending push notification:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error sending push notification:', { error: errorMessage });
       return {
         success: false,
-        error: (error as Error).message,
+        error: errorMessage,
         successCount: 0,
         failureCount: data.tokens.length
       };
@@ -122,7 +126,8 @@ export class PushNotificationService {
       logger.debug(`Push notification sent to token: ${token.substring(0, 20)}...`);
       return { success: true, messageId: `msg_${Date.now()}` };
     } catch (error) {
-      logger.error(`Failed to send push to token ${token}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Failed to send push to token ${token}:`, { error: errorMessage });
       throw error;
     }
   }
@@ -153,7 +158,8 @@ export class PushNotificationService {
       // In real implementation: await admin.messaging().send({ token, dryRun: true })
       return true;
     } catch (error) {
-      logger.error('Invalid FCM token:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Invalid FCM token:', { error: errorMessage });
       return false;
     }
   }

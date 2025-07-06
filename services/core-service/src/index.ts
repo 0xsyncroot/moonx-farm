@@ -3,7 +3,6 @@ import { createCoreServiceConfig, getServerConfig } from '@moonx-farm/configs';
 import { createLogger } from '@moonx-farm/common';
 import { DatabaseService } from './services/databaseService';
 import { CacheService } from './services/cacheService';
-import { AutoSyncService } from './services/autoSyncService';
 import { AuthMiddleware } from './middleware/authMiddleware';
 import { orderRoutes } from './routes/orders';
 import { portfolioRoutes } from './routes/portfolio';
@@ -70,7 +69,7 @@ const startServer = async () => {
         openapi: '3.0.0',
         info: {
           title: 'MoonXFarm Core Service API',
-          description: 'Core platform APIs with auto-sync portfolio management and analytics',
+          description: 'Core platform APIs with portfolio management and analytics (sync delegated to sync worker)',
           version: '1.0.0'
         },
         servers: [
@@ -102,26 +101,16 @@ const startServer = async () => {
   
   logger.info('Connected to database and cache');
 
-  // Initialize auto sync service (depends on portfolio service which depends on db/cache)
-  // We need to import and create PortfolioService for AutoSyncService
+  // Initialize portfolio service for portfolio routes
   const { PortfolioService } = await import('./services/portfolioService');
   const portfolioService = new PortfolioService(databaseService, cacheService);
   
-  const autoSyncService = new AutoSyncService(
-    portfolioService,
-    cacheService,
-    databaseService
-  );
-
-  // Start auto sync service
-  await autoSyncService.start();
-  logger.info('🔄 Auto Sync Service started');
+  logger.info('📦 Portfolio service initialized (sync delegated to sync worker)');
 
   // Health check routes
   fastify.get('/health', async (request, reply) => {
     const dbHealth = await databaseService.healthCheck();
     const cacheHealth = await cacheService.healthCheck();
-    const syncStats = await autoSyncService.getSyncStats();
     
     const status = dbHealth.connected && cacheHealth ? 'healthy' : 'unhealthy';
     const statusCode = status === 'healthy' ? 200 : 503;
@@ -132,9 +121,8 @@ const startServer = async () => {
       services: {
         database: dbHealth.connected ? 'up' : 'down',
         cache: cacheHealth ? 'up' : 'down',
-        autoSync: syncStats.isRunning ? 'running' : 'stopped'
+        syncWorker: 'delegated' // Sync is now handled by sync worker
       },
-      autoSync: syncStats,
       responseTime: {
         database: dbHealth.responseTime
       }
@@ -148,16 +136,16 @@ const startServer = async () => {
       // Add auth middleware to all routes in this context
       fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
       
-      // Register portfolio routes with shared services
+      // Register portfolio routes with shared services (no autoSyncService)
       await portfolioRoutes(fastify, {
         databaseService,
         cacheService,
-        portfolioService,
-        autoSyncService
+        portfolioService
       });
     });
 
     // Sync Management Routes (mixed: user routes need auth, admin routes need admin auth)
+    // Note: Sync logic now handled by sync worker via message queue
     fastify.register(async function (fastify) {
       // Register sync routes - they handle their own authentication internally
       await syncRoutes(fastify, {
@@ -221,9 +209,6 @@ const startServer = async () => {
     logger.info(`Received ${signal}, shutting down gracefully...`);
     
     try {
-      // Stop auto sync service first
-      await autoSyncService.stop();
-      
       await databaseService.disconnect();
       await cacheService.disconnect();
       await fastify.close();
@@ -246,7 +231,7 @@ const startServer = async () => {
     });
     
     logger.info(`🚀 Core Service running on ${serverConfig.host}:${serverConfig.port}`);
-    logger.info(`📊 Auto-sync portfolio management active`);
+    logger.info(`📦 Portfolio management active (sync delegated to sync worker)`);
     // Swagger temporarily disabled
     // if (config.isDevelopment()) {
     //   logger.info(`📝 API Documentation: http://${serverConfig.host}:${serverConfig.port}/docs`);

@@ -145,7 +145,7 @@ curl http://localhost:3008/health
 import { io } from 'socket.io-client';
 
 // Connect to WebSocket Gateway
-const socket = io('http://localhost:3007', {
+const socket = io('http://localhost:3011', {
   auth: { token: 'your-jwt-token' },
   transports: ['websocket'], // WebSocket only for best performance
   timeout: 5000
@@ -685,7 +685,7 @@ import { io } from 'socket.io-client';
 
 describe('WebSocket Gateway', () => {
   it('should connect and authenticate', async () => {
-    const socket = io('http://localhost:3007', {
+    const socket = io('http://localhost:3011', {
       auth: { token: 'test-jwt-token' }
     });
 
@@ -719,10 +719,10 @@ describe('WebSocket Gateway', () => {
 
 ```bash
 # Check service health
-curl http://localhost:3007/health
+curl http://localhost:3011/health
 
 # Monitor WebSocket connections
-curl http://localhost:3007/stats
+curl http://localhost:3011/stats
 
 # Check Redis connectivity
 redis-cli -h localhost -p 6379 ping
@@ -734,7 +734,7 @@ kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group we
 docker logs -f websocket-gateway --tail 100
 
 # Performance monitoring
-curl http://localhost:3007/metrics | grep websocket
+curl http://localhost:3011/metrics | grep websocket
 ```
 
 ### Debug Mode

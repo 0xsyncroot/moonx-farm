@@ -1,7 +1,7 @@
 # MoonXFarm DEX - Technical Context
 
-**Ngày cập nhật**: 25/06/2025  
-**Phiên bản**: v1.0  
+**Ngày cập nhật**: 06/01/2025  
+**Phiên bản**: v2.0  
 
 ## 🚀 Technology Stack Overview
 
@@ -21,17 +21,24 @@
 ### **Backend Services**
 | Service | Language | Framework | Database | Rationale |
 |---------|----------|-----------|----------|-----------|
-| **API Gateway** | TypeScript | Fastify/Nginx | - | High performance, routing |
+| **Core Service** | TypeScript | Fastify | PostgreSQL | Portfolio auto-sync, Order mgmt, P&L, Trading history |
+| **Sync Worker** | TypeScript | Cluster | PostgreSQL | Heavy-duty portfolio sync, batch operations |
 | **Auth Service** | TypeScript | Fastify | PostgreSQL | JWT, Privy integration |
-| **Wallet Registry** | TypeScript | Fastify | PostgreSQL | AA wallet management |
 | **Aggregator Service** | Go | Gin/Fiber | Redis | High performance quotes |
-| **Swap Orchestrator** | TypeScript | Fastify | PostgreSQL | Complex business logic |
-| **Position Indexer** | TypeScript | Fastify | PostgreSQL | Event processing |
 | **Notify Service** | TypeScript | Socket.IO | Redis | Real-time notifications |
+
+### **Eliminated Services (Architecture Simplification)**
+| Service | Reason | Replacement |
+|---------|---------|-------------|
+| **API Gateway** | Unnecessary complexity | Direct service connections |
+| **Wallet Registry** | Privy handles AA wallets | Integrated into Privy SDK |
+| **Swap Orchestrator** | Frontend handles directly | Direct contract interaction |
+| **Position Indexer** | Redundant functionality | Integrated into Core Service |
 
 ### **Workers & Background Jobs**
 | Worker | Language | Framework | Purpose |
 |--------|----------|-----------|---------|
+| **Sync Worker** | TypeScript | Cluster | ✅ Complete - Heavy-duty portfolio sync, batch operations |
 | **Price Crawler** | Go | - | Multi-source price aggregation |
 | **Order Executor** | TypeScript | - | Automated order execution |
 

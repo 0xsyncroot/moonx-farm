@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify';
 import { PortfolioService } from '../services/portfolioService';
 import { PnLService } from '../services/pnlService';
 import { TradesService } from '../services/tradesService';
-import { AutoSyncService } from '../services/autoSyncService';
 import { DatabaseService } from '../services/databaseService';
 import { CacheService } from '../services/cacheService';
 import { PortfolioController } from '../controllers/portfolioController';
@@ -16,21 +15,18 @@ export async function portfolioRoutes(
     databaseService: DatabaseService;
     cacheService: CacheService;
     portfolioService: PortfolioService;
-    autoSyncService: AutoSyncService;
   }
 ) {
   // If services are not provided, create them (fallback - should not happen in production)
   let databaseService: DatabaseService;
   let cacheService: CacheService;
   let portfolioService: PortfolioService;
-  let autoSyncService: AutoSyncService;
 
   if (services) {
     // Use provided services (recommended approach)
     databaseService = services.databaseService;
     cacheService = services.cacheService;
     portfolioService = services.portfolioService;
-    autoSyncService = services.autoSyncService;
   } else {
     // Fallback: create new services (not recommended for production)
     console.warn('Portfolio routes: No services provided, creating new instances');
@@ -42,7 +38,6 @@ export async function portfolioRoutes(
     await cacheService.connect();
     
     portfolioService = new PortfolioService(databaseService, cacheService);
-    autoSyncService = new AutoSyncService(portfolioService, cacheService, databaseService);
   }
 
   // Initialize remaining services
@@ -54,7 +49,6 @@ export async function portfolioRoutes(
     portfolioService,
     pnlService,
     tradesService,
-    autoSyncService,
     authMiddleware
   );
 

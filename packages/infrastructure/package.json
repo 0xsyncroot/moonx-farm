@@ -1,6 +1,6 @@
 {
   "name": "@moonx-farm/infrastructure",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Infrastructure clients and managers for MoonXFarm DEX services",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,8 +16,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@moonx-farm/common": "^1.0.5",
-    "@moonx-farm/configs": "^1.0.1",
+    "@moonx-farm/common": "^1.0.6",
+    "@moonx-farm/configs": "^1.0.5",
     "pg": "^8.11.3",
     "ioredis": "^5.3.2",
     "kafkajs": "^2.2.4"

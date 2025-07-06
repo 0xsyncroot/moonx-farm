@@ -1,0 +1,99 @@
+# ============================================
+# Sync Worker Service - Prometheus Config
+# ============================================
+# 
+# Prometheus configuration for monitoring:
+# - Sync worker metrics
+# - System metrics
+# - Application performance
+# - Custom business metrics
+# ============================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Rule files for alerting
+rule_files:
+  - "alert_rules.yml"
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Scraping configuration
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # Sync Worker metrics
+  - job_name: 'sync-worker'
+    static_configs:
+      - targets: ['sync-worker:9090']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      # Add service label
+      - source_labels: [__name__]
+        target_label: service
+        replacement: 'sync-worker'
+      
+      # Normalize metric names
+      - source_labels: [__name__]
+        regex: 'sync_worker_(.*)'
+        target_label: __name__
+        replacement: 'sync_${1}'
+
+  # Node Exporter (system metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    honor_labels: true
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    honor_labels: true
+
+  # PostgreSQL metrics
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    honor_labels: true
+
+# Remote write configuration (for long-term storage)
+remote_write:
+  - url: "http://localhost:9009/api/v1/write"
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 200
+      capacity: 2500
+    write_relabel_configs:
+      # Only send important metrics to remote storage
+      - source_labels: [__name__]
+        regex: 'sync_jobs.*|sync_performance.*|system_memory.*|system_cpu.*'
+        action: keep
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 7d
+    retention.size: 1GB
+    wal-compression: true 

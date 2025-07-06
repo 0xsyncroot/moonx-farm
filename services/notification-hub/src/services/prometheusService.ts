@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { createLogger } from '@moonx-farm/common';
+
+const logger = createLogger('PrometheusService');
 
 // Simplified Prometheus service for metrics
 export class PrometheusService {

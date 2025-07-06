@@ -1,0 +1,182 @@
+# ============================================
+# Sync Worker Service - Docker Compose
+# ============================================
+# 
+# Services:
+# - sync-worker: Main sync worker service
+# - redis: Cache and message queue
+# - postgres: Database (optional, for testing)
+# - prometheus: Metrics collection
+# - grafana: Metrics visualization
+# ============================================
+
+version: '3.8'
+
+services:
+  # Main sync worker service
+  sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sync-worker
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "9090:9090"  # Prometheus metrics
+    environment:
+      # Application config
+      - NODE_ENV=production
+      - PORT=3000
+      - LOG_LEVEL=info
+      
+      # Database config
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=syncworker
+      - DB_USER=syncworker
+      - DB_PASSWORD=syncworker123
+      - DB_SSL=false
+      
+      # Redis config
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis123
+      - REDIS_DB=0
+      
+      # Worker config
+      - WORKER_CONCURRENCY=5
+      - WORKER_TIMEOUT=30000
+      - WORKER_RETRIES=3
+      - WORKER_BATCH_SIZE=20
+      
+      # Cluster config
+      - CLUSTER_MODE=single
+      - CLUSTER_WORKERS=1
+      
+      # Monitoring config
+      - MONITORING_ENABLE_HEALTH_CHECKS=true
+      - MONITORING_ENABLE_PROMETHEUS=true
+      - MONITORING_PROMETHEUS_PORT=9090
+      - MONITORING_HEALTH_CHECK_INTERVAL=30000
+      - MONITORING_METRICS_INTERVAL=15000
+      
+      # External APIs
+      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY:-}
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+      - DEXSCREENER_API_KEY=${DEXSCREENER_API_KEY:-}
+      
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./logs:/app/logs
+      - ./tmp:/app/tmp
+    networks:
+      - sync-worker-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis for caching and message queues
+  redis:
+    image: redis:7-alpine
+    container_name: sync-worker-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass redis123
+    volumes:
+      - redis_data:/data
+    networks:
+      - sync-worker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL database (optional for testing)
+  postgres:
+    image: postgres:15-alpine
+    container_name: sync-worker-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=syncworker
+      - POSTGRES_USER=syncworker
+      - POSTGRES_PASSWORD=syncworker123
+      - POSTGRES_INITDB_ARGS=--auth-local=trust
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - sync-worker-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syncworker -d syncworker"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sync-worker-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - sync-worker-network
+    depends_on:
+      - sync-worker
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sync-worker-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - sync-worker-network
+    depends_on:
+      - prometheus
+
+# Networks
+networks:
+  sync-worker-network:
+    driver: bridge
+
+# Volumes
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local 

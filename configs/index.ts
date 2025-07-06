@@ -50,12 +50,18 @@ export const CONFIG_PROFILES = {
     .merge(ServicesConfigSchema.pick({ WALLET_REGISTRY_PORT: true, WALLET_REGISTRY_HOST: true }))
     .merge(LoggerConfigSchema),
 
-  // Core service needs database, redis, blockchain
+  // Core service needs database, redis, blockchain, external APIs (for Alchemy)
   'core-service': BaseConfigSchema
     .merge(DatabaseConfigSchema)
     .merge(RedisConfigSchema)
     .merge(BlockchainConfigSchema)
-    .merge(ServicesConfigSchema.pick({ CORE_SERVICE_PORT: true, CORE_SERVICE_HOST: true }))
+    .merge(ExternalApisConfigSchema)
+    .merge(ServicesConfigSchema.pick({ 
+      CORE_SERVICE_PORT: true, 
+      CORE_SERVICE_HOST: true, 
+      AUTH_SERVICE_HOST: true,
+      AUTH_SERVICE_PORT: true
+    }))
     .merge(LoggerConfigSchema),
 
   // Aggregator service needs redis, external APIs, blockchain

@@ -52,7 +52,7 @@ Use the JWT token to establish WebSocket connection:
 ```javascript
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:3007', {
+const socket = io('http://localhost:3011', {
   auth: {
     token: accessToken // JWT access token
   },
@@ -72,7 +72,7 @@ const socket = io('http://localhost:3007', {
 
 ```javascript
 // Initialize socket connection
-const socket = io('http://localhost:3007', {
+const socket = io('http://localhost:3011', {
   auth: { token: accessToken },
   transports: ['websocket']
 });

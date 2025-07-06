@@ -1,0 +1,183 @@
+# ============================================
+# Sync Worker Service - ConfigMap & Secret
+# ============================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sync-worker-config
+  namespace: moonx-farm
+  labels:
+    app: sync-worker
+    component: config
+data:
+  # Application Configuration
+  log-level: "info"
+  node-env: "production"
+  
+  # Worker Configuration
+  worker-concurrency: "10"
+  worker-timeout: "30000"
+  worker-retries: "3"
+  worker-batch-size: "50"
+  worker-rate-limit-window: "900000"
+  worker-rate-limit-max: "5"
+  
+  # Cluster Configuration
+  cluster-mode: "manual"
+  cluster-workers: "2"
+  cluster-health-check-interval: "30000"
+  cluster-shutdown-timeout: "30000"
+  
+  # Database Configuration
+  db-host: "postgres-service.moonx-farm.svc.cluster.local"
+  db-port: "5432"
+  db-name: "moonx_farm"
+  db-ssl: "true"
+  db-max-connections: "20"
+  db-min-connections: "5"
+  
+  # Redis Configuration
+  redis-host: "redis-service.moonx-farm.svc.cluster.local"
+  redis-port: "6379"
+  redis-db: "0"
+  redis-retry-delay: "1000"
+  redis-max-retries: "3"
+  
+  # Cache Configuration
+  cache-ttl: "300000"
+  cache-max-size: "1000"
+  cache-cleanup-interval: "60000"
+  
+  # Monitoring Configuration
+  monitoring-enable-health-checks: "true"
+  monitoring-health-check-interval: "30000"
+  monitoring-metrics-interval: "15000"
+  monitoring-enable-prometheus: "true"
+  monitoring-prometheus-port: "9090"
+  monitoring-memory-threshold: "85"
+  monitoring-cpu-threshold: "90"
+  monitoring-failure-rate-threshold: "20"
+  monitoring-response-time-threshold: "5000"
+  
+  # External API Configuration
+  alchemy-rate-limit-rpm: "300"
+  alchemy-timeout: "10000"
+  alchemy-retry-attempts: "3"
+  alchemy-retry-delay: "2000"
+  
+  binance-base-url: "https://api.binance.com"
+  binance-timeout: "5000"
+  
+  coingecko-base-url: "https://api.coingecko.com/api/v3"
+  coingecko-timeout: "5000"
+  
+  dexscreener-base-url: "https://api.dexscreener.com/latest"
+  dexscreener-timeout: "5000"
+  
+  # Performance Configuration
+  performance-enable-compression: "true"
+  performance-compression-level: "6"
+  performance-enable-keep-alive: "true"
+  performance-keep-alive-timeout: "5000"
+  performance-max-sockets: "256"
+
+---
+# Secret for sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sync-worker-secret
+  namespace: moonx-farm
+  labels:
+    app: sync-worker
+    component: secret
+type: Opaque
+stringData:
+  # Database credentials
+  db-user: "moonx_user"
+  db-password: "CHANGE_ME_IN_PRODUCTION"
+  
+  # Redis credentials
+  redis-password: "CHANGE_ME_IN_PRODUCTION"
+  
+  # API Keys (base64 encoded in real deployment)
+  alchemy-api-key: "CHANGE_ME_IN_PRODUCTION"
+  binance-api-key: ""
+  binance-api-secret: ""
+  coingecko-api-key: ""
+  dexscreener-api-key: ""
+  
+  # JWT and encryption secrets
+  jwt-secret: "CHANGE_ME_IN_PRODUCTION"
+  encryption-key: "CHANGE_ME_IN_PRODUCTION"
+  
+  # Webhook secrets
+  webhook-secret: "CHANGE_ME_IN_PRODUCTION"
+
+---
+# Environment-specific ConfigMap (production)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sync-worker-env-config
+  namespace: moonx-farm
+  labels:
+    app: sync-worker
+    component: env-config
+    environment: production
+data:
+  # Production-specific settings
+  log-level: "warn"
+  worker-concurrency: "20"
+  worker-timeout: "60000"
+  cluster-workers: "5"
+  
+  # Production database settings
+  db-max-connections: "50"
+  db-connection-timeout: "30000"
+  db-idle-timeout: "600000"
+  
+  # Production cache settings
+  cache-ttl: "600000"
+  cache-max-size: "5000"
+  
+  # Production monitoring settings
+  monitoring-metrics-interval: "30000"
+  monitoring-health-check-interval: "60000"
+  
+  # Production performance settings
+  performance-enable-compression: "true"
+  performance-compression-level: "9"
+  performance-max-sockets: "1024"
+
+---
+# Development ConfigMap (for staging/dev environments)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sync-worker-dev-config
+  namespace: moonx-farm
+  labels:
+    app: sync-worker
+    component: dev-config
+    environment: development
+data:
+  # Development-specific settings
+  log-level: "debug"
+  worker-concurrency: "5"
+  worker-timeout: "30000"
+  cluster-workers: "1"
+  
+  # Development database settings
+  db-max-connections: "10"
+  db-ssl: "false"
+  
+  # Development cache settings
+  cache-ttl: "60000"
+  cache-max-size: "100"
+  
+  # Development monitoring settings
+  monitoring-metrics-interval: "10000"
+  monitoring-health-check-interval: "15000"
+  monitoring-enable-prometheus: "true" 

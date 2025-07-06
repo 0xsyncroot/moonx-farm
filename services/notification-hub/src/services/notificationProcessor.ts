@@ -1,8 +1,10 @@
 import { RedisManager } from './redisManager';
 import { DatabaseService } from './databaseService';
 import { PrometheusService } from './prometheusService';
-import { logger } from '../utils/logger';
+import { createLogger } from '@moonx-farm/common';
 import { v4 as uuidv4 } from 'uuid';
+
+const logger = createLogger('NotificationProcessor');
 
 interface NotificationData {
   userId: string;
@@ -83,7 +85,7 @@ export class NotificationProcessor {
         data: data.data || {},
         metadata: {
           createdAt: new Date(),
-          scheduledAt: data.scheduledAt,
+          ...(data.scheduledAt && { scheduledAt: data.scheduledAt }),
           expiresAt: data.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h default
           attempts: 0
         }
@@ -109,7 +111,8 @@ export class NotificationProcessor {
       logger.info(`Notification created: ${notificationId} for user ${data.userId}`);
       return notification;
     } catch (error) {
-      logger.error('Error creating notification:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error creating notification:', { error: errorMessage });
       await this.prometheusService.recordNotificationError(data.type, 'creation_failed');
       throw error;
     }
@@ -129,7 +132,8 @@ export class NotificationProcessor {
       
       return preferences;
     } catch (error) {
-      logger.error(`Error getting user preferences for ${userId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error getting user preferences for ${userId}:`, { error: errorMessage });
       return this.getDefaultPreferences();
     }
   }
@@ -181,7 +185,8 @@ export class NotificationProcessor {
 
       return { allowed: true };
     } catch (error) {
-      logger.error(`Error checking rate limit for ${userId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error checking rate limit for ${userId}:`, { error: errorMessage });
       return { allowed: true }; // Allow by default on error
     }
   }
@@ -191,7 +196,8 @@ export class NotificationProcessor {
       const rateLimits = await this.getRateLimits(type);
       await this.redisManager.incrementRateLimitCounter(userId, type, rateLimits.window);
     } catch (error) {
-      logger.error(`Error updating rate limit for ${userId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Error updating rate limit for ${userId}:`, { error: errorMessage });
     }
   }
 
@@ -205,7 +211,7 @@ export class NotificationProcessor {
       'default': { max: 100, window: 3600 } // 100 per hour default
     };
 
-    return rateLimits[type] || rateLimits.default;
+    return rateLimits[type] ?? rateLimits['default'] ?? { max: 100, window: 3600 };
   }
 
   private createRateLimitedNotification(
@@ -254,7 +260,8 @@ export class NotificationProcessor {
     try {
       await this.prometheusService.recordMessageProcessed(topic, status, processingTime);
     } catch (error) {
-      logger.error('Error tracking processed message:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error tracking processed message:', { error: errorMessage });
     }
   }
 
@@ -274,7 +281,8 @@ export class NotificationProcessor {
         }
       }
     } catch (error) {
-      logger.error('Error processing scheduled notifications:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error processing scheduled notifications:', { error: errorMessage });
     }
   }
 } 

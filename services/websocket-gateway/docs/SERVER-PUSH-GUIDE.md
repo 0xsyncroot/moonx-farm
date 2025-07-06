@@ -823,7 +823,7 @@ KAFKA_CLIENT_ID=your-service
 KAFKA_GROUP_ID=your-service-group
 
 # WebSocket Gateway
-WEBSOCKET_GATEWAY_URL=http://localhost:3007
+WEBSOCKET_GATEWAY_URL=http://localhost:3011
 ```
 
 ### 3. Initialize Event Service

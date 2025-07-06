@@ -62,7 +62,18 @@ export class AlchemyService {
     this.apiKey = apiKeys.alchemy || '';
     this.baseUrl = 'https://api.alchemy.com/v2';
     
+    // Debug logging for configuration
+    console.log('🔑 AlchemyService Configuration Debug:');
+    console.log(`  - API Keys loaded: ${Object.keys(apiKeys).join(', ')}`);
+    console.log(`  - Alchemy API Key configured: ${this.apiKey ? 'Yes' : 'No'}`);
+    console.log(`  - Environment ALCHEMY_API_KEY: ${process.env.ALCHEMY_API_KEY ? 'Set' : 'Not set'}`);
+    
     if (!this.apiKey) {
+      console.error('❌ ALCHEMY_API_KEY configuration missing!');
+      console.error('📝 Debug info:');
+      console.error(`  - Available API keys: ${JSON.stringify(Object.keys(apiKeys))}`);
+      console.error(`  - apiKeys.alchemy value: ${apiKeys.alchemy}`);
+      console.error(`  - process.env.ALCHEMY_API_KEY: ${process.env.ALCHEMY_API_KEY || 'undefined'}`);
       throw new Error('ALCHEMY_API_KEY configuration is required - check @moonx-farm/configs');
     }
     
