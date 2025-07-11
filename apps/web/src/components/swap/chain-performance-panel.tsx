@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { BarChart3, TrendingUp, TrendingDown, HelpCircle, Database, XCircle } from 'lucide-react'
+import { BarChart3, TrendingUp, TrendingDown, HelpCircle, Database, XCircle, Link, LineChart } from 'lucide-react'
 import { useStatsSubscription } from '@/contexts/websocket-firebase-context'
 import { coreApi } from '@/lib/api-client'
 import { 
@@ -67,6 +67,32 @@ const ChainShimmer = () => (
         </div>
       </div>
     ))}
+  </div>
+);
+
+// Chain Performance Empty State Component
+const ChainEmptyState = ({ onRefresh }: { onRefresh: () => void }) => (
+  <div className="flex flex-col items-center justify-center p-6 text-center">
+    <div className="relative mb-3">
+      <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/20 dark:to-purple-900/20 rounded-xl flex items-center justify-center">
+        <Link className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+      </div>
+      <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 rounded-full flex items-center justify-center">
+        <LineChart className="w-2 h-2 text-green-600 dark:text-green-400" />
+      </div>
+    </div>
+    <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+      No Chain Data
+    </h3>
+    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 max-w-40 leading-relaxed">
+      Networks unavailable
+    </p>
+    <button
+      onClick={onRefresh}
+      className="px-3 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:from-blue-100 hover:to-purple-100 dark:hover:from-blue-900/30 dark:hover:to-purple-900/30 transition-all duration-200 border border-blue-200/50 dark:border-blue-700/50 font-medium"
+    >
+      Refresh
+    </button>
   </div>
 );
 
@@ -345,18 +371,7 @@ export function ChainPerformancePanel() {
           </button>
         </div>
       ) : chainStats.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-8 text-center">
-          <Database className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-            No chain data available
-          </p>
-          <button
-            onClick={handleRefresh}
-            className="px-4 py-2 text-sm bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            Refresh
-          </button>
-        </div>
+        <ChainEmptyState onRefresh={handleRefresh} />
       ) : (
         <div className="space-y-2 max-h-80 overflow-y-auto overflow-x-hidden hover-scrollbar">
           {chainStats.map((chain) => (

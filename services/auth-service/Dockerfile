@@ -5,17 +5,16 @@ RUN corepack enable
 
 COPY . .
 # Clean turbo cache to ensure fresh build
-RUN rm -rf .turbo/
 RUN pnpm install --frozen-lockfile
-RUN pnpm turbo run build --filter=@moonx-farm/auth-service... --force
+RUN pnpm run build
 
 # Stage 2: chỉ copy dist + package.json, rồi cài lại prod dep (từ registry, không symlink)
 FROM node:18-alpine
 RUN apk add --no-cache dumb-init
 WORKDIR /app
 RUN corepack enable
-COPY --from=build /repo/services/auth-service/dist ./dist
-COPY --from=build /repo/services/auth-service/package.json ./
+COPY --from=build /repo/dist ./dist
+COPY --from=build /repo/package.json ./
 RUN pnpm install --prod
 USER node
 EXPOSE 3001

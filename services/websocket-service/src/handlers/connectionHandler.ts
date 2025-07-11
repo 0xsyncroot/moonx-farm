@@ -84,7 +84,22 @@ export class WebSocketConnectionHandler {
         tempId
       );
 
-      socket.send(JSON.stringify(welcomeMessage));
+      logger.info('🔑 Sending welcome message requesting authentication', {
+        tempId,
+        timeout: this.authTimeout,
+        message: welcomeMessage
+      });
+
+      try {
+        socket.send(JSON.stringify(welcomeMessage));
+        logger.info('✅ Welcome message sent successfully', { tempId });
+      } catch (sendError) {
+        logger.error('❌ Failed to send welcome message', { 
+          tempId, 
+          error: sendError instanceof Error ? sendError.message : String(sendError)
+        });
+        throw sendError;
+      }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -112,6 +127,12 @@ export class WebSocketConnectionHandler {
     request: any
   ): Promise<void> {
     try {
+      logger.info('📨 Received authentication message', { 
+        tempId, 
+        messageLength: data.length,
+        messagePreview: data.toString().substring(0, 100) 
+      });
+
       const pendingConnection = this.pendingConnections.get(tempId);
       if (!pendingConnection) {
         logger.warn('Authentication message from unknown connection', { tempId });
