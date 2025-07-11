@@ -218,8 +218,6 @@ bin/
 build/
 */build/
 **/build/
-cmd/*/main
-services/*/cmd/*/main
 
 # Dependency directories (remove the comment below to include it)
 vendor/
