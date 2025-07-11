@@ -3,8 +3,6 @@ import { createLoggerForAnyService } from '@moonx-farm/common';
 import { 
   ChainStatsDocument, 
   BridgeStatsDocument, 
-  ChainAlertDocument,
-  BridgeAlertDocument,
   ChainPerformanceStats,
   BridgeLatencyStats,
   ChainAlert,
@@ -19,8 +17,6 @@ export class MongoStatsService {
   private mongoManager: MongoManager;
   private ChainStatsModel: any;
   private BridgeStatsModel: any;
-  private ChainAlertModel: any;
-  private BridgeAlertModel: any;
   private isConnected: boolean = false;
 
   constructor() {
@@ -67,8 +63,14 @@ export class MongoStatsService {
       rpcSuccessRate: { type: Number, required: true },
       nodeStatus: { type: String, enum: ['healthy', 'degraded', 'unhealthy'], required: true },
       alerts: [{ 
-        type: Schema.Types.Mixed,
-        default: []
+        type: { type: String, enum: ['block_time', 'gas_price', 'rpc_latency', 'transaction_pool', 'node_error'], required: true },
+        severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
+        message: { type: String, required: true },
+        threshold: { type: Number, required: true },
+        currentValue: { type: Number, required: true },
+        timestamp: { type: Date, required: true },
+        resolved: { type: Boolean, default: false },
+        resolvedAt: { type: Date }
       }],
       createdAt: { type: Date, default: Date.now },
       updatedAt: { type: Date, default: Date.now }
@@ -91,39 +93,15 @@ export class MongoStatsService {
       timestamp: { type: Date, required: true },
       status: { type: String, enum: ['optimal', 'slow', 'down'], required: true },
       alerts: [{ 
-        type: Schema.Types.Mixed,
-        default: []
+        type: { type: String, enum: ['high_latency', 'low_success_rate', 'bridge_down', 'timeout'], required: true },
+        severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
+        message: { type: String, required: true },
+        threshold: { type: Number, required: true },
+        currentValue: { type: Number, required: true },
+        timestamp: { type: Date, required: true },
+        resolved: { type: Boolean, default: false },
+        resolvedAt: { type: Date }
       }],
-      createdAt: { type: Date, default: Date.now },
-      updatedAt: { type: Date, default: Date.now }
-    });
-
-    // Chain alert schema
-    const chainAlertSchema = new Schema({
-      chainId: { type: Number, required: true },
-      type: { type: String, enum: ['block_time', 'gas_price', 'rpc_latency', 'transaction_pool', 'node_error'], required: true },
-      severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
-      message: { type: String, required: true },
-      threshold: { type: Number, required: true },
-      currentValue: { type: Number, required: true },
-      timestamp: { type: Date, required: true },
-      resolved: { type: Boolean, default: false },
-      resolvedAt: { type: Date },
-      createdAt: { type: Date, default: Date.now },
-      updatedAt: { type: Date, default: Date.now }
-    });
-
-    // Bridge alert schema
-    const bridgeAlertSchema = new Schema({
-      bridgeId: { type: String, required: true },
-      type: { type: String, enum: ['high_latency', 'low_success_rate', 'bridge_down', 'timeout'], required: true },
-      severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
-      message: { type: String, required: true },
-      threshold: { type: Number, required: true },
-      currentValue: { type: Number, required: true },
-      timestamp: { type: Date, required: true },
-      resolved: { type: Boolean, default: false },
-      resolvedAt: { type: Date },
       createdAt: { type: Date, default: Date.now },
       updatedAt: { type: Date, default: Date.now }
     });
@@ -131,8 +109,6 @@ export class MongoStatsService {
     // Register models
     this.ChainStatsModel = this.mongoManager.registerModel('ChainStats', chainStatsSchema);
     this.BridgeStatsModel = this.mongoManager.registerModel('BridgeStats', bridgeStatsSchema);
-    this.ChainAlertModel = this.mongoManager.registerModel('ChainAlert', chainAlertSchema);
-    this.BridgeAlertModel = this.mongoManager.registerModel('BridgeAlert', bridgeAlertSchema);
 
     logger.info('MongoDB Stats schemas defined and models registered');
   }
@@ -277,25 +253,45 @@ export class MongoStatsService {
         query.chainId = { $in: filters.chainIds };
       }
       
-      if (filters.alertSeverity) {
-        query.severity = filters.alertSeverity;
-      }
-      
       if (filters.startTime || filters.endTime) {
         query.timestamp = {};
         if (filters.startTime) query.timestamp.$gte = filters.startTime;
         if (filters.endTime) query.timestamp.$lte = filters.endTime;
       }
 
-      const options: any = {
-        sort: { timestamp: -1 },
-        limit: 50,
-        lean: true
-      };
+      const pipeline: any[] = [
+        { $match: query },
+        { $unwind: '$alerts' },
+        { $match: { 'alerts.resolved': false } }
+      ];
 
-      const results = await this.mongoManager.findMany(this.ChainAlertModel, query, options);
+      // Add severity filter if specified
+      if (filters.alertSeverity) {
+        pipeline.push({ $match: { 'alerts.severity': filters.alertSeverity } });
+      }
+
+      pipeline.push(
+        { $sort: { 'alerts.timestamp': -1 } },
+        { $limit: 50 },
+        {
+          $project: {
+            _id: '$alerts._id',
+            chainId: '$chainId',
+            type: '$alerts.type',
+            severity: '$alerts.severity',
+            message: '$alerts.message',
+            threshold: '$alerts.threshold',
+            currentValue: '$alerts.currentValue',
+            timestamp: '$alerts.timestamp',
+            resolved: '$alerts.resolved',
+            resolvedAt: '$alerts.resolvedAt'
+          }
+        }
+      );
+
+      const results = await this.mongoManager.aggregate(this.ChainStatsModel, pipeline);
       
-      logger.info('Retrieved chain alerts', { 
+      logger.info('Retrieved chain alerts from ChainStats', { 
         count: results.length,
         filters: Object.keys(filters)
       });
@@ -318,25 +314,45 @@ export class MongoStatsService {
         query.bridgeId = { $in: filters.bridgeIds };
       }
       
-      if (filters.alertSeverity) {
-        query.severity = filters.alertSeverity;
-      }
-      
       if (filters.startTime || filters.endTime) {
         query.timestamp = {};
         if (filters.startTime) query.timestamp.$gte = filters.startTime;
         if (filters.endTime) query.timestamp.$lte = filters.endTime;
       }
 
-      const options: any = {
-        sort: { timestamp: -1 },
-        limit: 50,
-        lean: true
-      };
+      const pipeline: any[] = [
+        { $match: query },
+        { $unwind: '$alerts' },
+        { $match: { 'alerts.resolved': false } }
+      ];
 
-      const results = await this.mongoManager.findMany(this.BridgeAlertModel, query, options);
+      // Add severity filter if specified
+      if (filters.alertSeverity) {
+        pipeline.push({ $match: { 'alerts.severity': filters.alertSeverity } });
+      }
+
+      pipeline.push(
+        { $sort: { 'alerts.timestamp': -1 } },
+        { $limit: 50 },
+        {
+          $project: {
+            _id: '$alerts._id',
+            bridgeId: '$bridgeId',
+            type: '$alerts.type',
+            severity: '$alerts.severity',
+            message: '$alerts.message',
+            threshold: '$alerts.threshold',
+            currentValue: '$alerts.currentValue',
+            timestamp: '$alerts.timestamp',
+            resolved: '$alerts.resolved',
+            resolvedAt: '$alerts.resolvedAt'
+          }
+        }
+      );
+
+      const results = await this.mongoManager.aggregate(this.BridgeStatsModel, pipeline);
       
-      logger.info('Retrieved bridge alerts', { 
+      logger.info('Retrieved bridge alerts from BridgeStats', { 
         count: results.length,
         filters: Object.keys(filters)
       });
@@ -471,20 +487,50 @@ export class MongoStatsService {
   }
 
   private async getAlertsCount(): Promise<number> {
-    const chainAlerts = await this.mongoManager.count(this.ChainAlertModel, { resolved: false });
-    const bridgeAlerts = await this.mongoManager.count(this.BridgeAlertModel, { resolved: false });
+    const chainAlertsPipeline = [
+      { $unwind: '$alerts' },
+      { $match: { 'alerts.resolved': false } },
+      { $count: 'count' }
+    ];
+
+    const bridgeAlertsPipeline = [
+      { $unwind: '$alerts' },
+      { $match: { 'alerts.resolved': false } },
+      { $count: 'count' }
+    ];
+
+    const [chainAlertsResult, bridgeAlertsResult] = await Promise.all([
+      this.mongoManager.aggregate(this.ChainStatsModel, chainAlertsPipeline),
+      this.mongoManager.aggregate(this.BridgeStatsModel, bridgeAlertsPipeline)
+    ]);
+
+    const chainAlerts = chainAlertsResult[0]?.count || 0;
+    const bridgeAlerts = bridgeAlertsResult[0]?.count || 0;
+
     return chainAlerts + bridgeAlerts;
   }
 
   private async getCriticalAlertsCount(): Promise<number> {
-    const chainCriticalAlerts = await this.mongoManager.count(this.ChainAlertModel, { 
-      resolved: false, 
-      severity: 'critical' 
-    });
-    const bridgeCriticalAlerts = await this.mongoManager.count(this.BridgeAlertModel, { 
-      resolved: false, 
-      severity: 'critical' 
-    });
+    const chainAlertsPipeline = [
+      { $unwind: '$alerts' },
+      { $match: { 'alerts.resolved': false, 'alerts.severity': 'critical' } },
+      { $count: 'count' }
+    ];
+
+    const bridgeAlertsPipeline = [
+      { $unwind: '$alerts' },
+      { $match: { 'alerts.resolved': false, 'alerts.severity': 'critical' } },
+      { $count: 'count' }
+    ];
+
+    const [chainAlertsResult, bridgeAlertsResult] = await Promise.all([
+      this.mongoManager.aggregate(this.ChainStatsModel, chainAlertsPipeline),
+      this.mongoManager.aggregate(this.BridgeStatsModel, bridgeAlertsPipeline)
+    ]);
+
+    const chainCriticalAlerts = chainAlertsResult[0]?.count || 0;
+    const bridgeCriticalAlerts = bridgeAlertsResult[0]?.count || 0;
+
     return chainCriticalAlerts + bridgeCriticalAlerts;
   }
 

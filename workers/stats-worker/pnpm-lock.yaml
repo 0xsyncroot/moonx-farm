@@ -15,8 +15,8 @@ importers:
         specifier: ^1.0.5
         version: 1.0.5
       '@moonx-farm/infrastructure':
-        specifier: ^1.0.14
-        version: 1.0.14
+        specifier: ^1.0.17
+        version: 1.0.17
       '@moonx-farm/shared':
         specifier: ^1.0.0
         version: 1.0.0
@@ -528,8 +528,8 @@ packages:
   '@moonx-farm/configs@1.0.5':
     resolution: {integrity: sha512-kZxmRnsFeRQTSUwlUdIMbAc1DOxDrU9dF42UDoyVWiZJwyb2l3rJ7oo6r6AP5yu9GTXyns8eW3n+LNNVcP5N7g==}
 
-  '@moonx-farm/infrastructure@1.0.14':
-    resolution: {integrity: sha512-TKTzsTgNogj6IIBAoKfXtIgoH3SqZLC0XOBmPCJRKQpK20XrbaAXdavv3SuF/6rphMDhikWgLq+NUU8ZJCgLcg==}
+  '@moonx-farm/infrastructure@1.0.17':
+    resolution: {integrity: sha512-GOCzb4cIRbgKHNU8rnhIEdrmYkFp9joBKc5DzLb4jaQrbeD0sY8mZKCcsiWy4So1VnJdMcelTiTeIMMaPl1iXg==}
 
   '@moonx-farm/shared@1.0.0':
     resolution: {integrity: sha512-gjIYQnobKyidVHkmIfpP93OqbcEWsp2wS/voauROIacN495RqYstoIUxVnE3LdMwIkFCWcdr1EfCVVIB1Sedew==}
@@ -2577,7 +2577,7 @@ snapshots:
       dotenv: 16.6.1
       zod: 3.25.76
 
-  '@moonx-farm/infrastructure@1.0.14':
+  '@moonx-farm/infrastructure@1.0.17':
     dependencies:
       '@moonx-farm/common': 1.0.6
       '@moonx-farm/configs': 1.0.5

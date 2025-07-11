@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { BarChart3, TrendingUp, TrendingDown, HelpCircle, Loader2, Database } from 'lucide-react'
+import { BarChart3, TrendingUp, TrendingDown, HelpCircle, Database, XCircle } from 'lucide-react'
 import { useStatsSubscription } from '@/contexts/websocket-firebase-context'
 import { coreApi } from '@/lib/api-client'
 import { 
@@ -12,12 +12,12 @@ import {
 } from '@/utils/chain-utils'
 
 interface ChainPerformanceData {
-  _id: string;
+  _id?: string;
   chainId: number;
   chainName: string;
   chainSlug: string;
   logoUrl: string;
-  defiLlamaSlug: string;
+  defiLlamaSlug?: string;
   blockTime: {
     current: number;
     change: string;
@@ -27,19 +27,55 @@ interface ChainPerformanceData {
   status: ChainStatus;
   volume24h: string;
   volumeUSD: number;
-  rpcUrl: string;
-  createdAt: string;
+  rpcUrl?: string;
+  createdAt?: string;
   updatedAt: string;
-  expiresAt: string;
-  __v: number;
+  expiresAt?: string;
+  __v?: number;
 }
+
+interface WebSocketChainUpdate {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: {
+    chainId: number;
+    chainName: string;
+    stats: ChainPerformanceData;
+    source: string;
+  };
+}
+
+// Shimmer loading component
+const ChainShimmer = () => (
+  <div className="space-y-2">
+    {[1, 2, 3, 4].map((i) => (
+      <div key={i} className="flex items-center justify-between p-3 rounded-lg">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+            <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+          </div>
+          <div className="flex-1">
+            <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
+            <div className="w-20 h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="w-12 h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
+          <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 export function ChainPerformancePanel() {
   const { subscribeToRoom, unsubscribeFromRoom, onMessage, isWebSocketConnected } = useStatsSubscription();
   const [chainStats, setChainStats] = useState<ChainPerformanceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [recentlyUpdated, setRecentlyUpdated] = useState<Set<number>>(new Set());
 
   // Fetch initial chain stats from Core Service API
   useEffect(() => {
@@ -48,28 +84,96 @@ export function ChainPerformancePanel() {
 
   // Subscribe to WebSocket chain stats updates when connected
   useEffect(() => {
-    if (!isWebSocketConnected) return;
+    if (!isWebSocketConnected) {
+      console.log('🔌 [ChainPerformancePanel] WebSocket not connected, skipping subscription');
+      return;
+    }
 
-    console.log('📡 [ChainPerformancePanel] Subscribing to chain_stats room...');
+    console.log('📡 [ChainPerformancePanel] WebSocket connected, subscribing to chain_stats room...');
     
     // Subscribe to chain_stats room
     subscribeToRoom('chain_stats');
+    console.log('📡 [ChainPerformancePanel] Subscription request sent for chain_stats room');
 
     // Listen for chain stats updates from WebSocket
-    const unsubscribe = onMessage('chain_stats_update', (data: any) => {
+    const unsubscribe = onMessage('chain_stats_update', (data: WebSocketChainUpdate | any) => {
       console.log('⛓️ [ChainPerformancePanel] Received chain stats update:', data);
       
-      // Refresh data when WebSocket update received
-      fetchChainStats();
-      setLastUpdated(new Date());
+      // Handle different data structures from WebSocket
+      let statsData: ChainPerformanceData | null = null;
+      
+      if (data?.data?.stats) {
+        // Standard WebSocket format
+        console.log('📊 [ChainPerformancePanel] Processing chain stats (nested):', data.data.stats);
+        statsData = data.data.stats;
+      } else if (data?.stats) {
+        // Direct stats format from Kafka
+        console.log('📊 [ChainPerformancePanel] Processing chain stats (direct):', data.stats);
+        statsData = data.stats;
+      } else if (data && typeof data === 'object' && data.chainId) {
+        // Data is the stats object itself
+        console.log('📊 [ChainPerformancePanel] Processing chain stats (object):', data);
+        statsData = data;
+      } else {
+        console.warn('⚠️ [ChainPerformancePanel] No stats data in received message:', data);
+      }
+      
+      if (statsData) {
+        updateChainStats(statsData);
+      }
+    });
+
+    // Add debug logging for subscription confirmation
+    const unsubscribeDebug = onMessage('subscription-response', (data: any) => {
+      console.log('✅ [ChainPerformancePanel] Subscription response received:', data);
     });
 
     return () => {
+      console.log('🧹 [ChainPerformancePanel] Cleaning up subscriptions...');
       unsubscribe();
+      unsubscribeDebug();
       unsubscribeFromRoom('chain_stats');
       console.log('🧹 [ChainPerformancePanel] Unsubscribed from chain_stats room');
     };
   }, [isWebSocketConnected, subscribeToRoom, unsubscribeFromRoom, onMessage]);
+
+  const updateChainStats = (newChainData: ChainPerformanceData) => {
+    console.log('🔄 [ChainPerformancePanel] updateChainStats called with:', newChainData);
+    
+    setChainStats(prevStats => {
+      const existingIndex = prevStats.findIndex(chain => chain.chainId === newChainData.chainId);
+      
+      if (existingIndex >= 0) {
+        // Update existing chain
+        const updatedStats = [...prevStats];
+        updatedStats[existingIndex] = { ...updatedStats[existingIndex], ...newChainData };
+        console.log('📊 [ChainPerformancePanel] Updated existing chain:', updatedStats[existingIndex]);
+        return updatedStats;
+      } else {
+        // Add new chain
+        console.log('➕ [ChainPerformancePanel] Adding new chain:', newChainData);
+        return [...prevStats, newChainData];
+      }
+    });
+
+    // Add visual feedback for real-time update
+    setRecentlyUpdated(prev => {
+      const newSet = new Set(prev);
+      newSet.add(newChainData.chainId);
+      console.log('✨ [ChainPerformancePanel] Marked chain as recently updated:', newChainData.chainId);
+      return newSet;
+    });
+    
+    // Remove the highlight after animation completes
+    setTimeout(() => {
+      setRecentlyUpdated(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(newChainData.chainId);
+        console.log('🔄 [ChainPerformancePanel] Removed recent update highlight:', newChainData.chainId);
+        return newSet;
+      });
+    }, 1500); // 1.5 seconds highlight duration
+  };
 
   const fetchChainStats = async () => {
     try {
@@ -80,7 +184,6 @@ export function ChainPerformancePanel() {
       
       if (result.success && result.data?.chainStats) {
         setChainStats(result.data.chainStats);
-        setLastUpdated(new Date());
         console.log('📊 [ChainPerformancePanel] Fetched chain stats:', result.data.chainStats);
       } else {
         throw new Error('Invalid response format');
@@ -111,17 +214,39 @@ export function ChainPerformancePanel() {
     return value != null && !isNaN(value) ? value.toFixed(digits) : '0.0';
   };
 
+  const getTrendIcon = (changePercent: number) => {
+    if (changePercent > 0) {
+      return <TrendingUp className="w-3 h-3" />;
+    } else if (changePercent < 0) {
+      return <TrendingDown className="w-3 h-3" />;
+    }
+    return null;
+  };
+
+  const getTrendColor = (changePercent: number) => {
+    if (changePercent > 0) {
+      return 'text-green-600 dark:text-green-400';
+    } else if (changePercent < 0) {
+      return 'text-red-600 dark:text-red-400';
+    }
+    return 'text-gray-600 dark:text-gray-400';
+  };
+
+  const isRecentlyUpdated = (chain: ChainPerformanceData) => {
+    return recentlyUpdated.has(chain.chainId);
+  };
+
   return (
-    <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl border border-gray-200/50 dark:border-gray-700/50 shadow-lg p-4">
+    <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl border border-gray-200/50 dark:border-gray-700/50 shadow-lg p-4 overflow-hidden w-full max-w-full">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-2 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-lg">
+        <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
           <BarChart3 className="w-4 h-4 text-white" />
         </div>
         <h4 className="text-base font-semibold text-gray-900 dark:text-white">Chain Performance</h4>
         <div className="group relative">
           <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
           <div className="absolute invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-300 bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 shadow-lg z-10">
-            Live performance metrics including transaction times, volumes, and trend analysis
+            Live blockchain performance and trading metrics
             <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
           </div>
         </div>
@@ -135,94 +260,97 @@ export function ChainPerformancePanel() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-          <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">Loading chain stats...</span>
-        </div>
+        <ChainShimmer />
       ) : error ? (
-        <div className="text-center p-4">
-          <p className="text-sm text-red-600 dark:text-red-400 mb-2">
+        <div className="text-center p-6">
+          <div className="w-12 h-12 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-3">
+            <XCircle className="w-6 h-6 text-red-500" />
+          </div>
+          <p className="text-sm text-red-600 dark:text-red-400 mb-3">
             {error}
           </p>
           <button
             onClick={fetchChainStats}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            className="px-4 py-2 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
           >
-            Retry
+            Try Again
           </button>
         </div>
       ) : chainStats.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <Database className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-            No chain performance data available
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+            No chain data available
           </p>
           <button
             onClick={fetchChainStats}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            className="px-4 py-2 text-sm bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             Refresh
           </button>
         </div>
       ) : (
-        <div className="space-y-2 max-h-80 overflow-y-auto hover-scrollbar">
+        <div className="space-y-2 max-h-80 overflow-y-auto overflow-x-hidden hover-scrollbar">
           {chainStats.map((chain) => (
-            <div key={chain._id} className="group flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 p-2.5 rounded-lg transition-all duration-200 cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform duration-200 overflow-hidden">
-                  {chain.logoUrl ? (
-                    <img 
-                      src={chain.logoUrl} 
-                      alt={chain.chainName}
-                      className="object-contain rounded-full"
-                      onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-                        // Fallback to first letter if logo fails to load
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const fallback = target.parentElement?.querySelector('.logo-fallback') as HTMLElement;
-                        if (fallback) fallback.style.display = 'block';
-                      }}
-                    />
-                  ) : null}
-                  <span className={`logo-fallback text-sm font-bold text-gray-700 dark:text-gray-300 ${chain.logoUrl ? 'hidden' : 'block'}`}>
-                    {getChainAvatarFallback(chain)}
+            <div 
+              key={chain.chainId} 
+              className={`
+                group flex items-center justify-between p-3 rounded-lg transition-all duration-200 cursor-pointer border relative overflow-hidden
+                ${isRecentlyUpdated(chain) 
+                  ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 shadow-lg shadow-blue-200/50 dark:shadow-blue-900/30' 
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border-transparent hover:border-gray-200 dark:hover:border-gray-600'
+                }
+              `}
+            >
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className={`w-8 h-8 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 rounded-full flex items-center justify-center transition-all duration-200 ${isRecentlyUpdated(chain) ? 'shadow-md shadow-blue-300/50 dark:shadow-blue-700/50' : 'group-hover:brightness-110'} overflow-hidden`}>
+                    {chain.logoUrl ? (
+                      <img 
+                        src={chain.logoUrl} 
+                        alt={chain.chainName}
+                        className="w-6 h-6 object-contain rounded-full"
+                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const fallback = target.parentElement?.querySelector('.logo-fallback') as HTMLElement;
+                          if (fallback) fallback.style.display = 'block';
+                        }}
+                      />
+                    ) : null}
+                    <span className={`logo-fallback text-xs font-bold text-gray-700 dark:text-gray-300 ${chain.logoUrl ? 'hidden' : 'block'}`}>
+                      {getChainAvatarFallback(chain)}
+                    </span>
+                  </div>
+                  <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full ${getStatusIndicator(chain.status)} border-2 border-white dark:border-gray-800`}></div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-900 dark:text-white text-sm truncate">
+                    {formatChainDisplayName(chain)}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    Block time: {safeToFixed(chain.blockTime?.current, 1)}s
+                  </div>
+                </div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  {formatVolume(chain.volume24h)}
+                </div>
+                <div className={`text-sm font-medium flex items-center gap-1 justify-end ${getTrendColor(chain.blockTime?.changePercent || 0)}`}>
+                  {getTrendIcon(chain.blockTime?.changePercent || 0)}
+                  <span>
+                    {(chain.blockTime?.changePercent || 0) >= 0 ? '+' : ''}
+                    {safeToFixed(chain.blockTime?.changePercent, 1)}%
                   </span>
                 </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="font-medium text-gray-900 dark:text-white text-sm">{formatChainDisplayName(chain)}</div>
-                    <div className={`w-2 h-2 rounded-full ${getStatusIndicator(chain.status)}`}></div>
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Block: {safeToFixed(chain.blockTime?.current, 1)}s</div>
-                </div>
               </div>
-              <div className="text-right">
-                <div className={`text-sm font-medium flex items-center gap-1 ${
-                  (chain.blockTime?.changePercent || 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {(chain.blockTime?.changePercent || 0) >= 0 ? (
-                    <TrendingUp className="w-3 h-3" />
-                  ) : (
-                    <TrendingDown className="w-3 h-3" />
-                  )}
-                  {(chain.blockTime?.changePercent || 0) >= 0 ? '+' : ''}{safeToFixed(chain.blockTime?.changePercent, 1)}%
-                </div>
-                <div className="flex items-center justify-end gap-1.5">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{formatVolume(chain.volume24h)}</div>
-                </div>
-              </div>
+              {/* Real-time update indicator */}
+              {isRecentlyUpdated(chain) && (
+                <div className="ml-2 w-2 h-2 bg-blue-500 rounded-full animate-pulse flex-shrink-0"></div>
+              )}
             </div>
           ))}
-        </div>
-      )}
-      
-      {/* Last updated indicator */}
-      {lastUpdated && (
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-            Last updated: {lastUpdated.toLocaleTimeString()}
-            {isWebSocketConnected && ' • Live updates enabled'}
-          </p>
         </div>
       )}
     </div>

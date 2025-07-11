@@ -161,11 +161,13 @@ export class WebSocketService extends EventEmitter {
     this.messageHandler.on('trade-notification', (data) => this.emit('trade-notification', data));
     this.messageHandler.on('portfolio-update', (data) => this.emit('portfolio-update', data));
     this.messageHandler.on('order-update', (data) => this.emit('order-update', data));
-    this.messageHandler.on('stats-chain-performance', (data) => this.emit('stats-chain-performance', data));
-    this.messageHandler.on('stats-bridge-latency', (data) => this.emit('stats-bridge-latency', data));
-    this.messageHandler.on('stats-overview', (data) => this.emit('stats-overview', data));
     this.messageHandler.on('notification', (data) => this.emit('notification', data));
     this.messageHandler.on('system-alert', (data) => this.emit('system-alert', data));
+
+    // Forward stats events
+    this.messageHandler.on('chain_stats_update', (data) => this.emit('chain_stats_update', data));
+    this.messageHandler.on('bridge_stats_update', (data) => this.emit('bridge_stats_update', data));
+    this.messageHandler.on('stats_overview_update', (data) => this.emit('stats_overview_update', data));
   }
 
   // Setup system event listeners

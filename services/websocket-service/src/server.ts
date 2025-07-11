@@ -145,23 +145,94 @@ export class WebSocketServer {
     try {
       logger.info('🔧 Ensuring Kafka topics exist...');
       
-      // Import and run topic creation
-      const { createKafkaTopics } = require('../scripts/create-kafka-topics.js');
-      await createKafkaTopics();
+      // Import KafkaManager from infrastructure package
+      const { KafkaManager } = await import('@moonx-farm/infrastructure');
       
+      // Create KafkaManager instance with config
+      const kafkaManager = new KafkaManager({
+        brokers: websocketConfig.kafka.brokers.split(',').map(b => b.trim()),
+        clientId: websocketConfig.kafka.clientId,
+        connectionTimeout: 10000,
+        requestTimeout: 30000,
+      });
+
+      logger.info('📡 Connecting to Kafka...', {
+        brokers: websocketConfig.kafka.brokers,
+        clientId: websocketConfig.kafka.clientId
+      });
+
+      await kafkaManager.connect();
+      
+      // Get existing topics
+      const existingTopics = await kafkaManager.listTopics();
+      logger.debug('📋 Existing topics:', existingTopics);
+      
+      // Define topics to create
+      const topicsToCreate = [
+        {
+          topic: websocketConfig.kafka.mainTopic,
+          numPartitions: 6,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'cleanup.policy', value: 'delete' },
+            { name: 'retention.ms', value: '604800000' }, // 7 days
+            { name: 'segment.ms', value: '3600000' },     // 1 hour
+            { name: 'compression.type', value: 'gzip' },
+            { name: 'max.message.bytes', value: '1000000' }, // 1MB
+            { name: 'min.insync.replicas', value: '1' }
+          ]
+        },
+        {
+          topic: websocketConfig.kafka.eventProcessing.deadLetterQueueTopic,
+          numPartitions: 2,
+          replicationFactor: 1,
+          configEntries: [
+            { name: 'cleanup.policy', value: 'delete' },
+            { name: 'retention.ms', value: '2592000000' }, // 30 days
+            { name: 'segment.ms', value: '86400000' },     // 24 hours
+            { name: 'compression.type', value: 'gzip' }
+          ]
+        }
+      ].filter(topicConfig => !existingTopics.includes(topicConfig.topic));
+      
+      if (topicsToCreate.length === 0) {
+        logger.info('✅ All Kafka topics already exist');
+      } else {
+        logger.info(`📝 Creating ${topicsToCreate.length} Kafka topics...`, {
+          topics: topicsToCreate.map(t => t.topic)
+        });
+        
+        await kafkaManager.createTopics(topicsToCreate);
+        
+        logger.info('✅ Kafka topics created successfully', {
+          createdTopics: topicsToCreate.map(t => ({
+            topic: t.topic,
+            partitions: t.numPartitions,
+            replication: t.replicationFactor
+          }))
+        });
+      }
+      
+      await kafkaManager.disconnect();
       logger.info('✅ Kafka topics ready');
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
       // Log warning but don't fail startup - topics might exist already
       logger.warn('Failed to create Kafka topics', { 
         error: errorMessage,
-        note: 'Topics might already exist or need manual creation'
+        note: 'Topics might already exist or need manual creation',
+        config: {
+          brokers: websocketConfig.kafka.brokers,
+          mainTopic: websocketConfig.kafka.mainTopic,
+          dlqTopic: websocketConfig.kafka.eventProcessing.deadLetterQueueTopic
+        }
       });
       
       // Only throw error if it's a connection issue
-      if (errorMessage.includes('ECONNREFUSED')) {
-        throw new Error(`Kafka connection failed: ${errorMessage}`);
+      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('Connection refused')) {
+        throw new Error(`Kafka connection failed: ${errorMessage}. Please ensure Kafka is running at: ${websocketConfig.kafka.brokers}`);
       }
     }
   }

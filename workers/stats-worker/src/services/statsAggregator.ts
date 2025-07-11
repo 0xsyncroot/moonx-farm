@@ -109,7 +109,6 @@ export class StatsAggregator {
     const startTime = Date.now();
     
     try {
-
       logger.info('Starting full stats collection', { collectionId });
 
       // Collect stats in parallel
@@ -121,10 +120,7 @@ export class StatsAggregator {
       // Save to MongoDB
       await this.saveStatsToDatabase(chainStats, bridgeStats);
 
-      // Publish individual stats events
-      await this.publishStatsEvents(chainStats, bridgeStats);
-
-      // Create and publish overview
+      // Create and publish overview only when job completes successfully
       const overview = await this.createAndPublishOverview(chainStats, bridgeStats);
 
       // Update previous stats for next comparison
@@ -207,6 +203,82 @@ export class StatsAggregator {
   }
 
   /**
+   * Collect chain stats only and publish when job completes
+   */
+  async collectAndPublishChainStats(): Promise<ChainPerformanceStats[]> {
+    const collectionId = uuidv4();
+    const startTime = Date.now();
+    
+    try {
+      logger.info('Starting chain stats collection and publish', { collectionId });
+
+      const chainStats = await this.collectChainStats();
+      
+      // Save to MongoDB
+      await this.saveChainStatsToDatabase(chainStats);
+
+      // Publish chain stats summary (not individual records)
+      await this.publishChainStatsUpdate(chainStats);
+
+      const duration = Date.now() - startTime;
+      
+      logger.info('Chain stats collection and publish completed', {
+        collectionId,
+        duration,
+        chainStatsCount: chainStats.length
+      });
+
+      return chainStats;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error('Chain stats collection and publish failed', {
+        collectionId,
+        duration,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Collect bridge stats only and publish when job completes
+   */
+  async collectAndPublishBridgeStats(): Promise<BridgeLatencyStats[]> {
+    const collectionId = uuidv4();
+    const startTime = Date.now();
+    
+    try {
+      logger.info('Starting bridge stats collection and publish', { collectionId });
+
+      const bridgeStats = await this.collectBridgeStats();
+      
+      // Save to MongoDB
+      await this.saveBridgeStatsToDatabase(bridgeStats);
+
+      // Publish bridge stats summary (not individual records)
+      await this.publishBridgeStatsUpdate(bridgeStats);
+
+      const duration = Date.now() - startTime;
+      
+      logger.info('Bridge stats collection and publish completed', {
+        collectionId,
+        duration,
+        bridgeStatsCount: bridgeStats.length
+      });
+
+      return bridgeStats;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error('Bridge stats collection and publish failed', {
+        collectionId,
+        duration,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Save stats to MongoDB
    */
   private async saveStatsToDatabase(
@@ -249,41 +321,99 @@ export class StatsAggregator {
   }
 
   /**
-   * Publish individual stats events
+   * Save chain stats to MongoDB
    */
-  private async publishStatsEvents(
-    chainStats: ChainPerformanceStats[],
-    bridgeStats: BridgeLatencyStats[]
-  ): Promise<void> {
+  private async saveChainStatsToDatabase(chainStats: ChainPerformanceStats[]): Promise<void> {
     try {
-      // Publish chain stats events
-      const chainEventPromises = chainStats.map(stats => 
-        this.eventPublisher.publishChainPerformanceUpdated(
-          stats.chainId,
-          stats.chainName,
+      const chainPromises = chainStats.map(stats => 
+        statsQueries.upsertChainStats(
+          this.mongoManager, 
+          this.models.ChainStats, 
+          stats.chainId, 
           stats
         )
       );
 
-      // Publish bridge stats events
-      const bridgeEventPromises = bridgeStats.map(stats => 
-        this.eventPublisher.publishBridgeLatencyUpdated(
-          stats.provider,
+      await Promise.all(chainPromises);
+      
+      logger.debug('Chain stats saved to database', {
+        chainStatsCount: chainStats.length
+      });
+    } catch (error) {
+      logger.error('Failed to save chain stats to database', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Save bridge stats to MongoDB
+   */
+  private async saveBridgeStatsToDatabase(bridgeStats: BridgeLatencyStats[]): Promise<void> {
+    try {
+      const bridgePromises = bridgeStats.map(stats => 
+        statsQueries.upsertBridgeStats(
+          this.mongoManager, 
+          this.models.BridgeStats, 
+          stats.provider, 
           stats
         )
       );
 
-      await Promise.all([...chainEventPromises, ...bridgeEventPromises]);
+      await Promise.all(bridgePromises);
       
-      this.metrics.eventsPublished += chainStats.length + bridgeStats.length;
+      logger.debug('Bridge stats saved to database', {
+        bridgeStatsCount: bridgeStats.length
+      });
+    } catch (error) {
+      logger.error('Failed to save bridge stats to database', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+
+
+  /**
+   * Publish chain stats update
+   */
+  private async publishChainStatsUpdate(chainStats: ChainPerformanceStats[]): Promise<void> {
+    try {
+      // Publish chain stats
+      await this.eventPublisher.publishChainStatsUpdate(chainStats);
       
-      logger.debug('Stats events published', {
-        chainEvents: chainStats.length,
-        bridgeEvents: bridgeStats.length
+      this.metrics.eventsPublished += chainStats.length;
+      
+      logger.debug('Chain stats published', {
+        totalChains: chainStats.length
       });
     } catch (error) {
       this.metrics.eventsPublishErrors++;
-      logger.error('Failed to publish stats events', {
+      logger.error('Failed to publish chain stats', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Publish bridge stats update
+   */
+  private async publishBridgeStatsUpdate(bridgeStats: BridgeLatencyStats[]): Promise<void> {
+    try {
+      // Publish bridge stats
+      await this.eventPublisher.publishBridgeStatsUpdate(bridgeStats);
+      
+      this.metrics.eventsPublished += bridgeStats.length;
+      
+      logger.debug('Bridge stats published', {
+        totalBridges: bridgeStats.length
+      });
+    } catch (error) {
+      this.metrics.eventsPublishErrors++;
+      logger.error('Failed to publish bridge stats', {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw error;
@@ -318,8 +448,14 @@ export class StatsAggregator {
       { ...overview, isLatest: true } as any
     );
 
-    // Publish overview event
-    await this.eventPublisher.publishStatsOverviewUpdated(overview);
+    // Note: Overview is saved to database but not published as separate event
+    // Individual chain_stats and bridge_stats events are published instead
+
+          logger.debug('Stats overview saved to database', {
+        chainStatsCount: chainStats.length,
+        bridgeStatsCount: bridgeStats.length,
+        healthStatus: overview.healthStatus
+      });
 
     return overview;
   }

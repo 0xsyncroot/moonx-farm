@@ -32,15 +32,11 @@ const WebSocketServiceSchema = BaseConfigSchema
     KAFKA_CONSUMER_GROUP_ID: z.string().default('websocket-consumers'),
     KAFKA_MAIN_TOPIC: z.string().default('moonx.ws.events'),
     
-    // Legacy topics for backward compatibility (deprecated)
-    KAFKA_TOPIC_PRICES: z.string().default('price.updates'),
-    KAFKA_TOPIC_ORDERS: z.string().default('order.updates'),
-    KAFKA_TOPIC_PORTFOLIO: z.string().default('portfolio.updates'),
-    KAFKA_TOPIC_TRADES: z.string().default('trade.updates'),
+    // Legacy topics removed - using single topic pattern
     
     // Event processing configuration
     EVENT_PROCESSING_ENABLED: z.string().transform((val: string) => val === 'true').default('true'),
-    EVENT_VALIDATION_ENABLED: z.string().transform((val: string) => val === 'true').default('true'),
+    EVENT_VALIDATION_ENABLED: z.string().transform((val: string) => val === 'true').default('false'),
     EVENT_DEAD_LETTER_QUEUE_ENABLED: z.string().transform((val: string) => val === 'true').default('true'),
     EVENT_DEAD_LETTER_QUEUE_TOPIC: z.string().default('moonx.ws.events.dlq'),
     EVENT_RETRY_ATTEMPTS: z.coerce.number().default(3),
@@ -120,13 +116,7 @@ export const websocketConfig = {
       retryDelay: config.get('EVENT_RETRY_DELAY'),
     },
     
-    // Legacy topics (deprecated, for backward compatibility)
-    legacy: {
-      prices: config.get('KAFKA_TOPIC_PRICES'),
-      orders: config.get('KAFKA_TOPIC_ORDERS'),
-      portfolio: config.get('KAFKA_TOPIC_PORTFOLIO'),
-      trades: config.get('KAFKA_TOPIC_TRADES'),
-    },
+    // Legacy topics removed - using single topic pattern
   },
   
   // Redis

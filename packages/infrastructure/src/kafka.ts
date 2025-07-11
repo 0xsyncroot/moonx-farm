@@ -50,6 +50,16 @@ export interface KafkaManagerConfig {
       password: string;
     };
   };
+  // Additional enhanced options (backward compatible)
+  enableCircuitBreaker?: boolean;
+  circuitBreakerThreshold?: number;
+  circuitBreakerResetTimeout?: number;
+  maxTopicStats?: number;
+  healthCheckInterval?: number;
+  shutdownTimeout?: number;
+  batchErrorIsolation?: boolean;
+  enableMovingAverage?: boolean;
+  movingAverageWindow?: number;
 }
 
 /**
@@ -126,6 +136,186 @@ export interface KafkaMetrics {
     messagesConsumed: number;
     errors: number;
   }>;
+  // Enhanced metrics
+  circuitBreaker?: {
+    state: string;
+    failures: number;
+  };
+}
+
+/**
+ * Circuit breaker for Kafka operations
+ */
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private state: 'closed' | 'open' | 'half-open' = 'closed';
+  
+  constructor(
+    private threshold: number = 5,
+    private resetTimeout: number = 30000
+  ) {}
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.state === 'open') {
+      if (Date.now() - this.lastFailureTime > this.resetTimeout) {
+        this.state = 'half-open';
+      } else {
+        throw new ServiceUnavailableError('Circuit breaker is open');
+      }
+    }
+
+    try {
+      const result = await fn();
+      if (this.state === 'half-open') {
+        this.reset();
+      }
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailureTime = Date.now();
+      
+      if (this.failures >= this.threshold) {
+        this.state = 'open';
+      }
+      
+      throw error;
+    }
+  }
+
+  private reset(): void {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+
+  getState(): { state: string; failures: number } {
+    return { state: this.state, failures: this.failures };
+  }
+}
+
+/**
+ * Thread-safe metrics with memory management
+ */
+class ThreadSafeMetrics {
+  private metrics: KafkaMetrics;
+  private produceTimings: number[] = [];
+  private consumeTimings: number[] = [];
+  private maxTopicStats: number;
+  private movingAverageWindow: number;
+  private readonly lock = new Map<string, Promise<void>>();
+
+  constructor(maxTopicStats = 1000, movingAverageWindow = 100) {
+    this.maxTopicStats = maxTopicStats;
+    this.movingAverageWindow = movingAverageWindow;
+    this.metrics = {
+      messagesProduced: 0,
+      messagesConsumed: 0,
+      producerErrors: 0,
+      consumerErrors: 0,
+      connectionErrors: 0,
+      averageProduceTime: 0,
+      averageConsumeTime: 0,
+      activeProducers: 0,
+      activeConsumers: 0,
+      topicStats: {},
+    };
+  }
+
+  async updateTopicStats(topic: string, action: 'produced' | 'consumed' | 'error', count = 1): Promise<void> {
+    const lockKey = `topic_${topic}`;
+    
+    if (this.lock.has(lockKey)) {
+      await this.lock.get(lockKey);
+    }
+
+    const lockPromise = this.updateTopicStatsUnsafe(topic, action, count);
+    this.lock.set(lockKey, lockPromise);
+    
+    try {
+      await lockPromise;
+    } finally {
+      this.lock.delete(lockKey);
+    }
+  }
+
+  private async updateTopicStatsUnsafe(topic: string, action: 'produced' | 'consumed' | 'error', count = 1): Promise<void> {
+    if (!this.metrics.topicStats[topic]) {
+      // Memory management: remove oldest topics if limit reached
+      const topicKeys = Object.keys(this.metrics.topicStats);
+      if (topicKeys.length >= this.maxTopicStats) {
+        const oldestTopic = topicKeys[0];
+        delete this.metrics.topicStats[oldestTopic];
+      }
+      
+      this.metrics.topicStats[topic] = {
+        messagesProduced: 0,
+        messagesConsumed: 0,
+        errors: 0,
+      };
+    }
+
+    const stats = this.metrics.topicStats[topic];
+    switch (action) {
+      case 'produced':
+        stats.messagesProduced += count;
+        this.metrics.messagesProduced += count;
+        break;
+      case 'consumed':
+        stats.messagesConsumed += count;
+        this.metrics.messagesConsumed += count;
+        break;
+      case 'error':
+        stats.errors += count;
+        break;
+    }
+  }
+
+  updateAverageTime(action: 'produce' | 'consume', duration: number): void {
+    if (action === 'produce') {
+      this.produceTimings.push(duration);
+      if (this.produceTimings.length > this.movingAverageWindow) {
+        this.produceTimings.shift();
+      }
+      this.metrics.averageProduceTime = this.produceTimings.reduce((a, b) => a + b, 0) / this.produceTimings.length;
+    } else {
+      this.consumeTimings.push(duration);
+      if (this.consumeTimings.length > this.movingAverageWindow) {
+        this.consumeTimings.shift();
+      }
+      this.metrics.averageConsumeTime = this.consumeTimings.reduce((a, b) => a + b, 0) / this.consumeTimings.length;
+    }
+  }
+
+  incrementCounter(key: keyof KafkaMetrics, count = 1): void {
+    if (typeof this.metrics[key] === 'number') {
+      (this.metrics[key] as number) += count;
+    }
+  }
+
+  getMetrics(): KafkaMetrics {
+    return { ...this.metrics };
+  }
+
+  setCircuitBreakerState(state: { state: string; failures: number }): void {
+    this.metrics.circuitBreaker = state;
+  }
+
+  reset(): void {
+    this.metrics = {
+      messagesProduced: 0,
+      messagesConsumed: 0,
+      producerErrors: 0,
+      consumerErrors: 0,
+      connectionErrors: 0,
+      averageProduceTime: 0,
+      averageConsumeTime: 0,
+      activeProducers: 0,
+      activeConsumers: 0,
+      topicStats: {},
+    };
+    this.produceTimings = [];
+    this.consumeTimings = [];
+  }
 }
 
 /**
@@ -137,31 +327,69 @@ class KafkaConnectionPool {
   private maxConnections: number;
   private idleTimeout: number;
   private lastUsed: Map<string, number> = new Map();
+  private connectionLocks: Map<string, Promise<void>> = new Map();
+  // Track active consumers to prevent cleanup
+  private activeConsumers: Set<string> = new Set();
 
   constructor(maxConnections: number = 10, idleTimeout: number = 300000) {
     this.maxConnections = maxConnections;
     this.idleTimeout = idleTimeout;
     
-    // Cleanup idle connections
+    // Cleanup idle connections - but protect active consumers
     setInterval(() => this.cleanupIdleConnections(), 60000);
   }
 
-  addProducer(id: string, producer: Producer): void {
+  async addProducer(id: string, producer: Producer): Promise<void> {
+    const lockKey = `producer_${id}`;
+    
+    if (this.connectionLocks.has(lockKey)) {
+      await this.connectionLocks.get(lockKey);
+    }
+
+    const lockPromise = this.addProducerUnsafe(id, producer);
+    this.connectionLocks.set(lockKey, lockPromise);
+    
+    try {
+      await lockPromise;
+    } finally {
+      this.connectionLocks.delete(lockKey);
+    }
+  }
+
+  private async addProducerUnsafe(id: string, producer: Producer): Promise<void> {
     if (this.producers.size >= this.maxConnections) {
-      this.removeOldestProducer();
+      await this.removeOldestProducer();
     }
     
     this.producers.set(id, producer);
     this.lastUsed.set(id, Date.now());
   }
 
-  addConsumer(id: string, consumer: Consumer): void {
+  async addConsumer(id: string, consumer: Consumer): Promise<void> {
+    const lockKey = `consumer_${id}`;
+    
+    if (this.connectionLocks.has(lockKey)) {
+      await this.connectionLocks.get(lockKey);
+    }
+
+    const lockPromise = this.addConsumerUnsafe(id, consumer);
+    this.connectionLocks.set(lockKey, lockPromise);
+    
+    try {
+      await lockPromise;
+    } finally {
+      this.connectionLocks.delete(lockKey);
+    }
+  }
+
+  private async addConsumerUnsafe(id: string, consumer: Consumer): Promise<void> {
     if (this.consumers.size >= this.maxConnections) {
-      this.removeOldestConsumer();
+      await this.removeOldestConsumer();
     }
     
     this.consumers.set(id, consumer);
     this.lastUsed.set(id, Date.now());
+    this.activeConsumers.add(id);
   }
 
   getProducer(id: string): Producer | undefined {
@@ -176,6 +404,8 @@ class KafkaConnectionPool {
     const consumer = this.consumers.get(id);
     if (consumer) {
       this.lastUsed.set(id, Date.now());
+      // Mark as active when accessed
+      this.activeConsumers.add(id);
     }
     return consumer;
   }
@@ -183,7 +413,11 @@ class KafkaConnectionPool {
   async removeProducer(id: string): Promise<void> {
     const producer = this.producers.get(id);
     if (producer) {
-      await producer.disconnect();
+      try {
+        await producer.disconnect();
+      } catch (error) {
+        logger.warn('Failed to disconnect producer', { id, error });
+      }
       this.producers.delete(id);
       this.lastUsed.delete(id);
     }
@@ -192,13 +426,18 @@ class KafkaConnectionPool {
   async removeConsumer(id: string): Promise<void> {
     const consumer = this.consumers.get(id);
     if (consumer) {
-      await consumer.disconnect();
+      try {
+        await consumer.disconnect();
+      } catch (error) {
+        logger.warn('Failed to disconnect consumer', { id, error });
+      }
       this.consumers.delete(id);
       this.lastUsed.delete(id);
+      this.activeConsumers.delete(id);
     }
   }
 
-  private removeOldestProducer(): void {
+  private async removeOldestProducer(): Promise<void> {
     let oldestId = '';
     let oldestTime = Date.now();
     
@@ -210,11 +449,11 @@ class KafkaConnectionPool {
     }
     
     if (oldestId) {
-      this.removeProducer(oldestId);
+      await this.removeProducer(oldestId);
     }
   }
 
-  private removeOldestConsumer(): void {
+  private async removeOldestConsumer(): Promise<void> {
     let oldestId = '';
     let oldestTime = Date.now();
     
@@ -226,22 +465,37 @@ class KafkaConnectionPool {
     }
     
     if (oldestId) {
-      this.removeConsumer(oldestId);
+      await this.removeConsumer(oldestId);
     }
   }
 
-  private cleanupIdleConnections(): void {
+  private async cleanupIdleConnections(): Promise<void> {
     const now = Date.now();
+    const cleanupPromises: Promise<void>[] = [];
     
     for (const [id, lastUsedTime] of this.lastUsed) {
+      // Skip cleanup for active consumers - they should stay connected
+      if (this.activeConsumers.has(id) && this.consumers.has(id)) {
+        logger.debug('Skipping cleanup for active consumer', { consumerId: id });
+        continue;
+      }
+      
       if (now - lastUsedTime > this.idleTimeout) {
         if (this.producers.has(id)) {
-          this.removeProducer(id);
+          cleanupPromises.push(this.removeProducer(id));
         } else if (this.consumers.has(id)) {
-          this.removeConsumer(id);
+          // Only cleanup inactive consumers
+          logger.info('Cleaning up idle consumer', { 
+            consumerId: id, 
+            idleTime: now - lastUsedTime,
+            isActive: this.activeConsumers.has(id)
+          });
+          cleanupPromises.push(this.removeConsumer(id));
         }
       }
     }
+    
+    await Promise.all(cleanupPromises);
   }
 
   async disconnectAll(): Promise<void> {
@@ -275,29 +529,43 @@ export class KafkaManager {
   private admin?: Admin;
   private isConnected = false;
   private isShuttingDown = false;
-  private metrics: KafkaMetrics;
+  private shutdownPromise?: Promise<void>;
+  private threadSafeMetrics: ThreadSafeMetrics;
+  private circuitBreaker?: CircuitBreaker;
   private config: KafkaManagerConfig;
   private healthCheckInterval?: NodeJS.Timeout;
 
   constructor(config: KafkaManagerConfig) {
-    this.config = config;
+    this.config = {
+      // Set enhanced defaults
+      maxTopicStats: 1000,
+      healthCheckInterval: 30000,
+      shutdownTimeout: 30000,
+      batchErrorIsolation: true,
+      enableMovingAverage: true,
+      movingAverageWindow: 100,
+      enableCircuitBreaker: true,
+      circuitBreakerThreshold: 5,
+      circuitBreakerResetTimeout: 30000,
+      ...config,
+    };
+    
     this.connectionPool = new KafkaConnectionPool(
-      config.maxConnections || 10,
-      config.idleConnectionTimeout || 300000
+      this.config.maxConnections || 10,
+      this.config.idleConnectionTimeout || 300000
     );
     
-    this.metrics = {
-      messagesProduced: 0,
-      messagesConsumed: 0,
-      producerErrors: 0,
-      consumerErrors: 0,
-      connectionErrors: 0,
-      averageProduceTime: 0,
-      averageConsumeTime: 0,
-      activeProducers: 0,
-      activeConsumers: 0,
-      topicStats: {},
-    };
+    this.threadSafeMetrics = new ThreadSafeMetrics(
+      this.config.maxTopicStats,
+      this.config.movingAverageWindow
+    );
+
+    if (this.config.enableCircuitBreaker) {
+      this.circuitBreaker = new CircuitBreaker(
+        this.config.circuitBreakerThreshold,
+        this.config.circuitBreakerResetTimeout
+      );
+    }
 
     const kafkaConfig: KafkaConfig = {
       clientId: config.clientId,
@@ -321,17 +589,23 @@ export class KafkaManager {
    * Setup event handlers
    */
   private setupEventHandlers(): void {
-    // Graceful shutdown
-    process.on('SIGINT', () => this.gracefulShutdown());
-    process.on('SIGTERM', () => this.gracefulShutdown());
-    process.on('exit', () => this.gracefulShutdown());
+    // REMOVED: Global signal handlers that cause unexpected consumer disconnections
+    // Applications should manage their own lifecycle and call gracefulShutdown() explicitly
+    // 
+    // Previously was:
+    // process.on('SIGINT', () => this.gracefulShutdown());
+    // process.on('SIGTERM', () => this.gracefulShutdown());
+    // process.on('exit', () => this.gracefulShutdown());
+    
+    // Infrastructure should NOT manage process lifecycle automatically
+    // Each service should handle shutdown explicitly in their main application code
   }
 
   /**
    * Connect to Kafka
    */
   async connect(): Promise<void> {
-    try {
+    const connectOperation = async () => {
       // Test connection by creating and immediately disconnecting a producer
       const testProducer = this.kafka.producer();
       await testProducer.connect();
@@ -348,14 +622,23 @@ export class KafkaManager {
         this.startHealthCheck();
       }
       
-      logger.info('Kafka connected successfully', {
+      logger.info('Enhanced Kafka connected successfully', {
         clientId: this.config.clientId,
         brokers: this.config.brokers,
         enableMetrics: this.config.enableMetrics,
+        circuitBreaker: this.config.enableCircuitBreaker,
       });
+    };
+
+    try {
+      if (this.circuitBreaker) {
+        await this.circuitBreaker.execute(connectOperation);
+      } else {
+        await connectOperation();
+      }
     } catch (error) {
       const err = error as Error;
-      this.metrics.connectionErrors++;
+      this.threadSafeMetrics.incrementCounter('connectionErrors');
       logger.error('Kafka connection failed', { error: err.message });
       throw new ServiceUnavailableError('Failed to connect to Kafka', {
         originalError: err.message,
@@ -368,11 +651,20 @@ export class KafkaManager {
    */
   async gracefulShutdown(): Promise<void> {
     if (this.isShuttingDown) {
-      return;
+      return this.shutdownPromise;
     }
 
     this.isShuttingDown = true;
-    logger.info('Starting Kafka graceful shutdown...');
+    logger.info('Starting enhanced Kafka graceful shutdown...');
+
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
+    const shutdownTimeout = setTimeout(() => {
+      logger.warn('Kafka shutdown timeout reached, forcing shutdown');
+    }, this.config.shutdownTimeout);
 
     try {
       // Stop health check
@@ -389,10 +681,12 @@ export class KafkaManager {
       }
 
       this.isConnected = false;
-      logger.info('Kafka graceful shutdown completed');
+      logger.info('Enhanced Kafka graceful shutdown completed');
     } catch (error) {
       const err = error as Error;
-      logger.error('Kafka graceful shutdown failed', { error: err.message });
+      logger.error('Enhanced Kafka graceful shutdown failed', { error: err.message });
+    } finally {
+      clearTimeout(shutdownTimeout);
     }
   }
 
@@ -435,8 +729,8 @@ export class KafkaManager {
         });
       }
 
-      this.connectionPool.addProducer(id, producer);
-      this.metrics.activeProducers++;
+      await this.connectionPool.addProducer(id, producer);
+      this.threadSafeMetrics.incrementCounter('activeProducers');
 
       logger.info('Kafka producer created', { 
         producerId: id,
@@ -447,7 +741,7 @@ export class KafkaManager {
       return producer;
     } catch (error) {
       const err = error as Error;
-      this.metrics.producerErrors++;
+      this.threadSafeMetrics.incrementCounter('producerErrors');
       logger.error('Failed to create Kafka producer', {
         producerId: id,
         error: err.message,
@@ -491,8 +785,8 @@ export class KafkaManager {
       });
 
       await consumer.connect();
-      this.connectionPool.addConsumer(id, consumer);
-      this.metrics.activeConsumers++;
+      await this.connectionPool.addConsumer(id, consumer);
+      this.threadSafeMetrics.incrementCounter('activeConsumers');
 
       logger.info('Kafka consumer created', {
         consumerId: id,
@@ -503,7 +797,7 @@ export class KafkaManager {
       return consumer;
     } catch (error) {
       const err = error as Error;
-      this.metrics.consumerErrors++;
+      this.threadSafeMetrics.incrementCounter('consumerErrors');
       logger.error('Failed to create Kafka consumer', {
         consumerId: id,
         groupId: options.groupId,
@@ -545,9 +839,8 @@ export class KafkaManager {
       });
 
       // Update metrics
-      this.metrics.messagesProduced++;
-      this.updateTopicStats(options.topic, 'produced');
-      this.updateAverageTime('produce', Date.now() - startTime);
+      await this.threadSafeMetrics.updateTopicStats(options.topic, 'produced');
+      this.threadSafeMetrics.updateAverageTime('produce', Date.now() - startTime);
 
       // Only log slow operations to reduce noise
       if (Date.now() - startTime > 1000) {
@@ -560,8 +853,8 @@ export class KafkaManager {
       }
     } catch (error) {
       const err = error as Error;
-      this.metrics.producerErrors++;
-      this.updateTopicStats(options.topic, 'error');
+      this.threadSafeMetrics.incrementCounter('producerErrors');
+      await this.threadSafeMetrics.updateTopicStats(options.topic, 'error');
       
       logger.error('Failed to publish message to Kafka', {
         topic: options.topic,
@@ -619,11 +912,10 @@ export class KafkaManager {
       });
 
       // Update metrics
-      this.metrics.messagesProduced += messages.length;
-      Object.keys(messagesByTopic).forEach(topic => {
-        this.updateTopicStats(topic, 'produced', messagesByTopic[topic].length);
-      });
-      this.updateAverageTime('produce', Date.now() - startTime);
+      for (const topic of Object.keys(messagesByTopic)) {
+        await this.threadSafeMetrics.updateTopicStats(topic, 'produced', messagesByTopic[topic].length);
+      }
+      this.threadSafeMetrics.updateAverageTime('produce', Date.now() - startTime);
 
       // Only log batch operations that are slow or large
       if (Date.now() - startTime > 1000 || messages.length > 100) {
@@ -636,7 +928,7 @@ export class KafkaManager {
       }
     } catch (error) {
       const err = error as Error;
-      this.metrics.producerErrors++;
+      this.threadSafeMetrics.incrementCounter('producerErrors');
       
       logger.error('Failed to publish batch messages to Kafka', {
         messageCount: messages.length,
@@ -686,9 +978,8 @@ export class KafkaManager {
             await handler(topic, parsedMessage, message);
             
             // Update metrics
-            this.metrics.messagesConsumed++;
-            this.updateTopicStats(topic, 'consumed');
-            this.updateAverageTime('consume', Date.now() - startTime);
+            await this.threadSafeMetrics.updateTopicStats(topic, 'consumed');
+            this.threadSafeMetrics.updateAverageTime('consume', Date.now() - startTime);
             
             // Only log slow message processing to reduce noise
             const processingTime = Date.now() - startTime;
@@ -704,8 +995,8 @@ export class KafkaManager {
             }
           } catch (error) {
             const err = error as Error;
-            this.metrics.consumerErrors++;
-            this.updateTopicStats(topic, 'error');
+            this.threadSafeMetrics.incrementCounter('consumerErrors');
+            await this.threadSafeMetrics.updateTopicStats(topic, 'error');
             
             logger.error('Failed to process Kafka message', {
               topic,
@@ -730,8 +1021,9 @@ export class KafkaManager {
         },
         eachBatch: async ({ batch, resolveOffset, heartbeat }) => {
           // Process messages in batch for better performance
+          await this.processMessagesBatch(batch.messages, batch.topic, handler, consumerId, options);
+          
           for (const message of batch.messages) {
-            await this.processMessage(message, batch.topic, handler, consumerId);
             resolveOffset(message.offset);
             await heartbeat();
           }
@@ -766,7 +1058,8 @@ export class KafkaManager {
     message: any,
     topic: string,
     handler: (topic: string, message: any, rawMessage: any) => Promise<void>,
-    consumerId: string
+    consumerId: string,
+    options?: { enableDeadLetterQueue?: boolean; deadLetterQueueTopic?: string }
   ): Promise<void> {
     const startTime = Date.now();
     const messageId = generateId();
@@ -782,14 +1075,13 @@ export class KafkaManager {
       await handler(topic, parsedMessage, message);
       
       // Update metrics
-      this.metrics.messagesConsumed++;
-      this.updateTopicStats(topic, 'consumed');
-      this.updateAverageTime('consume', Date.now() - startTime);
+      await this.threadSafeMetrics.updateTopicStats(topic, 'consumed');
+      this.threadSafeMetrics.updateAverageTime('consume', Date.now() - startTime);
       
     } catch (error) {
       const err = error as Error;
-      this.metrics.consumerErrors++;
-      this.updateTopicStats(topic, 'error');
+      this.threadSafeMetrics.incrementCounter('consumerErrors');
+      await this.threadSafeMetrics.updateTopicStats(topic, 'error');
       
       logger.error('Failed to process message in batch', {
         topic,
@@ -798,7 +1090,51 @@ export class KafkaManager {
         error: err.message,
       });
       
+      // Send to dead letter queue if enabled
+      if (options?.enableDeadLetterQueue && options?.deadLetterQueueTopic) {
+        await this.sendToDeadLetterQueue(
+          options.deadLetterQueueTopic,
+          message,
+          err.message,
+          topic
+        );
+      }
+      
       throw error;
+    }
+  }
+
+  /**
+   * Process messages batch with error isolation
+   */
+  async processMessagesBatch(
+    messages: any[],
+    topic: string,
+    handler: (topic: string, message: any, rawMessage: any) => Promise<void>,
+    consumerId: string,
+    options?: { enableDeadLetterQueue?: boolean; deadLetterQueueTopic?: string }
+  ): Promise<void> {
+    if (!this.config.batchErrorIsolation) {
+      // Original behavior for backward compatibility
+      for (const message of messages) {
+        await this.processMessage(message, topic, handler, consumerId, options);
+      }
+      return;
+    }
+
+    // Process messages with error isolation
+    const results = await Promise.allSettled(
+      messages.map(message => this.processMessage(message, topic, handler, consumerId, options))
+    );
+
+    const failures = results.filter(r => r.status === 'rejected');
+    if (failures.length > 0) {
+      logger.warn('Batch processing completed with errors', {
+        total: messages.length,
+        failures: failures.length,
+        topic,
+        consumerId,
+      });
     }
   }
 
@@ -812,23 +1148,44 @@ export class KafkaManager {
     originalTopic: string
   ): Promise<void> {
     try {
+      const retryCount = parseInt(originalMessage.headers?.retryCount || '0') + 1;
+      
+      // Prevent infinite loops in DLQ
+      if (retryCount > 3) {
+        logger.error('Max retry count exceeded for DLQ message', {
+          originalTopic,
+          errorMessage,
+          retryCount,
+        });
+        return;
+      }
+
       const dlqMessage = {
         originalTopic,
         errorMessage,
         originalMessage: originalMessage.value?.toString(),
         timestamp: new Date().toISOString(),
         headers: originalMessage.headers,
+        retryCount,
       };
 
-      await this.publish(dlqMessage, {
+      // Use circuit breaker for DLQ to prevent cascading failures
+      const dlqOperation = () => this.publish(dlqMessage, {
         topic: deadLetterTopic,
         key: originalMessage.key?.toString(),
+        headers: { retryCount: retryCount.toString() },
       });
+
+      if (this.circuitBreaker) {
+        await this.circuitBreaker.execute(dlqOperation);
+      } else {
+        await dlqOperation();
+      }
       
       logger.info('Message sent to dead letter queue', {
         originalTopic,
         deadLetterTopic,
-        errorMessage,
+        retryCount,
       });
     } catch (error) {
       logger.error('Failed to send message to dead letter queue', {
@@ -840,57 +1197,19 @@ export class KafkaManager {
   }
 
   /**
-   * Update topic statistics
-   */
-  private updateTopicStats(topic: string, action: 'produced' | 'consumed' | 'error', count = 1): void {
-    if (!this.metrics.topicStats[topic]) {
-      this.metrics.topicStats[topic] = {
-        messagesProduced: 0,
-        messagesConsumed: 0,
-        errors: 0,
-      };
-    }
-
-    switch (action) {
-      case 'produced':
-        this.metrics.topicStats[topic].messagesProduced += count;
-        break;
-      case 'consumed':
-        this.metrics.topicStats[topic].messagesConsumed += count;
-        break;
-      case 'error':
-        this.metrics.topicStats[topic].errors += count;
-        break;
-    }
-  }
-
-  /**
-   * Update average processing time
-   */
-  private updateAverageTime(action: 'produce' | 'consume', duration: number): void {
-    if (action === 'produce') {
-      this.metrics.averageProduceTime = 
-        (this.metrics.averageProduceTime + duration) / 2;
-    } else {
-      this.metrics.averageConsumeTime = 
-        (this.metrics.averageConsumeTime + duration) / 2;
-    }
-  }
-
-  /**
    * Start health check monitoring
    */
   private startHealthCheck(): void {
     this.healthCheckInterval = setInterval(async () => {
       try {
-        if (this.admin) {
+        if (this.admin && this.isConnected) {
           await this.admin.listTopics();
         }
       } catch (error) {
-        this.metrics.connectionErrors++;
+        this.threadSafeMetrics.incrementCounter('connectionErrors');
         logger.warn('Kafka health check failed', { error });
       }
-    }, 30000); // Every 30 seconds
+    }, this.config.healthCheckInterval || 30000);
   }
 
   /**
@@ -919,8 +1238,15 @@ export class KafkaManager {
    */
   getMetrics(): KafkaMetrics {
     const poolStats = this.connectionPool.getStats();
+    const metrics = this.threadSafeMetrics.getMetrics();
+    
+    // Update circuit breaker state in metrics
+    if (this.circuitBreaker) {
+      this.threadSafeMetrics.setCircuitBreakerState(this.circuitBreaker.getState());
+    }
+    
     return {
-      ...this.metrics,
+      ...metrics,
       activeProducers: poolStats.producers,
       activeConsumers: poolStats.consumers,
     };
@@ -930,18 +1256,7 @@ export class KafkaManager {
    * Reset metrics
    */
   resetMetrics(): void {
-    this.metrics = {
-      messagesProduced: 0,
-      messagesConsumed: 0,
-      producerErrors: 0,
-      consumerErrors: 0,
-      connectionErrors: 0,
-      averageProduceTime: 0,
-      averageConsumeTime: 0,
-      activeProducers: 0,
-      activeConsumers: 0,
-      topicStats: {},
-    };
+    this.threadSafeMetrics.reset();
   }
 
   /**
@@ -1098,6 +1413,18 @@ export function createKafkaConfig(): KafkaManagerConfig {
     compression: (process.env.KAFKA_COMPRESSION as any) || 'gzip',
     enableMetrics: process.env.KAFKA_ENABLE_METRICS === 'true',
     transactionTimeout: parseInt(process.env.KAFKA_TRANSACTION_TIMEOUT || '30000'),
+    
+    // Enhanced options with environment support
+    enableCircuitBreaker: process.env.KAFKA_ENABLE_CIRCUIT_BREAKER !== 'false',
+    circuitBreakerThreshold: parseInt(process.env.KAFKA_CIRCUIT_BREAKER_THRESHOLD || '5'),
+    circuitBreakerResetTimeout: parseInt(process.env.KAFKA_CIRCUIT_BREAKER_RESET_TIMEOUT || '30000'),
+    maxTopicStats: parseInt(process.env.KAFKA_MAX_TOPIC_STATS || '1000'),
+    healthCheckInterval: parseInt(process.env.KAFKA_HEALTH_CHECK_INTERVAL || '30000'),
+    shutdownTimeout: parseInt(process.env.KAFKA_SHUTDOWN_TIMEOUT || '30000'),
+    batchErrorIsolation: process.env.KAFKA_BATCH_ERROR_ISOLATION !== 'false',
+    enableMovingAverage: process.env.KAFKA_ENABLE_MOVING_AVERAGE !== 'false',
+    movingAverageWindow: parseInt(process.env.KAFKA_MOVING_AVERAGE_WINDOW || '100'),
+    
     retry: {
       initialRetryTime: parseInt(process.env.KAFKA_RETRY_INITIAL_TIME || '100'),
       retries: parseInt(process.env.KAFKA_RETRY_COUNT || '8'),

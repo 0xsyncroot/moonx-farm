@@ -1,16 +1,16 @@
 // Stats Worker Configuration
 // Using environment variables directly for simplicity
 
-// Chain logo configuration
+// Chain logo configuration - Using proper chain logos, not token logos
 const CHAIN_LOGOS = {
-  ethereum: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/eth.png',
-  base: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/eth.png', // Base uses ETH logo
-  bsc: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/bnb.png',
-  polygon: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/matic.png',
-  arbitrum: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
-  optimism: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
-  avalanche: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/avax.png',
-  fantom: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/ftm.png'
+  ethereum: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png', // Official Ethereum logo
+  base: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png', // Base chain logo
+  bsc: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png', // BSC chain logo
+  polygon: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png', // Polygon chain logo
+  arbitrum: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png', // Arbitrum chain logo
+  optimism: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png', // Optimism chain logo
+  avalanche: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png', // Avalanche chain logo
+  fantom: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/fantom/info/logo.png' // Fantom chain logo
 };
 
 /**
@@ -47,7 +47,10 @@ export const getChainConfigs = () => {
       chainId: 8453,
       chainSlug: 'base',
       logoUrl: getChainLogoUrl('base'),
-      rpc: process.env.BASE_RPC_URL || 'https://base-mainnet.g.alchemy.com/v2/demo',
+      rpc: process.env.BASE_RPC_URL || (() => {
+        console.warn('⚠️  BASE_RPC_URL not set, using public endpoint (rate limited)');
+        return 'https://mainnet.base.org';
+      })(),
       defiLlamaSlug: 'base',
       enabled: true,
     });
@@ -59,7 +62,10 @@ export const getChainConfigs = () => {
       chainId: 56,
       chainSlug: 'bsc',
       logoUrl: getChainLogoUrl('bsc'),
-      rpc: process.env.BSC_RPC_URL || 'https://bnb-mainnet.g.alchemy.com/v2/demo',
+      rpc: process.env.BSC_RPC_URL || (() => {
+        console.warn('⚠️  BSC_RPC_URL not set, using public endpoint (rate limited)');
+        return 'https://bsc-dataseed.binance.org';
+      })(),
       defiLlamaSlug: 'bsc',
       enabled: true,
     });
@@ -71,7 +77,10 @@ export const getChainConfigs = () => {
       chainId: 1,
       chainSlug: 'ethereum',
       logoUrl: getChainLogoUrl('ethereum'),
-      rpc: process.env.ETHEREUM_RPC_URL || 'https://eth-mainnet.g.alchemy.com/v2/demo',
+      rpc: process.env.ETHEREUM_RPC_URL || (() => {
+        console.warn('⚠️  ETHEREUM_RPC_URL not set, using public endpoint (rate limited)');
+        return 'https://eth.llamarpc.com';
+      })(),
       defiLlamaSlug: 'ethereum',
       enabled: true,
     });
@@ -83,7 +92,10 @@ export const getChainConfigs = () => {
       chainId: 137,
       chainSlug: 'polygon',
       logoUrl: getChainLogoUrl('polygon'),
-      rpc: process.env.POLYGON_RPC_URL || 'https://polygon-mainnet.g.alchemy.com/v2/demo',
+      rpc: process.env.POLYGON_RPC_URL || (() => {
+        console.warn('⚠️  POLYGON_RPC_URL not set, using public endpoint (rate limited)');
+        return 'https://polygon.llamarpc.com';
+      })(),
       defiLlamaSlug: 'polygon',
       enabled: true,
     });
@@ -95,7 +107,10 @@ export const getChainConfigs = () => {
       chainId: 42161,
       chainSlug: 'arbitrum',
       logoUrl: getChainLogoUrl('arbitrum'),
-      rpc: process.env.ARBITRUM_RPC_URL || 'https://arb-mainnet.g.alchemy.com/v2/demo',
+      rpc: process.env.ARBITRUM_RPC_URL || (() => {
+        console.warn('⚠️  ARBITRUM_RPC_URL not set, using public endpoint (rate limited)');
+        return 'https://arbitrum.llamarpc.com';
+      })(),
       defiLlamaSlug: 'arbitrum',
       enabled: true,
     });
@@ -107,7 +122,10 @@ export const getChainConfigs = () => {
       chainId: 10,
       chainSlug: 'optimism',
       logoUrl: getChainLogoUrl('optimism'),
-      rpc: process.env.OPTIMISM_RPC_URL || 'https://opt-mainnet.g.alchemy.com/v2/demo',
+      rpc: process.env.OPTIMISM_RPC_URL || (() => {
+        console.warn('⚠️  OPTIMISM_RPC_URL not set, using public endpoint (rate limited)');
+        return 'https://optimism.llamarpc.com';
+      })(),
       defiLlamaSlug: 'optimism',
       enabled: true,
     });

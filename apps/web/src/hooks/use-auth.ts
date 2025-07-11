@@ -19,7 +19,7 @@ export function useAuth() {
 
   const [isBackendAuthenticated, setIsBackendAuthenticated] = useState(false)
   
-  // Prevent multiple concurrent login attempts - Use sessionStorage for persistence
+  // 🚀 OPTIMIZED: Prevent multiple concurrent login attempts - Use sessionStorage for persistence
   const loginAttemptRef = useRef(false)
   const effectCallCountRef = useRef(0) // Debug counter
   
@@ -37,6 +37,12 @@ export function useAuth() {
   const clearAttemptedUser = () => {
     if (typeof window === 'undefined') return
     sessionStorage.removeItem('moonx_attempted_user')
+  }
+
+  // 🚀 OPTIMIZED: Faster token availability check
+  const hasAccessToken = () => {
+    if (typeof window === 'undefined') return false
+    return !!localStorage.getItem('accessToken')
   }
 
   // Get current user from backend
@@ -61,8 +67,8 @@ export function useAuth() {
       }
     },
     enabled: (() => {
-      // Call verify if we have accessToken, regardless of isBackendAuthenticated
-      const enabled = privyReady && typeof window !== 'undefined' && !!localStorage.getItem('accessToken')
+      // 🚀 OPTIMIZED: Use faster token check
+      const enabled = privyReady && hasAccessToken()
       return enabled
     })(),
     retry: false,
@@ -75,19 +81,22 @@ export function useAuth() {
   const backendLoginMutation = useMutation({
     mutationFn: authApi.login,
     onMutate: () => {
+      // 🚀 OPTIMIZED: Set authenticating state immediately
+      console.log('🔄 Backend login started...')
     },
     onSuccess: (response) => {
       loginAttemptRef.current = false
       
       if (response.success) {
-        // Small delay to ensure tokens are set in ApiClient
+        console.log('✅ Backend login successful')
+        // 🚀 OPTIMIZED: Smaller delay for faster response
         setTimeout(() => {
           setIsBackendAuthenticated(true)
-          // Additional delay to ensure tokens are fully set
+          // 🚀 OPTIMIZED: Even smaller delay for token sync
           setTimeout(() => {
             queryClient.invalidateQueries({ queryKey: ['currentUser'] })
-          }, 50)
-        }, 100)
+          }, 25) // Reduced from 50ms to 25ms
+        }, 50) // Reduced from 100ms to 50ms
       } else {
         console.error('❌ Backend login failed:', response)
         clearAttemptedUser() // Allow retry on failure
@@ -95,7 +104,6 @@ export function useAuth() {
     },
     onError: (error) => {
       loginAttemptRef.current = false
-      // Reset user attempt on error to allow retry
       clearAttemptedUser()
       console.error('❌ Backend login failed:', error)
       toast.error('Failed to connect to MoonX services')
@@ -123,31 +131,25 @@ export function useAuth() {
     },
   })
 
-  // Handle backend login when Privy authenticates - SIMPLIFIED SINGLE EFFECT
+  // 🚀 OPTIMIZED: Simplified backend login logic
   useEffect(() => {
     effectCallCountRef.current += 1
     const attemptedUser = getAttemptedUser()
 
     // Early returns to prevent unnecessary execution
-    if (!privyReady) {
-      return
-    }
+    if (!privyReady) return
     if (!privyAuthenticated || !privyUser) {
       // Reset attempt flags if user logged out
       clearAttemptedUser()
       return
     }
-    if (isBackendAuthenticated) {
-      return
-    }
-    if (attemptedUser === privyUser.id) {
-      return
-    }
-    if (loginAttemptRef.current || backendLoginMutation.isPending) {
-      return
-    }
-    // Skip login if we already have accessToken (let verify query handle it)
-    if (typeof window !== 'undefined' && localStorage.getItem('accessToken')) {
+    if (isBackendAuthenticated) return
+    if (attemptedUser === privyUser.id) return
+    if (loginAttemptRef.current || backendLoginMutation.isPending) return
+    
+    // 🚀 OPTIMIZED: Skip login if we already have accessToken (let verify query handle it)
+    if (hasAccessToken()) {
+      console.log('🔄 Access token found, letting verify query handle authentication')
       return
     }
 
@@ -157,6 +159,7 @@ export function useAuth() {
     const attemptBackendLogin = async () => {
       try {
         loginAttemptRef.current = true
+        console.log('🚀 Attempting backend login...')
         
         const privyToken = await getAccessToken()
         if (privyToken) {
@@ -164,18 +167,16 @@ export function useAuth() {
         } else {
           console.error('❌ No Privy token available')
           loginAttemptRef.current = false
-          // Don't reset attempt for no token case - user-specific issue
         }
       } catch (error) {
         console.error('❌ Backend login failed:', error)
         loginAttemptRef.current = false
-        // Reset attempt flags on error to allow retry if user logs out and back in
         clearAttemptedUser()
       }
     }
 
     attemptBackendLogin()
-  }, [privyReady, privyAuthenticated, privyUser?.id]) // Simplified dependencies
+  }, [privyReady, privyAuthenticated, privyUser?.id, isBackendAuthenticated]) // ✅ OPTIMIZED: Added isBackendAuthenticated dependency
 
   // Handle backend logout when Privy logs out
   useEffect(() => {
@@ -191,7 +192,7 @@ export function useAuth() {
         backendLogoutMutation.mutate()
       }
       
-      // Clear localStorage tokens when logged out
+      // 🚀 OPTIMIZED: Clear localStorage tokens when logged out
       if (typeof window !== 'undefined') {
         localStorage.removeItem('accessToken')
         localStorage.removeItem('refreshToken')
@@ -202,6 +203,7 @@ export function useAuth() {
   // Login function
   const login = async () => {
     try {
+      console.log('🚀 Starting login flow...')
       await privyLogin()
       // Backend login will be handled by useEffect
     } catch (error) {
@@ -213,6 +215,7 @@ export function useAuth() {
   // Logout function
   const logout = async () => {
     try {
+      console.log('🚀 Starting logout flow...')
       // Logout from backend first
       if (isBackendAuthenticated) {
         await backendLogoutMutation.mutateAsync()
@@ -239,14 +242,14 @@ export function useAuth() {
   // Check if user has wallet
   const hasWallet = Boolean(privyUser?.wallet)
 
-  // Combined authentication status
-  const isAuthenticated = privyAuthenticated && isBackendAuthenticated
+  // 🚀 OPTIMIZED: Combined authentication status - more permissive during login
+  const isAuthenticated = privyAuthenticated && (isBackendAuthenticated || backendLoginMutation.isPending)
 
-  // Loading states
+  // 🚀 OPTIMIZED: Simplified loading states
   const isLoading = !privyReady || 
                    backendLoginMutation.isPending || 
                    backendLogoutMutation.isPending ||
-                   (isBackendAuthenticated && userLoading)
+                   (privyAuthenticated && !isBackendAuthenticated && !backendLoginMutation.isPending && !hasAccessToken())
 
   return {
     // Authentication status
@@ -270,5 +273,8 @@ export function useAuth() {
 
     // Utility
     ready: privyReady,
+    
+    // 🚀 OPTIMIZED: Additional helper for WebSocket
+    hasAccessToken,
   }
 } 

@@ -1,8 +1,7 @@
 import { KafkaEventPublisher, EventPublisherConfig } from '@moonx-farm/infrastructure';
 import { 
   ChainPerformanceStats,
-  BridgeLatencyStats,
-  StatsOverview
+  BridgeLatencyStats
 } from '../types/index';
 import { logger } from '../utils/logger';
 
@@ -22,13 +21,9 @@ export interface BridgeStatsMessage {
   timestamp: number;
 }
 
-export interface StatsOverviewMessage {
-  type: 'stats_overview';
-  overview: StatsOverview;
-  timestamp: number;
-}
 
-export type WebSocketStatsMessage = ChainStatsMessage | BridgeStatsMessage | StatsOverviewMessage;
+
+export type WebSocketStatsMessage = ChainStatsMessage | BridgeStatsMessage;
 
 export class StatsEventPublisher {
   private eventPublisher: KafkaEventPublisher;
@@ -104,55 +99,43 @@ export class StatsEventPublisher {
     }
   }
 
-  /**
-   * Publish chain performance stats for WebSocket clients
-   */
-  async publishChainPerformanceUpdated(
-    chainId: number,
-    chainName: string,
-    stats: ChainPerformanceStats
-  ): Promise<void> {
-    const message: ChainStatsMessage = {
-      type: 'chain_stats',
-      chainId,
-      chainName,
-      stats,
-      timestamp: Date.now()
-    };
 
-    await this.publishToWebSocket(message);
+
+  /**
+   * Publish chain stats for WebSocket clients
+   */
+  async publishChainStatsUpdate(
+    chainStats: ChainPerformanceStats[]
+  ): Promise<void> {
+    for (const stats of chainStats) {
+      const message: ChainStatsMessage = {
+        type: 'chain_stats',
+        chainId: stats.chainId,
+        chainName: stats.chainName,
+        stats,
+        timestamp: Date.now()
+      };
+
+      await this.publishToWebSocket(message);
+    }
   }
 
   /**
-   * Publish bridge latency stats for WebSocket clients
+   * Publish bridge stats for WebSocket clients
    */
-  async publishBridgeLatencyUpdated(
-    provider: string,
-    stats: BridgeLatencyStats
+  async publishBridgeStatsUpdate(
+    bridgeStats: BridgeLatencyStats[]
   ): Promise<void> {
-    const message: BridgeStatsMessage = {
-      type: 'bridge_stats',
-      provider,
-      stats,
-      timestamp: Date.now()
-    };
+    for (const stats of bridgeStats) {
+      const message: BridgeStatsMessage = {
+        type: 'bridge_stats',
+        provider: stats.provider,
+        stats,
+        timestamp: Date.now()
+      };
 
-    await this.publishToWebSocket(message);
-  }
-
-  /**
-   * Publish stats overview for WebSocket clients
-   */
-  async publishStatsOverviewUpdated(
-    overview: StatsOverview
-  ): Promise<void> {
-    const message: StatsOverviewMessage = {
-      type: 'stats_overview',
-      overview,
-      timestamp: Date.now()
-    };
-
-    await this.publishToWebSocket(message);
+      await this.publishToWebSocket(message);
+    }
   }
 
   /**

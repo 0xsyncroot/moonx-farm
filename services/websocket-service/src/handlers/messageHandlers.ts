@@ -1,6 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '@moonx-farm/common';
-import { randomUUID } from 'crypto';
 import { 
   JsonRpcMessageHelper,
   JsonRpcMessage,
@@ -34,6 +32,38 @@ type JsonRpcMessageHandler = (
   message: JsonRpcRequest | JsonRpcNotification,
   context: WebSocketContext
 ) => Promise<void>;
+
+/**
+ * Validate channel name for subscription
+ */
+function isValidChannelName(channel: string): boolean {
+  // Allow predefined channels
+  const validChannels = [
+    'prices',
+    'orders', 
+    'portfolio',
+    'trades',
+    'chain_stats',
+    'bridge_stats',
+    'stats_overview'
+  ];
+  
+  if (validChannels.includes(channel)) {
+    return true;
+  }
+  
+  // Allow user-specific channels (user:userId pattern)
+  if (channel.startsWith('user:') && channel.length > 5) {
+    return true;
+  }
+  
+  // Allow notification channels (notifications:userId pattern)
+  if (channel.startsWith('notifications:') && channel.length > 14) {
+    return true;
+  }
+  
+  return false;
+}
 
 /**
  * Main message router - dispatches JSON-RPC messages to appropriate handlers
@@ -128,6 +158,24 @@ export async function handleSubscribe(
       channel,
       subscriptionParams
     });
+    
+    // Validate channel name
+    if (!isValidChannelName(channel)) {
+      logger.error('❌ [SUBSCRIBE DEBUG] Invalid channel name', {
+        clientId: context.client.id,
+        channel
+      });
+      
+      if ('id' in message && message.id) {
+        await sendErrorResponse(
+          context,
+          message.id,
+          JsonRpcErrorCodes.INVALID_PARAMS,
+          `Invalid channel name: ${channel}`
+        );
+      }
+      return;
+    }
     
     logger.info('📝 [SUBSCRIBE DEBUG] Adding client to subscription', {
       clientId: context.client.id,
@@ -353,42 +401,8 @@ export const messageHandlers: Record<string, JsonRpcMessageHandler> = {
   [JsonRpcMethods.UNSUBSCRIBE]: handleUnsubscribe,
   [JsonRpcMethods.HEARTBEAT]: handleHeartbeat,
   
-  // Server-initiated methods that clients shouldn't send
-  [JsonRpcMethods.PRICE_UPDATE]: async (message, context) => {
-    logger.debug('Price update received from client (ignoring)', { clientId: context.client.id });
-    if ('id' in message && message.id) {
-      await sendErrorResponse(
-        context,
-        message.id,
-        JsonRpcErrorCodes.INVALID_REQUEST,
-        'Price updates are server-initiated only'
-      );
-    }
-  },
-  
-  [JsonRpcMethods.ORDER_UPDATE]: async (message, context) => {
-    logger.debug('Order update received from client (ignoring)', { clientId: context.client.id });
-    if ('id' in message && message.id) {
-      await sendErrorResponse(
-        context,
-        message.id,
-        JsonRpcErrorCodes.INVALID_REQUEST,
-        'Order updates are server-initiated only'
-      );
-    }
-  },
-  
-  [JsonRpcMethods.PORTFOLIO_UPDATE]: async (message, context) => {
-    logger.debug('Portfolio update received from client (ignoring)', { clientId: context.client.id });
-    if ('id' in message && message.id) {
-      await sendErrorResponse(
-        context,
-        message.id,
-        JsonRpcErrorCodes.INVALID_REQUEST,
-        'Portfolio updates are server-initiated only'
-      );
-    }
-  }
+  // Note: Server-initiated methods (price_update, order_update, portfolio_update) 
+  // are handled by Kafka consumer, not by client messages
 };
 
 /**
@@ -407,72 +421,5 @@ export function unregisterMessageHandler(method: string): void {
   logger.info('JSON-RPC message handler unregistered', { method });
 }
 
-/**
- * Broadcast notification to all connected clients
- */
-export async function broadcastNotification(
-  method: string,
-  params: any,
-  filter?: (client: WebSocketClient) => boolean
-): Promise<void> {
-  try {
-    const notification = JsonRpcMessageHelper.createNotification(method, params);
-    
-    // Create a legacy WebSocket message format for connectionManager.broadcast()
-    const legacyMessage: WebSocketMessage = {
-      id: randomUUID(),
-      type: method as any,
-      timestamp: Date.now(),
-      data: params
-    };
-    
-    // Use connectionManager's broadcast method instead
-    await connectionManager.broadcast(legacyMessage, filter);
-    
-    logger.info('Notification broadcasted', {
-      method
-    });
-    
-  } catch (error) {
-    logger.error('Failed to broadcast notification', { 
-      error: error instanceof Error ? error.message : String(error),
-      method 
-    });
-  }
-}
-
-/**
- * Send notification to specific user (all their connections)
- */
-export async function sendNotificationToUser(
-  userId: string,
-  method: string,
-  params: any
-): Promise<void> {
-  try {
-    const notification = JsonRpcMessageHelper.createNotification(method, params);
-    
-    // Create a legacy WebSocket message format for connectionManager.sendToUser()
-    const legacyMessage: WebSocketMessage = {
-      id: randomUUID(),
-      type: method as any,
-      timestamp: Date.now(),
-      data: params
-    };
-    
-    // Use connectionManager's sendToUser method
-    await connectionManager.sendToUser(userId, legacyMessage);
-    
-    logger.debug('Notification sent to user', {
-      userId,
-      method
-    });
-    
-  } catch (error) {
-    logger.error('Failed to send notification to user', { 
-      error: error instanceof Error ? error.message : String(error),
-      userId, 
-      method 
-    });
-  }
-} 
+// Legacy broadcast functions removed - use Kafka consumer routing instead
+// All notifications are now handled by Kafka events and routing rules 

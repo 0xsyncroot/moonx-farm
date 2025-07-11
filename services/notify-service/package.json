@@ -19,7 +19,7 @@
     "@fastify/swagger-ui": "^2.1.0",
     "@moonx-farm/common": "1.0.6",
     "@moonx-farm/configs": "1.0.5",
-    "@moonx-farm/infrastructure": "1.0.11",
+    "@moonx-farm/infrastructure": "1.0.17",
     "@sendgrid/mail": "^8.1.0",
     "axios": "^1.10.0",
     "fastify": "^4.25.2",

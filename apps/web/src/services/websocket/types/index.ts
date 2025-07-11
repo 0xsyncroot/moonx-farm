@@ -122,10 +122,15 @@ export const JsonRpcMethods = {
   NOTIFICATION: 'notification',
   SYSTEM_ALERT: 'system_alert',
   
-  // Stats Worker events
+  // Stats Worker events - Legacy JSON-RPC format
   STATS_CHAIN_PERFORMANCE_UPDATED: 'stats.chain_performance_updated',
   STATS_BRIDGE_LATENCY_UPDATED: 'stats.bridge_latency_updated',
   STATS_OVERVIEW_UPDATED: 'stats.overview_updated',
+  
+  // Kafka events - Direct message format
+  CHAIN_STATS_UPDATE: 'chain_stats_update',
+  BRIDGE_STATS_UPDATE: 'bridge_stats_update',
+  STATS_OVERVIEW_UPDATE: 'stats_overview_update',
   
   // Connection
   HEARTBEAT: 'heartbeat',

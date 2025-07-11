@@ -33,7 +33,7 @@
     "@fastify/websocket": "^8.3.1",
     "@moonx-farm/common": "1.0.6",
     "@moonx-farm/configs": "1.0.5",
-    "@moonx-farm/infrastructure": "1.0.14",
+    "@moonx-farm/infrastructure": "1.0.17",
     "@moonx-farm/shared": "^1.0.0",
     "axios": "^1.10.0",
     "eventemitter3": "^5.0.1",

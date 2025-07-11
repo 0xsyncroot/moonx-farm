@@ -197,10 +197,10 @@ export class StatsScheduler {
           await this.aggregator.collectAllStats();
           break;
         case 'chain_performance_only':
-          await this.aggregator.collectChainStats();
+          await this.aggregator.collectAndPublishChainStats();
           break;
         case 'bridge_latency_only':
-          await this.aggregator.collectBridgeStats();
+          await this.aggregator.collectAndPublishBridgeStats();
           break;
         default:
           throw new Error(`Unknown job type: ${jobName}`);

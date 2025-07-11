@@ -1,0 +1,147 @@
+# =============================================================================
+# MoonXFarm WebSocket Service with Nginx - Docker Compose
+# =============================================================================
+# Complete setup với Nginx reverse proxy, Redis, Kafka, và WebSocket Service
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.nginx.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Nginx Reverse Proxy
+  # =============================================================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: moonx-websocket-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Nginx configuration
+      - ./nginx.conf:/etc/nginx/conf.d/websocket.conf:ro
+      - ./nginx-main.conf:/etc/nginx/nginx.conf:ro
+      
+      # SSL certificates (create these directories and add your certs)
+      - ./ssl:/etc/nginx/ssl:ro
+      
+      # Static files (if any)
+      - ./static:/var/www/websocket-static:ro
+      
+      # Logs
+      - ./logs/nginx:/var/log/nginx
+      
+      # Cache directory
+      - nginx_cache:/var/cache/nginx
+      
+    depends_on:
+      - websocket-service
+    networks:
+      - moonx-websocket-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: >
+      sh -c "
+        # Create log directories
+        mkdir -p /var/log/nginx
+        
+        # Test nginx configuration
+        nginx -t
+        
+        # Start nginx
+        nginx -g 'daemon off;'
+      "
+
+  # =============================================================================
+  # Let's Encrypt SSL (Optional)
+  # =============================================================================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: moonx-websocket-certbot
+    volumes:
+      - ./ssl:/etc/letsencrypt
+      - ./certbot-webroot:/var/www/certbot
+    depends_on:
+      - nginx
+    networks:
+      - moonx-websocket-network
+    command: >
+      sh -c "
+        # Wait for nginx to be ready
+        sleep 30
+        
+        # Get SSL certificate for ws.moonx.farm
+        certbot certonly --webroot -w /var/www/certbot \
+          --email admin@moonx.farm \
+          --agree-tos \
+          --no-eff-email \
+          -d ws.moonx.farm
+        
+        # Setup auto-renewal
+        echo '0 12 * * * /usr/bin/certbot renew --quiet' | crontab -
+      "
+    restart: "no"
+
+  # =============================================================================
+  # WebSocket Service (override from main docker-compose.yml)
+  # =============================================================================
+  websocket-service:
+    environment:
+      # Update CORS to allow nginx domain
+      CORS_ORIGIN: https://ws.moonx.farm,https://moonx.farm,http://localhost:3000
+      
+      # Trust proxy headers from nginx
+      TRUST_PROXY: true
+      
+      # Disable rate limiting in service (nginx handles it)
+      RATE_LIMIT_ENABLED: false
+      
+    # Remove port mapping since nginx handles external access
+    ports: []
+    
+    # Health check adjustment for internal access
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3008/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# =============================================================================
+# Additional Volumes
+# =============================================================================
+volumes:
+  nginx_cache:
+    driver: local
+    name: moonx-websocket-nginx-cache
+
+# =============================================================================
+# Usage Instructions:
+# =============================================================================
+# 1. Setup SSL certificates:
+#    mkdir -p ssl static logs/nginx
+#    
+# 2. For self-signed certificates (development):
+#    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#      -keyout ssl/ws.moonx.farm.key \
+#      -out ssl/ws.moonx.farm.crt \
+#      -subj "/C=US/ST=State/L=City/O=Organization/CN=ws.moonx.farm"
+#
+# 3. For Let's Encrypt (production):
+#    - Update certbot service email
+#    - Run: docker-compose -f docker-compose.yml -f docker-compose.nginx.yml up -d certbot
+#
+# 4. Start all services:
+#    docker-compose -f docker-compose.yml -f docker-compose.nginx.yml up -d
+#
+# 5. Test WebSocket connection:
+#    wss://ws.moonx.farm/ws
+#
+# 6. Monitor logs:
+#    docker-compose -f docker-compose.yml -f docker-compose.nginx.yml logs -f nginx
+# ============================================================================= 

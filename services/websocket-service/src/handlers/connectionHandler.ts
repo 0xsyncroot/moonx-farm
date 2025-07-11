@@ -378,45 +378,30 @@ export class WebSocketConnectionHandler {
   }
 
   /**
-   * Automatically join default rooms after successful authentication
+   * Join essential default room after successful authentication
+   * Only join user-specific room - all other subscriptions must be explicit
    */
   private async joinDefaultRooms(client: WebSocketClient): Promise<void> {
-    // Define default rooms for all authenticated users
-    const globalRooms = [
-      'system_alerts',  // System-wide alerts and notifications
-      'chain_stats',   // Chain performance stats
-      'bridge_stats'   // Bridge latency stats
-    ];
-
-    // Define user-specific rooms
-    const userSpecificRooms = [
-      `user:${client.userId}`,           // User-specific messages
-      `notifications:${client.userId}`  // User notifications
-    ];
-
-    const allRooms = [...globalRooms, ...userSpecificRooms];
+    // Only join user-specific room for essential user messages
+    const userSpecificRoom = `user:${client.userId}`;
     
     try {
-      // Join each room
-      for (const room of allRooms) {
-        await connectionManager.addToSubscription(client.id, room as any);
-      }
+      // Join user-specific room only
+      await connectionManager.addToSubscription(client.id, userSpecificRoom as any);
 
-      logger.info('Client joined default rooms', {
+      logger.info('Client joined user-specific room', {
         clientId: client.id,
         userId: client.userId,
         userAddress: client.userAddress,
-        globalRooms,
-        userSpecificRooms,
-        totalRooms: allRooms.length
+        room: userSpecificRoom
       });
 
-      // Send confirmation message about automatic subscriptions (JSON-RPC 2.0)
+      // Send minimal confirmation message (JSON-RPC 2.0)
       const autoSubscriptionResult: AutoSubscriptionResult = {
-        message: 'Automatically subscribed to default channels',
-        globalChannels: globalRooms,
-        userChannels: userSpecificRooms,
-        totalChannels: allRooms.length
+        message: 'Automatically subscribed to user-specific channel',
+        globalChannels: [], // No global channels auto-joined
+        userChannels: [userSpecificRoom],
+        totalChannels: 1
       };
 
       const subscriptionConfirmMessage = communicationService.createAutoSubscribedNotification(
@@ -426,7 +411,7 @@ export class WebSocketConnectionHandler {
       client.socket.send(JSON.stringify(subscriptionConfirmMessage));
 
     } catch (error) {
-      logger.error('Failed to join default rooms', {
+      logger.error('Failed to join user-specific room', {
         clientId: client.id,
         userId: client.userId,
         error: error instanceof Error ? error.message : String(error)

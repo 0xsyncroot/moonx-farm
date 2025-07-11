@@ -136,13 +136,23 @@ export function useWebSocketFirebase({
       // Setup event listeners
       setupEventListeners(service);
 
+      // 🚀 CRITICAL FIX: Initialize services immediately after creation
+      console.log('⚡ WebSocket Service: Starting initialization immediately...');
+      service.initializeServices().catch(error => {
+        console.error('❌ WebSocket Service: Failed to initialize:', error);
+        setState(prev => ({
+          ...prev,
+          error: error instanceof Error ? error.message : 'Failed to initialize service'
+        }));
+      });
+
       // Cleanup function
       return () => cleanupService(hookInstanceId.current);
     } catch (error) {
-      console.error('❌ WebSocket Service: Failed to initialize:', error);
+      console.error('❌ WebSocket Service: Failed to create service:', error);
       setState(prev => ({
         ...prev,
-        error: error instanceof Error ? error.message : 'Failed to initialize service'
+        error: error instanceof Error ? error.message : 'Failed to create service'
       }));
     }
   }, [enabled, jwtToken, websocketUrl, firebaseConfig, userId, cleanupService]); // ✅ FIX: Add userId dependency
@@ -299,6 +309,22 @@ export function useWebSocketFirebase({
     service.on('system-alert', handleSystemAlert);
     service.on('order-update', handleOrderUpdate);
     service.on('config-updated', handleConfigUpdated);
+
+    // Add listeners for stats events - Required for real-time stats functionality
+    service.on('chain_stats_update', (data: any) => {
+      console.log('📊 [useWebSocketFirebase] Chain stats update received:', data);
+      // Just log - do NOT re-emit to prevent infinite recursion
+    });
+
+    service.on('bridge_stats_update', (data: any) => {
+      console.log('🌉 [useWebSocketFirebase] Bridge stats update received:', data);
+      // Just log - do NOT re-emit to prevent infinite recursion
+    });
+
+    service.on('stats_overview_update', (data: any) => {
+      console.log('📈 [useWebSocketFirebase] Stats overview update received:', data);
+      // Just log - do NOT re-emit to prevent infinite recursion
+    });
   }, []);
 
   // Cleanup on unmount

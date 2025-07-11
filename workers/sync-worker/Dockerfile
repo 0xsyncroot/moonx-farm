@@ -1,52 +1,31 @@
 # ============================================
-# Sync Worker Service - Docker Configuration
+# Sync Worker Service - Simple Docker Configuration
 # ============================================
 # 
-# Multi-stage build optimized for:
-# - Production deployment
+# Single-stage build for simplicity:
+# - Easy to build and debug
 # - Security (non-root user)
-# - Performance (minimal layers)
-# - Monitoring (health checks)
-# - Horizontal scaling
+# - Health checks
 # ============================================
 
-# Stage 1: Build stage
-FROM node:18-alpine AS builder
+FROM node:18-alpine
 
-# Set working directory
-WORKDIR /app
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=5555
+ENV LOG_LEVEL=info
 
-# Install system dependencies for native modules
+# Install system dependencies and dumb-init
 RUN apk add --no-cache \
     python3 \
     make \
     g++ \
     libc6-compat \
+    dumb-init \
     && rm -rf /var/cache/apk/*
 
-# Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
-
-# Install dependencies
-RUN npm ci --only=production --ignore-scripts
-
-# Copy source code
-COPY src/ ./src/
-
-# Build TypeScript
-RUN npm run build
-
-# Stage 2: Production stage
-FROM node:18-alpine AS production
-
-# Set environment variables
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV LOG_LEVEL=info
-
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install pnpm
+RUN npm install -g pnpm
 
 # Create non-root user
 RUN addgroup -g 1001 -S syncworker && \
@@ -55,14 +34,32 @@ RUN addgroup -g 1001 -S syncworker && \
 # Set working directory
 WORKDIR /app
 
-# Copy built application from builder stage
-COPY --from=builder --chown=syncworker:syncworker /app/dist ./dist
-COPY --from=builder --chown=syncworker:syncworker /app/node_modules ./node_modules
-COPY --from=builder --chown=syncworker:syncworker /app/package*.json ./
+# Copy package files
+COPY package*.json ./
+COPY pnpm-lock.yaml ./
+COPY tsconfig.json ./
 
-# Create required directories
+# Install all dependencies (including dev dependencies for build)
+RUN pnpm install --frozen-lockfile
+
+# Install tsc-alias for path resolution
+RUN pnpm add -D tsc-alias
+
+# Copy source code
+COPY src/ ./src/
+
+# Build TypeScript
+RUN pnpm run build
+
+# Resolve path aliases to relative paths
+RUN npx tsc-alias -p tsconfig.json
+
+# Remove dev dependencies to reduce image size
+RUN pnpm prune --prod
+
+# Create required directories and set ownership
 RUN mkdir -p /app/logs /app/tmp && \
-    chown -R syncworker:syncworker /app/logs /app/tmp
+    chown -R syncworker:syncworker /app
 
 # Switch to non-root user
 USER syncworker
@@ -85,5 +82,5 @@ LABEL description="Sync Worker Service for Portfolio Synchronization"
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application
+# Start the application normally (no tsconfig-paths needed)
 CMD ["node", "dist/main.js"] 

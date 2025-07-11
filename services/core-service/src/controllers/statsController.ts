@@ -38,12 +38,13 @@ export class StatsController {
       try {
         const query = request.query;
         
-        const statsRequest: GetStatsRequest = {
+        const statsRequest: GetStatsRequest & { status?: 'healthy' | 'degraded' | 'unhealthy' } = {
           chainIds: query.chainIds ? query.chainIds.split(',').map(id => parseInt(id.trim())) : undefined,
           startTime: query.startTime,
           endTime: query.endTime,
           limit: query.limit || 100,
-          offset: query.offset || 0
+          offset: query.offset || 0,
+          status: query.status
         };
 
         const response = await this.statsService.getChainStats(statsRequest);
@@ -83,8 +84,17 @@ export class StatsController {
       try {
         const query = request.query;
         
-        const statsRequest: GetBridgeStatsRequest = {
+        const statsRequest: GetBridgeStatsRequest & { 
+          chainIds?: number[]; 
+          status?: 'optimal' | 'slow' | 'down';
+          startTime?: string;
+          endTime?: string;
+        } = {
           bridgeIds: query.bridgeIds ? query.bridgeIds.split(',').map(id => id.trim()) : undefined,
+          chainIds: query.chainIds ? query.chainIds.split(',').map(id => parseInt(id.trim())) : undefined,
+          status: query.status,
+          startTime: query.startTime,
+          endTime: query.endTime,
           limit: query.limit || 100,
           offset: query.offset || 0
         };
@@ -125,8 +135,11 @@ export class StatsController {
       try {
         const query = request.query;
         
-        const statsRequest: GetStatsRequest = {
+        const statsRequest: GetStatsRequest & { 
+          bridgeIds?: string[];
+        } = {
           chainIds: query.chainIds ? query.chainIds.split(',').map(id => parseInt(id.trim())) : undefined,
+          bridgeIds: query.bridgeIds ? query.bridgeIds.split(',').map(id => id.trim()) : undefined,
           startTime: query.startTime,
           endTime: query.endTime,
           limit: query.limit || 100,

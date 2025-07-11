@@ -42,12 +42,7 @@ export type MessageType =
   | 'bridge_stats_update'
   | 'stats_overview_update'
   | 'heartbeat'
-  | 'error'
-  | 'subscribe'
-  | 'unsubscribe'
-  | 'auth_required'
-  | 'auth_success'
-  | 'auth_failed';
+  | 'error';
 
 // Subscription channel types
 export type SubscriptionChannel = 
@@ -55,10 +50,10 @@ export type SubscriptionChannel =
   | 'orders'
   | 'portfolio'
   | 'trades'
-  | 'user_specific'
   | 'chain_stats'
   | 'bridge_stats'
-  | 'stats_overview';
+  | 'stats_overview'
+  | string; // Allow dynamic user-specific channels like 'user:123'
 
 // Price update message structure
 export interface PriceUpdateMessage {
@@ -205,11 +200,14 @@ export interface WebSocketServiceConfig {
     brokers: string;
     clientId: string;
     consumerGroup: string;
-    topics: {
-      prices: string;
-      orders: string;
-      portfolio: string;
-      trades: string;
+    mainTopic: string;
+    eventProcessing: {
+      enabled: boolean;
+      validationEnabled: boolean;
+      deadLetterQueueEnabled: boolean;
+      deadLetterQueueTopic: string;
+      retryAttempts: number;
+      retryDelay: number;
     };
   };
   redis: {

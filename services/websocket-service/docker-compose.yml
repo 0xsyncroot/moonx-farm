@@ -1,0 +1,262 @@
+# =============================================================================
+# MoonXFarm WebSocket Service - Production Docker Compose
+# =============================================================================
+# Complete production setup với Redis, Kafka, và WebSocket Service
+# Usage: docker-compose up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Redis Cache & Session Store
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: moonx-websocket-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - moonx-websocket-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # =============================================================================
+  # Zookeeper (required for Kafka)
+  # =============================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: moonx-websocket-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - moonx-websocket-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # =============================================================================
+  # Kafka Message Broker
+  # =============================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: moonx-websocket-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_MESSAGE_MAX_BYTES: 1000000
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "29092:29092"
+      - "9092:9092"
+    networks:
+      - moonx-websocket-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # =============================================================================
+  # WebSocket Service
+  # =============================================================================
+  websocket-service:
+    image: hiepht/moonx-farm:websocket-service-latest
+    container_name: moonx-websocket-service
+    restart: unless-stopped
+    environment:
+      # Service configuration
+      NODE_ENV: production
+      WEBSOCKET_SERVICE_HOST: 0.0.0.0
+      WEBSOCKET_SERVICE_PORT: 3008
+      
+      # Authentication Service
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://localhost:3001}
+      AUTH_SERVICE_VERIFY_ENDPOINT: /api/v1/auth/verify
+      AUTH_SERVICE_TIMEOUT: 5000
+      
+      # Redis configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: 2
+      REDIS_KEY_PREFIX: "moonx.websocket."
+      REDIS_ENABLE_OFFLINE_QUEUE: true
+      REDIS_URL: redis://redis:6379
+      
+      # Kafka configuration
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: moonx-websocket-service
+      KAFKA_CONSUMER_GROUP_ID: moonx-websocket-consumers
+      KAFKA_MAIN_TOPIC: moonx.ws.events
+      
+      # Rate limiting
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      RATE_LIMIT_MAX_CONNECTIONS_PER_IP: 100
+      RATE_LIMIT_WINDOW_SIZE: 60000
+      RATE_LIMIT_MAX_MESSAGES_PER_MINUTE: 120
+      
+      # WebSocket configuration
+      WS_PING_INTERVAL: 30000
+      WS_PONG_TIMEOUT: 5000
+      WS_MAX_CONNECTIONS: 10000
+      WS_HEARTBEAT_INTERVAL: 60000
+      
+      # Event processing
+      EVENT_PROCESSING_ENABLED: true
+      EVENT_VALIDATION_ENABLED: false
+      EVENT_DEAD_LETTER_QUEUE_ENABLED: true
+      EVENT_DEAD_LETTER_QUEUE_TOPIC: moonx.ws.events.dlq
+      EVENT_RETRY_ATTEMPTS: 3
+      EVENT_RETRY_DELAY: 1000
+      
+      # CORS configuration
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      CORS_CREDENTIALS: true
+      
+      # Health check
+      HEALTH_CHECK_ENABLED: true
+      HEALTH_CHECK_INTERVAL: 30000
+      
+      # Swagger documentation
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      SWAGGER_PATH: /docs
+      
+      # Clustering
+      CLUSTER_ENABLED: false
+      CLUSTER_WORKERS: auto
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: json
+      LOG_ENABLE_CONSOLE: true
+      LOG_ENABLE_FILE: false
+      SERVICE_NAME: websocket-service
+      
+    ports:
+      - "3008:3008"
+    networks:
+      - moonx-websocket-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3008/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # =============================================================================
+  # Kafka Topics Setup (run once)
+  # =============================================================================
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: moonx-websocket-kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Creating Kafka topics...'
+        kafka-topics --create --topic moonx.ws.events --bootstrap-server kafka:9092 --partitions 6 --replication-factor 1 --if-not-exists
+        kafka-topics --create --topic moonx.ws.events.dlq --bootstrap-server kafka:9092 --partitions 2 --replication-factor 1 --if-not-exists
+        echo 'Kafka topics created successfully'
+        kafka-topics --list --bootstrap-server kafka:9092
+      "
+    networks:
+      - moonx-websocket-network
+    restart: "no"
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  moonx-websocket-network:
+    driver: bridge
+    name: moonx-websocket-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  redis_data:
+    driver: local
+    name: moonx-websocket-redis-data
+  kafka_data:
+    driver: local
+    name: moonx-websocket-kafka-data
+  zookeeper_data:
+    driver: local
+    name: moonx-websocket-zookeeper-data
+  zookeeper_logs:
+    driver: local
+    name: moonx-websocket-zookeeper-logs
+
+# =============================================================================
+# Production Usage:
+# =============================================================================
+# 1. Create .env file với required variables:
+#    REDIS_PASSWORD=your-secure-password
+#    AUTH_SERVICE_URL=http://your-auth-service:3001
+#    CORS_ORIGIN=http://your-frontend-domain
+#    RATE_LIMIT_ENABLED=true
+#    SWAGGER_ENABLED=false
+#    LOG_LEVEL=info
+#
+# 2. Build và start:
+#    docker-compose up -d
+#
+# 3. Check health:
+#    curl http://localhost:3008/health
+#
+# 4. View logs:
+#    docker-compose logs -f websocket-service
+#
+# 5. Test WebSocket connection:
+#    ws://localhost:3008/ws
+#
+# 6. Stop:
+#    docker-compose down
+#
+# 7. Remove volumes (careful!):
+#    docker-compose down -v
+# ============================================================================= 

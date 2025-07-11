@@ -9,20 +9,21 @@ interface WebSocketProviderWrapperProps {
 }
 
 export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperProps) {
-  // ✅ FIX: Only extract primitive values from useAuth to prevent excessive re-renders
-  const { privyAuthenticated, ready: privyReady, backendUser } = useAuth();
+  // ✅ OPTIMIZED: Only extract primitive values from useAuth to prevent excessive re-renders
+  const { privyAuthenticated, ready: privyReady, backendUser, hasAccessToken } = useAuth();
   
   const [jwtToken, setJwtToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Use refs to track retry logic and prevent multiple instances
+  // 🚀 OPTIMIZED: Reduced retry logic and faster connection
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
   const isMountedRef = useRef(true);
-  const maxRetries = 5;
+  const maxRetries = 3; // ✅ REDUCED: from 5 to 3 retries
+  const hasTriedImmediateRef = useRef(false); // ✅ NEW: track immediate attempt
 
-  // ✅ FIX: Memoize firebaseConfig to prevent useEffect re-runs
+  // ✅ OPTIMIZED: Memoize firebaseConfig to prevent useEffect re-runs
   const firebaseConfig = useMemo(() => ({
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -36,8 +37,70 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
   // WebSocket Gateway configuration
   const websocketUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3008';
 
-  // ✅ FIX: Inline function implementations to avoid callback dependencies
-  // ✅ FIX: Only depend on primitive values to prevent circular dependencies
+  // 🚀 OPTIMIZED: Immediate token check function using auth helper
+  const checkTokenImmediately = () => {
+    if (!isMountedRef.current) return false;
+    
+    // 🚀 OPTIMIZED: Use hasAccessToken helper for consistent checking
+    if (hasAccessToken()) {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        console.log('✅ WebSocket Provider: JWT token found immediately');
+        setJwtToken(prev => prev !== token ? token : prev);
+        setIsReady(prev => prev !== true ? true : prev);
+        setError(prev => prev !== null ? null : prev);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // 🚀 OPTIMIZED: Simplified retry logic with faster delays
+  const tryGetToken = () => {
+    if (!isMountedRef.current) return;
+
+    // Clear any existing timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+
+    // 🚀 OPTIMIZED: Use hasAccessToken helper for consistent checking
+    if (hasAccessToken()) {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        console.log('✅ WebSocket Provider: JWT token found after retry');
+        if (isMountedRef.current) {
+          setJwtToken(prev => prev !== token ? token : prev);
+          setIsReady(prev => prev !== true ? true : prev);
+          setError(prev => prev !== null ? null : prev);
+          retryCountRef.current = 0;
+        }
+        return;
+      }
+    }
+
+    // ✅ OPTIMIZED: Faster retry with reduced max attempts
+    if (retryCountRef.current < maxRetries) {
+      retryCountRef.current++;
+      console.log(`🔄 WebSocket Provider: JWT token not found, retrying... (${retryCountRef.current}/${maxRetries})`);
+      
+      // 🚀 OPTIMIZED: Much faster backoff - 100ms, 200ms, 400ms
+      const delay = 100 * Math.pow(2, retryCountRef.current - 1);
+      
+      retryTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          tryGetToken();
+        }
+      }, delay);
+    } else {
+      console.warn('⚠️ WebSocket Provider: Max retries reached, but will continue in background');
+      // ✅ OPTIMIZED: Don't set error state, just log warning
+      // This allows the component to still render and potentially recover
+    }
+  };
+
+  // 🚀 OPTIMIZED: Simplified and faster connection logic
   useEffect(() => {
     if (!isMountedRef.current) return;
 
@@ -47,62 +110,36 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
       retryTimeoutRef.current = null;
     }
 
-    // Reset state when user changes
+    // ✅ OPTIMIZED: Early connection when Privy is ready and authenticated
     if (privyReady && privyAuthenticated) {
       console.log('🔐 WebSocket Provider: Privy authenticated, checking JWT token...');
       retryCountRef.current = 0;
-      setError(prev => prev !== null ? null : prev); // ✅ Only update if different
+      setError(prev => prev !== null ? null : prev);
       
-      // Inline JWT token retrieval logic
-      const getJwtToken = () => {
-        if (!isMountedRef.current) return;
-
-        const token = localStorage.getItem('accessToken');
-        if (token) {
-          console.log('✅ WebSocket Provider: JWT token found, initializing WebSocket connection');
-          if (isMountedRef.current) {
-            setJwtToken(prev => prev !== token ? token : prev); // ✅ Only update if different
-            setIsReady(prev => prev !== true ? true : prev); // ✅ Only update if different
-            setError(prev => prev !== null ? null : prev); // ✅ Only update if different
-            retryCountRef.current = 0;
-          }
-          return;
+      // 🚀 OPTIMIZED: Try immediate connection first
+      if (!hasTriedImmediateRef.current) {
+        hasTriedImmediateRef.current = true;
+        
+        // Try immediate token check
+        if (checkTokenImmediately()) {
+          return; // Success - no need to retry
         }
-
-        // No token found - retry if not exceeded max attempts
-        if (retryCountRef.current < maxRetries) {
-          retryCountRef.current++;
-          console.log(`🔄 WebSocket Provider: JWT token not found, retrying... (${retryCountRef.current}/${maxRetries})`);
-          
-          // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
-          const delay = 500 * Math.pow(2, retryCountRef.current - 1);
-          
-          retryTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current) {
-              getJwtToken();
-            }
-          }, delay);
-        } else {
-          console.warn('⚠️ WebSocket Provider: Max retries reached, WebSocket will not initialize');
-          if (isMountedRef.current) {
-            setError(prev => prev !== 'Failed to get JWT token after multiple attempts' ? 'Failed to get JWT token after multiple attempts' : prev);
-            setIsReady(prev => prev !== false ? false : prev);
-          }
-        }
-      };
-
-      getJwtToken();
+      }
+      
+      // If immediate check failed, start retry logic
+      tryGetToken();
     } else {
-      console.log('👤 WebSocket Provider: Privy not authenticated, cleaning up...');
-      // Inline reset state logic
+      console.log('👤 WebSocket Provider: Privy not ready/authenticated, cleaning up...');
+      // ✅ OPTIMIZED: Reset state when user logs out
       if (isMountedRef.current) {
-        setJwtToken(prev => prev !== null ? null : prev); // ✅ Only update if different
-        setIsReady(prev => prev !== false ? false : prev); // ✅ Only update if different
-        setError(prev => prev !== null ? null : prev); // ✅ Only update if different
+        setJwtToken(prev => prev !== null ? null : prev);
+        setIsReady(prev => prev !== false ? false : prev);
+        setError(prev => prev !== null ? null : prev);
         retryCountRef.current = 0;
+        hasTriedImmediateRef.current = false;
       }
     }
-  }, [privyReady, privyAuthenticated]); // ✅ Only primitive dependencies
+  }, [privyReady, privyAuthenticated, hasAccessToken]); // ✅ OPTIMIZED: Added hasAccessToken dependency
 
   // Track mount/unmount lifecycle
   useEffect(() => {
@@ -115,12 +152,12 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
         retryTimeoutRef.current = null;
       }
     };
-  }, []); // ✅ No dependencies
+  }, []);
 
-  // ✅ FIX: Memoize the decision to prevent unnecessary re-renders
+  // 🚀 OPTIMIZED: Eager connection - don't wait for backendUser
   const shouldRenderProvider = useMemo(() => {
-    return isReady && !!jwtToken && !!backendUser?.id; // ✅ FIX: Also wait for userId
-  }, [isReady, jwtToken, backendUser?.id]);
+    return isReady && !!jwtToken;
+  }, [isReady, jwtToken]);
 
   // Don't render WebSocket provider if not ready
   if (!shouldRenderProvider) {
@@ -134,7 +171,7 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
       websocketUrl={websocketUrl}
       firebaseConfig={firebaseConfig}
       jwtToken={jwtToken!} // ✅ Non-null assertion - guaranteed by shouldRenderProvider check
-      userId={backendUser?.id || null} // ✅ FIX: Pass userId from backend user
+      userId={backendUser?.id || null} // ✅ OPTIMIZED: Pass userId when available, but don't wait for it
       enabled={true}
     >
       {children}

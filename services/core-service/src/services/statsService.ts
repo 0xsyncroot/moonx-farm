@@ -73,7 +73,7 @@ export class StatsService {
   /**
    * Get chain performance stats with caching
    */
-  async getChainStats(request: GetStatsRequest): Promise<GetStatsResponse> {
+  async getChainStats(request: GetStatsRequest & { status?: 'healthy' | 'degraded' | 'unhealthy' }): Promise<GetStatsResponse> {
     try {
       const cacheKey = this.buildCacheKey('chain_stats', request);
       
@@ -115,7 +115,12 @@ export class StatsService {
   /**
    * Get bridge latency stats with caching
    */
-  async getBridgeStats(request: GetBridgeStatsRequest): Promise<GetBridgeStatsResponse> {
+  async getBridgeStats(request: GetBridgeStatsRequest & { 
+    chainIds?: number[]; 
+    status?: 'optimal' | 'slow' | 'down';
+    startTime?: string;
+    endTime?: string;
+  }): Promise<GetBridgeStatsResponse> {
     try {
       const cacheKey = this.buildCacheKey('bridge_stats', request);
       
@@ -127,7 +132,7 @@ export class StatsService {
       }
 
       // Convert request to filters
-      const filters = this.requestToFilters(request);
+      const filters = this.requestBridgeToFilters(request);
       
       // Get data from MongoDB
       const bridgeStats = await this.mongoStatsService.getBridgeStats(filters);
@@ -157,7 +162,9 @@ export class StatsService {
   /**
    * Get all stats (chain + bridge) with caching
    */
-  async getAllStats(request: GetStatsRequest): Promise<GetStatsResponse> {
+  async getAllStats(request: GetStatsRequest & { 
+    bridgeIds?: string[];
+  }): Promise<GetStatsResponse> {
     try {
       const cacheKey = this.buildCacheKey('all_stats', request);
       
@@ -169,12 +176,20 @@ export class StatsService {
       }
 
       // Convert request to filters
-      const filters = this.requestToFilters(request);
+      const chainFilters = this.requestToFilters(request);
+      const bridgeFilters = this.requestBridgeToFilters({
+        bridgeIds: request.bridgeIds,
+        chainIds: request.chainIds,
+        startTime: request.startTime,
+        endTime: request.endTime,
+        limit: request.limit,
+        offset: request.offset
+      });
       
       // Get data from MongoDB in parallel
       const [chainStats, bridgeStats] = await Promise.all([
-        this.mongoStatsService.getChainStats(filters),
-        this.mongoStatsService.getBridgeStats(filters)
+        this.mongoStatsService.getChainStats(chainFilters),
+        this.mongoStatsService.getBridgeStats(bridgeFilters)
       ]);
       
       const response: GetStatsResponse = {
@@ -383,7 +398,7 @@ export class StatsService {
   }
 
   // Private helper methods
-  private requestToFilters(request: GetStatsRequest): StatsFilters {
+  private requestToFilters(request: GetStatsRequest & { status?: 'healthy' | 'degraded' | 'unhealthy' }): StatsFilters {
     const filters: StatsFilters = {};
     
     if (request.chainIds) {
@@ -398,17 +413,43 @@ export class StatsService {
       filters.endTime = new Date(request.endTime);
     }
     
+    if (request.status) {
+      filters.chainStatus = request.status;
+    }
+    
     return filters;
   }
 
   // Private helper methods
-  private requestBridgeToFilters(request: GetBridgeStatsRequest): StatsFilters {
+  private requestBridgeToFilters(request: GetBridgeStatsRequest & { 
+    chainIds?: number[]; 
+    status?: 'optimal' | 'slow' | 'down';
+    startTime?: string;
+    endTime?: string;
+  }): StatsFilters {
     const filters: StatsFilters = {};
     
     if (request.bridgeIds) {
       filters.bridgeIds = request.bridgeIds;
     }
     
+    if (request.chainIds) {
+      filters.chainIds = request.chainIds;
+    }
+    
+    if (request.status) {
+      filters.bridgeStatus = request.status;
+    }
+    
+    if (request.startTime) {
+      filters.startTime = new Date(request.startTime);
+    }
+    
+    if (request.endTime) {
+      filters.endTime = new Date(request.endTime);
+    }
+    
+    // TODO: Handle bridge-specific filters when schema supports them
     if (request.bridgeProtocols) {
       filters.bridgeProtocols = request.bridgeProtocols;
     }

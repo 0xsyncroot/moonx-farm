@@ -12,6 +12,7 @@ interface EventRoutingRule {
   eventTypePattern: string | RegExp;
   userExtractor?: (event: EventEnvelope<any>) => string | null;
   channelMapping?: string;
+  requiresSubscription?: boolean; // Only send to subscribed clients
   messageTransformer?: (event: EventEnvelope<any>) => WebSocketMessage;
   filter?: (event: EventEnvelope<any>) => boolean;
 }
@@ -56,13 +57,16 @@ export class KafkaConsumerService {
     errorCount: 0,
     lastProcessedAt: 0,
   };
+  private isShuttingDown = false;
+  private connectionHealthTimer?: NodeJS.Timeout;
 
-  // Generic routing rules - can be extended without code changes
+  // Routing rules - only send to subscribed channels or specific users
   private routingRules: EventRoutingRule[] = [
-    // Price events -> broadcast to prices channel
+    // Price events -> only send to users subscribed to 'prices' channel
     {
       eventTypePattern: /^price\./,
       channelMapping: 'prices',
+      requiresSubscription: true, // Only send to subscribed clients
       messageTransformer: (event) => ({
         id: `price_${event.data.token}_${event.data.chainId}_${event.metadata.timestamp}`,
         type: 'price_update',
@@ -71,11 +75,11 @@ export class KafkaConsumerService {
       })
     },
     
-    // Order events -> send to user + broadcast to orders channel
+    // Order events -> send to user only (no channel broadcast)
     {
       eventTypePattern: /^order\./,
       userExtractor: defaultUserExtractor,
-      channelMapping: 'orders',
+      // Remove channelMapping to prevent broadcast to all order subscribers
       messageTransformer: (event) => ({
         id: `order_${event.data.orderId}_${event.metadata.timestamp}`,
         type: 'order_update',
@@ -96,11 +100,11 @@ export class KafkaConsumerService {
       })
     },
     
-    // Trade events -> send to user + broadcast to trades channel
+    // Trade events -> send to user only (no channel broadcast)
     {
       eventTypePattern: /^trade\./,
       userExtractor: defaultUserExtractor,
-      channelMapping: 'trades',
+      // Remove channelMapping to prevent broadcast to all trade subscribers
       messageTransformer: (event) => ({
         id: `trade_${event.data.tradeId}_${event.metadata.timestamp}`,
         type: 'trade_update',
@@ -136,11 +140,12 @@ export class KafkaConsumerService {
       filter: () => false, // Don't forward, just log
     },
 
-    // Chain stats events from stats-worker -> broadcast to chain_stats channel ONLY
+    // Chain stats events -> only send to subscribed clients
     {
       eventTypePattern: 'moonx.ws.chain_stats',
       channelMapping: 'chain_stats',
-      userExtractor: () => null, // ✅ Don't extract userId - broadcast only
+      requiresSubscription: true, // Only send to subscribed clients
+      userExtractor: () => null,
       messageTransformer: (event) => ({
         id: `chain_stats_${event.data.chainId}_${event.data.timestamp}`,
         type: 'chain_stats_update',
@@ -154,11 +159,12 @@ export class KafkaConsumerService {
       })
     },
 
-    // Bridge stats events from stats-worker -> broadcast to bridge_stats channel ONLY
+    // Bridge stats events -> only send to subscribed clients
     {
       eventTypePattern: 'moonx.ws.bridge_stats',
       channelMapping: 'bridge_stats',
-      userExtractor: () => null, // ✅ Don't extract userId - broadcast only
+      requiresSubscription: true, // Only send to subscribed clients
+      userExtractor: () => null,
       messageTransformer: (event) => ({
         id: `bridge_stats_${event.data.provider}_${event.data.timestamp}`,
         type: 'bridge_stats_update',
@@ -171,11 +177,12 @@ export class KafkaConsumerService {
       })
     },
 
-    // Stats overview events from stats-worker -> broadcast to stats_overview channel ONLY
+    // Stats overview events -> only send to subscribed clients
     {
       eventTypePattern: 'moonx.ws.stats_overview',
       channelMapping: 'stats_overview',
-      userExtractor: () => null, // ✅ Don't extract userId - broadcast only
+      requiresSubscription: true, // Only send to subscribed clients
+      userExtractor: () => null,
       messageTransformer: (event) => ({
         id: `stats_overview_${event.data.timestamp}`,
         type: 'stats_overview_update',
@@ -206,6 +213,61 @@ export class KafkaConsumerService {
     });
     
     this.initialize();
+    this.setupLifecycleHandlers();
+  }
+
+  private setupLifecycleHandlers(): void {
+    // Handle graceful shutdown
+    const gracefulShutdown = async () => {
+      if (this.isShuttingDown) return;
+      
+      logger.info('🔄 [KAFKA CONSUMER] Received shutdown signal, starting graceful shutdown...');
+      this.isShuttingDown = true;
+      
+      try {
+        await this.stop();
+        logger.info('✅ [KAFKA CONSUMER] Graceful shutdown completed');
+        process.exit(0);
+      } catch (error) {
+        logger.error('❌ [KAFKA CONSUMER] Error during graceful shutdown', { error });
+        process.exit(1);
+      }
+    };
+
+    // Register signal handlers
+    process.on('SIGINT', gracefulShutdown);
+    process.on('SIGTERM', gracefulShutdown);
+    
+    // Monitor connection health
+    this.startConnectionHealthMonitoring();
+  }
+
+  private startConnectionHealthMonitoring(): void {
+    this.connectionHealthTimer = setInterval(async () => {
+      if (this.isRunning && !this.isShuttingDown) {
+        try {
+          const isHealthy = await this.getHealthStatus();
+          if (!isHealthy) {
+            logger.warn('⚠️ [KAFKA CONSUMER] Connection health check failed, attempting restart...');
+            await this.restart();
+          }
+        } catch (error) {
+          logger.error('❌ [KAFKA CONSUMER] Health check error', { error });
+        }
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  private async restart(): Promise<void> {
+    logger.info('🔄 [KAFKA CONSUMER] Restarting consumer...');
+    try {
+      await this.stop();
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      await this.start();
+      logger.info('✅ [KAFKA CONSUMER] Consumer restarted successfully');
+    } catch (error) {
+      logger.error('❌ [KAFKA CONSUMER] Failed to restart consumer', { error });
+    }
   }
 
   private async initialize(): Promise<void> {
@@ -236,12 +298,31 @@ export class KafkaConsumerService {
     try {
       this.isRunning = true;
       
+      logger.info('🚀 [KAFKA CONSUMER] Starting Kafka consumer with config', {
+        mainTopic: this.mainTopic,
+        consumerGroup: this.consumerGroup,
+        brokers: websocketConfig.kafka.brokers,
+        clientId: websocketConfig.kafka.clientId,
+        consumerId: this.consumerId,
+        totalRoutingRules: this.routingRules.length,
+        chainStatsRule: this.routingRules.find(r => r.eventTypePattern === 'moonx.ws.chain_stats')
+      });
+      
+      // Create unique consumer group per instance to avoid message sharing
+      const uniqueConsumerGroup = `${this.consumerGroup}-${this.consumerId}-${Date.now()}`;
+      
+      logger.info('🔧 [KAFKA CONSUMER] Using unique consumer group', {
+        originalGroup: this.consumerGroup,
+        uniqueGroup: uniqueConsumerGroup,
+        reason: 'Ensure single consumer receives all messages'
+      });
+      
       await this.kafka.subscribe(
         this.consumerId,
         [this.mainTopic],
         {
-          groupId: this.consumerGroup,
-          sessionTimeout: 30000,
+          groupId: uniqueConsumerGroup,
+          sessionTimeout: 60000, // Increased from 30s to 60s
           autoCommit: true,
           enableDeadLetterQueue: websocketConfig.kafka.eventProcessing.deadLetterQueueEnabled,
           deadLetterQueueTopic: websocketConfig.kafka.eventProcessing.deadLetterQueueTopic
@@ -249,15 +330,16 @@ export class KafkaConsumerService {
         this.messageHandler.bind(this)
       );
       
-      logger.info('Generic Kafka consumer started', {
+      logger.info('✅ [KAFKA CONSUMER] Generic Kafka consumer started successfully', {
         mainTopic: this.mainTopic,
         consumerGroup: this.consumerGroup,
         eventProcessingEnabled: websocketConfig.kafka.eventProcessing.enabled,
-        validationEnabled: websocketConfig.kafka.eventProcessing.validationEnabled
+        validationEnabled: websocketConfig.kafka.eventProcessing.validationEnabled,
+        subscriptionStatus: 'ACTIVE'
       });
       
     } catch (error) {
-      logger.error('Failed to start Kafka consumer', { error });
+      logger.error('❌ [KAFKA CONSUMER] Failed to start Kafka consumer', { error });
       this.isRunning = false;
       throw error;
     }
@@ -274,14 +356,21 @@ export class KafkaConsumerService {
 
     try {
       this.isRunning = false;
-      await this.kafka.disconnect();
-      logger.info('Kafka consumer stopped', {
+      
+      // Clear connection health timer
+      if (this.connectionHealthTimer) {
+        clearInterval(this.connectionHealthTimer);
+        this.connectionHealthTimer = undefined;
+      }
+      
+      await this.kafka.gracefulShutdown();
+      logger.info('✅ [KAFKA CONSUMER] Kafka consumer stopped gracefully', {
         totalProcessed: this.processingMetrics.totalProcessed,
         successCount: this.processingMetrics.successCount,
         errorCount: this.processingMetrics.errorCount
       });
     } catch (error) {
-      logger.error('Failed to stop Kafka consumer', { error });
+      logger.error('❌ [KAFKA CONSUMER] Failed to stop Kafka consumer', { error });
     }
   }
 
@@ -299,7 +388,11 @@ export class KafkaConsumerService {
         partition: rawMessage.partition,
         offset: rawMessage.offset,
         key: rawMessage.key?.toString(),
-        messagePreview: JSON.stringify(message).substring(0, 200) + '...'
+        messagePreview: JSON.stringify(message).substring(0, 200) + '...',
+        messageType: typeof message,
+        hasMetadata: !!message?.metadata,
+        hasData: !!message?.data,
+        eventType: message?.metadata?.eventType
       });
 
       // Parse event envelope
@@ -325,13 +418,22 @@ export class KafkaConsumerService {
       if (websocketConfig.kafka.eventProcessing.validationEnabled) {
         const validation = eventFactory.validateEvent(event);
         if (!validation.isValid) {
-          logger.error('Event validation failed', {
+          logger.error('❌ [VALIDATION DEBUG] Event validation failed', {
             eventId: event.metadata?.eventId,
             eventType: event.metadata?.eventType,
             errors: validation.errors
           });
           return;
         }
+        logger.info('✅ [VALIDATION DEBUG] Event validation passed', {
+          eventId: event.metadata?.eventId,
+          eventType: event.metadata?.eventType
+        });
+      } else {
+        logger.info('⚠️  [VALIDATION DEBUG] Event validation is DISABLED', {
+          eventId: event.metadata?.eventId,
+          eventType: event.metadata?.eventType
+        });
       }
 
       // Route event using generic rules
@@ -453,19 +555,24 @@ export class KafkaConsumerService {
           });
         }
 
-        // Broadcast to channel if specified
+        // Broadcast to channel if specified and subscription is not required
         if (rule.channelMapping) {
+          // Only send to subscribers (requiresSubscription defaults to true for security)
+          const shouldRequireSubscription = rule.requiresSubscription !== false;
+          
           logger.info('📡 [BROADCAST DEBUG] Broadcasting to channel', {
             eventType,
             eventId: event.metadata.eventId,
             channel: rule.channelMapping,
             messageId: message.id,
-            messageType: message.type
+            messageType: message.type,
+            requiresSubscription: shouldRequireSubscription
           });
           
+          // Always use sendToSubscribers - it only sends to clients that explicitly subscribed
           await connectionManager.sendToSubscribers(rule.channelMapping as any, message);
           
-          logger.info('✅ [BROADCAST DEBUG] Successfully broadcasted to channel', { 
+          logger.info('✅ [BROADCAST DEBUG] Successfully sent to channel subscribers', { 
             eventType, 
             eventId: event.metadata.eventId,
             channel: rule.channelMapping,

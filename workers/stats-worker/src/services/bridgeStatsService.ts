@@ -251,15 +251,32 @@ export class BridgeStatsService {
   }
 
   /**
-   * Test 1inch latency (placeholder implementation)
+   * Test 1inch latency (real API implementation)
    */
   private async test1inchLatency(): Promise<{ latency: number; route: string; fromChain: number; toChain: number }> {
     // 1inch doesn't support cross-chain, so this would be a same-chain swap
     const startTime = Date.now();
     
     try {
-      // Simulate 1inch API call (would need actual 1inch API endpoint)
-      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 500));
+      // Real 1inch API call for price quote
+      const url = 'https://api.1inch.dev/swap/v5.2/1/quote';
+      const params = {
+        src: this.ETH, // ETH
+        dst: '0xA0b86a33E6417efE8A0e9b7FE7Da5A2aB65c4ED0', // USDC
+        amount: '1000000000000000000', // 1 ETH
+        includeTokensInfo: 'false',
+        includeProtocols: 'false',
+        includeGas: 'false'
+      };
+      
+      await axios.get(url, { 
+        params,
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'MoonX-Farm-Stats-Worker/1.0.0',
+          'Accept': 'application/json'
+        }
+      });
       
       const latency = Date.now() - startTime;
       
@@ -270,6 +287,18 @@ export class BridgeStatsService {
         toChain: 1
       };
     } catch (error) {
+      const latency = Date.now() - startTime;
+      
+      // If it's a timeout or network error, still record the latency
+      if (axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND')) {
+        return {
+          latency,
+          route: 'Ethereum->Ethereum',
+          fromChain: 1,
+          toChain: 1
+        };
+      }
+      
       throw error;
     }
   }

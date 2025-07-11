@@ -1,0 +1,90 @@
+# ============================================
+# Sync Worker Service - Simple Docker Compose
+# ============================================
+# 
+# Services:
+# - sync-worker: Main sync worker service
+# - redis: Cache and message queue
+# ============================================
+
+version: '3.8'
+
+services:
+  # Main sync worker service
+  sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sync-worker
+    restart: unless-stopped
+    environment:
+      # Application config
+      - NODE_ENV=production
+      - PORT=5555
+      - LOG_LEVEL=info
+      
+      # Redis config
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis123
+      - REDIS_DB=0
+      
+      # Worker config
+      - WORKER_CONCURRENCY=5
+      - WORKER_TIMEOUT=30000
+      - WORKER_RETRIES=3
+      - WORKER_BATCH_SIZE=20
+      
+      # Monitoring config
+      - MONITORING_ENABLE_HEALTH_CHECKS=true
+      - MONITORING_HEALTH_CHECK_INTERVAL=30000
+      
+      # External APIs (add your API keys here)
+      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY:-}
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+      - DEXSCREENER_API_KEY=${DEXSCREENER_API_KEY:-}
+      
+    depends_on:
+      - redis
+    volumes:
+      - ./logs:/app/logs
+      - ./tmp:/app/tmp
+    networks:
+      - sync-worker-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5555/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis for caching and message queues
+  redis:
+    image: redis:7-alpine
+    container_name: sync-worker-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass redis123
+    volumes:
+      - redis_data:/data
+    networks:
+      - sync-worker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis123", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Networks
+networks:
+  sync-worker-network:
+    driver: bridge
+
+# Volumes
+volumes:
+  redis_data:
+    driver: local 

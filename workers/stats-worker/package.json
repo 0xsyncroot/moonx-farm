@@ -13,7 +13,7 @@
   "dependencies": {
     "@moonx-farm/common": "^1.0.6",
     "@moonx-farm/configs": "^1.0.5",
-    "@moonx-farm/infrastructure": "^1.0.14",
+    "@moonx-farm/infrastructure": "^1.0.17",
     "@moonx-farm/shared": "^1.0.0",
     "axios": "^1.6.0",
     "cluster": "^0.7.7",
