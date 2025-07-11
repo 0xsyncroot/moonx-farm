@@ -10,6 +10,13 @@ const nextConfig = {
 
   swcMinify: true,
 
+  // Remove console.log in production builds only
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn'],
+    } : false,
+  },
+
   eslint: {
     ignoreDuringBuilds: true,
   },
