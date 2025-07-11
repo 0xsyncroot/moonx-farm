@@ -10,7 +10,14 @@ Create `.env.local` file with these variables:
 
 ```env
 # WebSocket Gateway URL
-NEXT_PUBLIC_WEBSOCKET_URL=http://localhost:3008
+# Note: /ws path is automatically added by WebSocket Manager
+# You can specify with or without /ws path
+NEXT_PUBLIC_WEBSOCKET_URL=https://ws.moonx.farm
+# or
+# NEXT_PUBLIC_WEBSOCKET_URL=https://ws.moonx.farm/ws
+
+# For local development
+# NEXT_PUBLIC_WEBSOCKET_URL=http://localhost:3008
 
 # Firebase Configuration for Push Notifications
 NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
@@ -24,6 +31,17 @@ NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 # Firebase Cloud Messaging VAPID Key (for web push notifications)
 NEXT_PUBLIC_FIREBASE_VAPID_KEY=your-vapid-key
 ```
+
+### 🔧 **URL Configuration Notes**
+
+The WebSocket Manager automatically handles URL formatting:
+
+- `http://localhost:3008` → `ws://localhost:3008/ws`
+- `https://ws.moonx.farm` → `wss://ws.moonx.farm/ws`
+- `ws://localhost:3008/ws` → `ws://localhost:3008/ws` (no change)
+- `wss://ws.moonx.farm/ws` → `wss://ws.moonx.farm/ws` (no change)
+
+This ensures compatibility with both URL formats.
 
 ## 🏗️ **Step 2: Provider Setup**
 

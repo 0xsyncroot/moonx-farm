@@ -9,6 +9,20 @@ WebSocket service thời gian thực cho MoonX Farm DEX với luồng đơn gi�
 - **User-specific Rooms**: Mỗi user có room riêng biệt
 - **Kafka Integration**: Xử lý events qua Kafka single topic
 - **Redis Clustering**: Hỗ trợ clustering và scaling
+- **Smart URL Handling**: Tự động xử lý WebSocket URLs (HTTP→WS, thêm /ws path)
+- **Flexible Connection**: Hỗ trợ kết nối ở cả `/` và `/ws` paths
+
+## 🔧 URL Configuration
+
+The WebSocket service automatically handles URL formatting:
+
+```javascript
+// All these formats work:
+'http://localhost:3008'     → 'ws://localhost:3008/ws'
+'https://ws.moonx.farm'     → 'wss://ws.moonx.farm/ws'
+'ws://localhost:3008/ws'    → 'ws://localhost:3008/ws'
+'wss://ws.moonx.farm/ws'    → 'wss://ws.moonx.farm/ws'
+```
 
 ## 🔄 Luồng hoạt động
 
@@ -65,17 +79,17 @@ docker build -t moonx-websocket-service .
 docker run -p 3001:3001 moonx-websocket-service
 ```
 
-## 🧪 Testing
+## �� Testing
 
 ```bash
-# Unit tests
-npm test
+# Quick connection test
+node quick-test.js
 
-# Integration tests
-npm run test:integration
+# Full connection test
+node test-connection-fix.js
 
-# Load testing
-npm run test:load
+# Debug connection issues
+node debug-connection.js
 ```
 
 ## 📊 Monitoring

@@ -2,7 +2,37 @@
 
 ## 🚨 Common Issues & Solutions
 
-### Issue 1: Connection Established but Authentication Timeout
+### Issue 1: Connection to Wrong Path (FIXED)
+
+**Symptoms:**
+```
+WebSocket connection to 'wss://ws.moonx.farm/' failed
+// Client connecting to root instead of /ws
+```
+
+**Root Cause:**
+- Client was connecting to `wss://ws.moonx.farm/` instead of `wss://ws.moonx.farm/ws`
+- WebSocket Manager only converted protocol (HTTP→WS) but didn't ensure `/ws` path
+
+**Solution Applied:**
+✅ **Fixed in WebSocket Manager**: Automatically adds `/ws` path if not present
+✅ **Fixed in Nginx Config**: Handles WebSocket connections at both `/` and `/ws` paths
+
+**URL Processing (Automatic):**
+- `http://localhost:3008` → `ws://localhost:3008/ws`
+- `https://ws.moonx.farm` → `wss://ws.moonx.farm/ws`
+- `ws://localhost:3008/ws` → `ws://localhost:3008/ws` (no change)
+
+**Test Your Fix:**
+```bash
+# Test connection fix
+node test-connection-fix.js
+
+# Test URL processing
+node -e "console.log('URL processing test completed')"
+```
+
+### Issue 2: Connection Established but Authentication Timeout
 
 **Symptoms:**
 ```

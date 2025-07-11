@@ -48,11 +48,10 @@ export class WebSocketManager extends EventEmitter {
         wsUrl = `ws://${wsUrl}`;
       }
       
-      // Ensure /ws path exists
-      if (!wsUrl.includes('/ws')) {
-        // Add /ws path if not present
-        wsUrl = wsUrl.replace(/\/$/, '') + '/ws'; // Remove trailing slash if present, then add /ws
-      }
+      // Remove /ws path auto-addition - connect to root path
+      // if (!wsUrl.includes('/ws')) {
+      //   wsUrl = wsUrl.replace(/\/$/, '') + '/ws';
+      // }
       
       console.log('🔗 WebSocket URL:', wsUrl);
       
