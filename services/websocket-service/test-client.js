@@ -162,7 +162,7 @@ async function runWebSocketTests() {
     },
     {
       name: 'Production (via nginx)',
-      url: 'wss://ws.moonx.farm/ws',
+      url: 'wss://ws.moonx.farm/',
       token: 'test-token-123' // Dummy token for testing
     }
   ];
