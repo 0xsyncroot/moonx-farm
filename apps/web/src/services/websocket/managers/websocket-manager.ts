@@ -35,16 +35,22 @@ export class WebSocketManager extends EventEmitter {
       this.connectionStatus = 'connecting';
       this.emit('connecting');
       
-      // Create WebSocket connection
-      const wsUrl = this.config.websocketUrl.replace(/^http/, 'ws');
+      // Convert HTTP(S) URL to WebSocket URL without modifying path
+      let wsUrl = this.config.websocketUrl;
       
-      // Add WebSocket endpoint if not present
-      const urlWithPath = new URL(wsUrl);
-      if (!urlWithPath.pathname.endsWith('/ws')) {
-        urlWithPath.pathname = urlWithPath.pathname.replace(/\/$/, '') + '/ws';
+      // Handle protocol conversion
+      if (wsUrl.startsWith('http://')) {
+        wsUrl = wsUrl.replace(/^http:\/\//, 'ws://');
+      } else if (wsUrl.startsWith('https://')) {
+        wsUrl = wsUrl.replace(/^https:\/\//, 'wss://');
+      } else if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+        // If no protocol specified, assume ws://
+        wsUrl = `ws://${wsUrl}`;
       }
       
-      this.ws = new WebSocket(urlWithPath.toString());
+      console.log('🔗 WebSocket URL:', wsUrl);
+      
+      this.ws = new WebSocket(wsUrl);
       this.setupEventHandlers();
       
     } catch (error) {

@@ -4,7 +4,7 @@ WORKDIR /repo
 RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm turbo run build --filter=@moonx-farm/core-service...
+RUN pnpm turbo run build --filter=@moonx-farm/core-service... --force
 RUN ls -la
 # Stage 2: chỉ copy dist + package.json, rồi cài lại prod dep (từ registry, không symlink)
 FROM node:18-alpine
@@ -15,7 +15,7 @@ COPY --from=build /repo/services/core-service/dist ./dist
 COPY --from=build /repo/services/core-service/package.json ./
 RUN pnpm install --prod
 USER node
-EXPOSE 3001
+EXPOSE 3007
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

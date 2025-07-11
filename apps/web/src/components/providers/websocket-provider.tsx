@@ -22,6 +22,7 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
   const isMountedRef = useRef(true);
   const maxRetries = 3; // ✅ REDUCED: from 5 to 3 retries
   const hasTriedImmediateRef = useRef(false); // ✅ NEW: track immediate attempt
+  const wrapperInstanceId = useRef(Math.random().toString(36).substr(2, 9));
 
   // ✅ OPTIMIZED: Memoize firebaseConfig to prevent useEffect re-runs
   const firebaseConfig = useMemo(() => ({
@@ -37,6 +38,40 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
   // WebSocket Gateway configuration
   const websocketUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://localhost:3008';
 
+  // 🚀 OPTIMIZED: Always render provider to prevent component re-mounting
+  // Instead of conditionally rendering, pass enabled state to provider
+  const providerEnabled = useMemo(() => {
+    return isReady && !!jwtToken;
+  }, [isReady, jwtToken]);
+
+  // 🚀 DEBUG: Log provider state changes
+  console.log(`🔍 [WebSocketProviderWrapper-${wrapperInstanceId.current}] Provider render`, {
+    privyReady,
+    privyAuthenticated,
+    hasJwtToken: !!jwtToken,
+    isReady,
+    providerEnabled,
+    backendUserId: backendUser?.id || 'none'
+  });
+
+  // 🚀 DEBUG: Track key state changes
+  useEffect(() => {
+    console.log(`🔄 [WebSocketProviderWrapper-${wrapperInstanceId.current}] Auth state changed`, {
+      privyReady,
+      privyAuthenticated,
+      hasAccessToken: hasAccessToken(),
+      backendUserId: backendUser?.id || 'none'
+    });
+  }, [privyReady, privyAuthenticated, backendUser?.id, hasAccessToken]);
+
+  useEffect(() => {
+    console.log(`🔄 [WebSocketProviderWrapper-${wrapperInstanceId.current}] Provider enabled changed`, {
+      providerEnabled,
+      hasJwtToken: !!jwtToken,
+      isReady
+    });
+  }, [providerEnabled, jwtToken, isReady]);
+
   // 🚀 OPTIMIZED: Immediate token check function using auth helper
   const checkTokenImmediately = () => {
     if (!isMountedRef.current) return false;
@@ -45,7 +80,7 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
     if (hasAccessToken()) {
       const token = localStorage.getItem('accessToken');
       if (token) {
-        console.log('✅ WebSocket Provider: JWT token found immediately');
+        console.log(`✅ [WebSocketProviderWrapper-${wrapperInstanceId.current}] JWT token found immediately`);
         setJwtToken(prev => prev !== token ? token : prev);
         setIsReady(prev => prev !== true ? true : prev);
         setError(prev => prev !== null ? null : prev);
@@ -69,7 +104,7 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
     if (hasAccessToken()) {
       const token = localStorage.getItem('accessToken');
       if (token) {
-        console.log('✅ WebSocket Provider: JWT token found after retry');
+        console.log(`✅ [WebSocketProviderWrapper-${wrapperInstanceId.current}] JWT token found after retry`);
         if (isMountedRef.current) {
           setJwtToken(prev => prev !== token ? token : prev);
           setIsReady(prev => prev !== true ? true : prev);
@@ -83,7 +118,7 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
     // ✅ OPTIMIZED: Faster retry with reduced max attempts
     if (retryCountRef.current < maxRetries) {
       retryCountRef.current++;
-      console.log(`🔄 WebSocket Provider: JWT token not found, retrying... (${retryCountRef.current}/${maxRetries})`);
+      console.log(`🔄 [WebSocketProviderWrapper-${wrapperInstanceId.current}] JWT token not found, retrying... (${retryCountRef.current}/${maxRetries})`);
       
       // 🚀 OPTIMIZED: Much faster backoff - 100ms, 200ms, 400ms
       const delay = 100 * Math.pow(2, retryCountRef.current - 1);
@@ -94,7 +129,7 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
         }
       }, delay);
     } else {
-      console.warn('⚠️ WebSocket Provider: Max retries reached, but will continue in background');
+      console.warn(`⚠️ [WebSocketProviderWrapper-${wrapperInstanceId.current}] Max retries reached, but will continue in background`);
       // ✅ OPTIMIZED: Don't set error state, just log warning
       // This allows the component to still render and potentially recover
     }
@@ -159,20 +194,17 @@ export function WebSocketProviderWrapper({ children }: WebSocketProviderWrapperP
     return isReady && !!jwtToken;
   }, [isReady, jwtToken]);
 
-  // Don't render WebSocket provider if not ready
-  if (!shouldRenderProvider) {
-    return <>{children}</>;
-  }
-
-  console.log('🚀 WebSocket Provider: Initializing WebSocket connection');
+  // 🚀 CRITICAL FIX: Always render provider to prevent component re-mount
+  // This prevents the duplicate API calls issue
+  console.log(`🚀 [WebSocketProviderWrapper-${wrapperInstanceId.current}] Rendering with enabled=`, providerEnabled);
 
   return (
     <WebSocketFirebaseProvider
       websocketUrl={websocketUrl}
       firebaseConfig={firebaseConfig}
-      jwtToken={jwtToken!} // ✅ Non-null assertion - guaranteed by shouldRenderProvider check
-      userId={backendUser?.id || null} // ✅ OPTIMIZED: Pass userId when available, but don't wait for it
-      enabled={true}
+      jwtToken={jwtToken || ''} // Pass empty string if no token
+      userId={backendUser?.id || null}
+      enabled={providerEnabled} // Use enabled prop instead of conditional rendering
     >
       {children}
     </WebSocketFirebaseProvider>

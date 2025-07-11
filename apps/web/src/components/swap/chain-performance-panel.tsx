@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BarChart3, TrendingUp, TrendingDown, HelpCircle, Database, XCircle } from 'lucide-react'
 import { useStatsSubscription } from '@/contexts/websocket-firebase-context'
 import { coreApi } from '@/lib/api-client'
@@ -77,67 +77,76 @@ export function ChainPerformancePanel() {
   const [error, setError] = useState<string | null>(null);
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<number>>(new Set());
 
-  // Fetch initial chain stats from Core Service API
-  useEffect(() => {
-    fetchChainStats();
-  }, []);
+  // 🚀 OPTIMIZED: Use ref to prevent multiple API calls and store stable functions
+  const hasFetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const componentInstanceId = useRef(Math.random().toString(36).substr(2, 9));
+  const statsSubscriptionRef = useRef({
+    subscribeToRoom,
+    unsubscribeFromRoom,
+    onMessage
+  });
 
-  // Subscribe to WebSocket chain stats updates when connected
+  // 🚀 DEBUG: Log component lifecycle
+  console.log(`🔍 [ChainPerformancePanel-${componentInstanceId.current}] Component render`, {
+    hasFetched: hasFetchedRef.current,
+    isWebSocketConnected,
+    loading,
+    chainStatsCount: chainStats.length
+  });
+
+  // 🚀 OPTIMIZED: Update refs when functions change (but don't trigger re-renders)
   useEffect(() => {
-    if (!isWebSocketConnected) {
-      console.log('🔌 [ChainPerformancePanel] WebSocket not connected, skipping subscription');
+    statsSubscriptionRef.current = {
+      subscribeToRoom,
+      unsubscribeFromRoom,
+      onMessage
+    };
+  }, [subscribeToRoom, unsubscribeFromRoom, onMessage]);
+
+  // 🚀 OPTIMIZED: Memoize fetchChainStats to prevent recreation
+  const fetchChainStats = useCallback(async () => {
+    // Prevent multiple calls
+    if (hasFetchedRef.current) {
+      console.log(`📊 [ChainPerformancePanel-${componentInstanceId.current}] Already fetched, skipping duplicate call`);
       return;
     }
 
-    console.log('📡 [ChainPerformancePanel] WebSocket connected, subscribing to chain_stats room...');
-    
-    // Subscribe to chain_stats room
-    subscribeToRoom('chain_stats');
-    console.log('📡 [ChainPerformancePanel] Subscription request sent for chain_stats room');
-
-    // Listen for chain stats updates from WebSocket
-    const unsubscribe = onMessage('chain_stats_update', (data: WebSocketChainUpdate | any) => {
-      console.log('⛓️ [ChainPerformancePanel] Received chain stats update:', data);
+    try {
+      setLoading(true);
+      setError(null);
+      hasFetchedRef.current = true;
       
-      // Handle different data structures from WebSocket
-      let statsData: ChainPerformanceData | null = null;
+      console.log(`📊 [ChainPerformancePanel-${componentInstanceId.current}] Starting API call...`);
+      const result = await coreApi.getChainStats({ limit: 10 });
       
-      if (data?.data?.stats) {
-        // Standard WebSocket format
-        console.log('📊 [ChainPerformancePanel] Processing chain stats (nested):', data.data.stats);
-        statsData = data.data.stats;
-      } else if (data?.stats) {
-        // Direct stats format from Kafka
-        console.log('📊 [ChainPerformancePanel] Processing chain stats (direct):', data.stats);
-        statsData = data.stats;
-      } else if (data && typeof data === 'object' && data.chainId) {
-        // Data is the stats object itself
-        console.log('📊 [ChainPerformancePanel] Processing chain stats (object):', data);
-        statsData = data;
+      if (result.success && result.data?.chainStats) {
+        if (isMountedRef.current) {
+          setChainStats(result.data.chainStats);
+          console.log(`📊 [ChainPerformancePanel-${componentInstanceId.current}] Fetched chain stats:`, result.data.chainStats.length, 'items');
+        }
       } else {
-        console.warn('⚠️ [ChainPerformancePanel] No stats data in received message:', data);
+        throw new Error('Invalid response format');
       }
-      
-      if (statsData) {
-        updateChainStats(statsData);
+    } catch (err) {
+      console.error(`❌ [ChainPerformancePanel-${componentInstanceId.current}] Failed to fetch chain stats:`, err);
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch chain stats');
+        setChainStats([]);
       }
-    });
+      // Reset ref on error so user can retry
+      hasFetchedRef.current = false;
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []); // Empty dependency array - stable function
 
-    // Add debug logging for subscription confirmation
-    const unsubscribeDebug = onMessage('subscription-response', (data: any) => {
-      console.log('✅ [ChainPerformancePanel] Subscription response received:', data);
-    });
-
-    return () => {
-      console.log('🧹 [ChainPerformancePanel] Cleaning up subscriptions...');
-      unsubscribe();
-      unsubscribeDebug();
-      unsubscribeFromRoom('chain_stats');
-      console.log('🧹 [ChainPerformancePanel] Unsubscribed from chain_stats room');
-    };
-  }, [isWebSocketConnected, subscribeToRoom, unsubscribeFromRoom, onMessage]);
-
-  const updateChainStats = (newChainData: ChainPerformanceData) => {
+  // 🚀 OPTIMIZED: Memoize updateChainStats to prevent recreation
+  const updateChainStats = useCallback((newChainData: ChainPerformanceData) => {
+    if (!isMountedRef.current) return;
+    
     console.log('🔄 [ChainPerformancePanel] updateChainStats called with:', newChainData);
     
     setChainStats(prevStats => {
@@ -166,36 +175,95 @@ export function ChainPerformancePanel() {
     
     // Remove the highlight after animation completes
     setTimeout(() => {
-      setRecentlyUpdated(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(newChainData.chainId);
-        console.log('🔄 [ChainPerformancePanel] Removed recent update highlight:', newChainData.chainId);
-        return newSet;
-      });
-    }, 1500); // 1.5 seconds highlight duration
-  };
-
-  const fetchChainStats = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const result = await coreApi.getChainStats({ limit: 10 });
-      
-      if (result.success && result.data?.chainStats) {
-        setChainStats(result.data.chainStats);
-        console.log('📊 [ChainPerformancePanel] Fetched chain stats:', result.data.chainStats);
-      } else {
-        throw new Error('Invalid response format');
+      if (isMountedRef.current) {
+        setRecentlyUpdated(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(newChainData.chainId);
+          console.log('🔄 [ChainPerformancePanel] Removed recent update highlight:', newChainData.chainId);
+          return newSet;
+        });
       }
-    } catch (err) {
-      console.error('❌ [ChainPerformancePanel] Failed to fetch chain stats:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch chain stats');
-      setChainStats([]);
-    } finally {
-      setLoading(false);
+    }, 1500); // 1.5 seconds highlight duration
+  }, []);
+
+  // 🚀 OPTIMIZED: Track component mount/unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // 🚀 OPTIMIZED: Single useEffect for initial fetch - ONLY runs once
+  useEffect(() => {
+    fetchChainStats();
+  }, []); // No dependencies - only run once on mount
+
+  // 🚀 OPTIMIZED: Separate WebSocket subscription useEffect with stable dependencies
+  useEffect(() => {
+    if (!isWebSocketConnected || !isMountedRef.current) {
+      console.log('🔌 [ChainPerformancePanel] WebSocket not connected, skipping subscription');
+      return;
     }
-  };
+
+    console.log('📡 [ChainPerformancePanel] WebSocket connected, subscribing to chain_stats room...');
+    
+    // Use refs to get stable functions
+    const { subscribeToRoom: subscribe, unsubscribeFromRoom: unsubscribe, onMessage: onMsg } = statsSubscriptionRef.current;
+    
+    // Subscribe to chain_stats room
+    subscribe('chain_stats');
+    console.log('📡 [ChainPerformancePanel] Subscription request sent for chain_stats room');
+
+    // Listen for chain stats updates from WebSocket
+    const unsubscribeUpdate = onMsg('chain_stats_update', (data: WebSocketChainUpdate | any) => {
+      if (!isMountedRef.current) return;
+      
+      console.log('⛓️ [ChainPerformancePanel] Received chain stats update:', data);
+      
+      // Handle different data structures from WebSocket
+      let statsData: ChainPerformanceData | null = null;
+      
+      if (data?.data?.stats) {
+        // Standard WebSocket format
+        console.log('📊 [ChainPerformancePanel] Processing chain stats (nested):', data.data.stats);
+        statsData = data.data.stats;
+      } else if (data?.stats) {
+        // Direct stats format from Kafka
+        console.log('📊 [ChainPerformancePanel] Processing chain stats (direct):', data.stats);
+        statsData = data.stats;
+      } else if (data && typeof data === 'object' && data.chainId) {
+        // Data is the stats object itself
+        console.log('📊 [ChainPerformancePanel] Processing chain stats (object):', data);
+        statsData = data;
+      } else {
+        console.warn('⚠️ [ChainPerformancePanel] No stats data in received message:', data);
+      }
+      
+      if (statsData) {
+        updateChainStats(statsData);
+      }
+    });
+
+    // Add debug logging for subscription confirmation
+    const unsubscribeDebug = onMsg('subscription-response', (data: any) => {
+      console.log('✅ [ChainPerformancePanel] Subscription response received:', data);
+    });
+
+    return () => {
+      console.log('🧹 [ChainPerformancePanel] Cleaning up subscriptions...');
+      unsubscribeUpdate();
+      unsubscribeDebug();
+      unsubscribe('chain_stats');
+      console.log('🧹 [ChainPerformancePanel] Unsubscribed from chain_stats room');
+    };
+  }, [isWebSocketConnected, updateChainStats]); // Only isWebSocketConnected and updateChainStats as dependencies
+
+  // 🚀 OPTIMIZED: Add manual refresh function for error state
+  const handleRefresh = useCallback(() => {
+    hasFetchedRef.current = false;
+    fetchChainStats();
+  }, [fetchChainStats]);
 
   const formatVolume = (volumeStr: string) => {
     // API already returns formatted volume like "$964.8M"
@@ -270,7 +338,7 @@ export function ChainPerformancePanel() {
             {error}
           </p>
           <button
-            onClick={fetchChainStats}
+            onClick={handleRefresh}
             className="px-4 py-2 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
           >
             Try Again
@@ -283,7 +351,7 @@ export function ChainPerformancePanel() {
             No chain data available
           </p>
           <button
-            onClick={fetchChainStats}
+            onClick={handleRefresh}
             className="px-4 py-2 text-sm bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             Refresh

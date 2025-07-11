@@ -24,6 +24,7 @@ const nextConfig = {
 
   transpilePackages: ['@moonx-farm/common', '@moonx-farm/configs'],
 
+  
   images: {
     // Removed unoptimized: true since we're no longer using static export
     remotePatterns: [

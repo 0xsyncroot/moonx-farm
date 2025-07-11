@@ -138,9 +138,9 @@ export class BridgeStatsService {
     const url = `${this.lifiApiUrl}/quote`;
     const params = {
       fromChain: 8453, // Base
-      toChain: 8453, // Base
+      toChain: 56, // Base
       fromToken: this.ETH,
-      toToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC on Base
+      toToken: this.ETH, // USDC on Base
       fromAddress: this.dummyAddress,
       toAddress: this.dummyAddress,
       fromAmount: '10000000000000000000', // 10 ETH
@@ -173,9 +173,9 @@ export class BridgeStatsService {
       
       return {
         latency,
-        route: 'Base->Base',
+        route: 'Base->BSC',
         fromChain: 8453,
-        toChain: 8453
+        toChain: 56
       };
     } catch (error) {
       const latency = Date.now() - startTime;
@@ -184,9 +184,9 @@ export class BridgeStatsService {
       if (axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND')) {
         return {
           latency,
-          route: 'Base->Base',
+          route: 'Base->BSC',
           fromChain: 8453,
-          toChain: 8453
+          toChain: 56
         };
       }
       
@@ -229,9 +229,9 @@ export class BridgeStatsService {
       
       return {
         latency,
-        route: 'Ethereum->Arbitrum',
-        fromChain: 1,
-        toChain: 42161
+        route: 'Base->BSC',
+        fromChain: 8453,
+        toChain: 56
       };
     } catch (error) {
       const latency = Date.now() - startTime;
@@ -240,9 +240,9 @@ export class BridgeStatsService {
       if (axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND')) {
         return {
           latency,
-          route: 'Ethereum->Arbitrum',
-          fromChain: 1,
-          toChain: 42161
+          route: 'Base->BSC',
+          fromChain: 8453,
+          toChain: 56
         };
       }
       
@@ -282,7 +282,7 @@ export class BridgeStatsService {
       
       return {
         latency,
-        route: 'Ethereum->Ethereum',
+        route: 'Base->Base',
         fromChain: 1,
         toChain: 1
       };
@@ -293,7 +293,7 @@ export class BridgeStatsService {
       if (axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND')) {
         return {
           latency,
-          route: 'Ethereum->Ethereum',
+          route: 'Base->Base',
           fromChain: 1,
           toChain: 1
         };

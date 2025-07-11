@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Activity, CheckCircle, HelpCircle, AlertTriangle, XCircle, Database } from 'lucide-react'
 import { useStatsSubscription } from '@/contexts/websocket-firebase-context'
 import { coreApi } from '@/lib/api-client'
@@ -60,67 +60,76 @@ export function BridgeStatusPanel() {
   const [error, setError] = useState<string | null>(null);
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(new Set());
 
-  // Load initial data from Core Service API
-  useEffect(() => {
-    fetchBridgeStats();
-  }, []);
+  // 🚀 OPTIMIZED: Use ref to prevent multiple API calls and store stable functions
+  const hasFetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const componentInstanceId = useRef(Math.random().toString(36).substr(2, 9));
+  const statsSubscriptionRef = useRef({
+    subscribeToRoom,
+    unsubscribeFromRoom,
+    onMessage
+  });
 
-  // Subscribe to WebSocket bridge stats updates when connected
+  // 🚀 DEBUG: Log component lifecycle
+  console.log(`🔍 [BridgeStatusPanel-${componentInstanceId.current}] Component render`, {
+    hasFetched: hasFetchedRef.current,
+    isWebSocketConnected,
+    loading,
+    bridgeStatsCount: bridgeStats.length
+  });
+
+  // 🚀 OPTIMIZED: Update refs when functions change (but don't trigger re-renders)
   useEffect(() => {
-    if (!isWebSocketConnected) {
-      console.log('🔌 [BridgeStatusPanel] WebSocket not connected, skipping subscription');
+    statsSubscriptionRef.current = {
+      subscribeToRoom,
+      unsubscribeFromRoom,
+      onMessage
+    };
+  }, [subscribeToRoom, unsubscribeFromRoom, onMessage]);
+
+  // 🚀 OPTIMIZED: Memoize fetchBridgeStats to prevent recreation
+  const fetchBridgeStats = useCallback(async () => {
+    // Prevent multiple calls
+    if (hasFetchedRef.current) {
+      console.log(`🌉 [BridgeStatusPanel-${componentInstanceId.current}] Already fetched, skipping duplicate call`);
       return;
     }
 
-    console.log('📡 [BridgeStatusPanel] WebSocket connected, subscribing to bridge_stats room...');
-    
-    // Subscribe to bridge_stats room
-    subscribeToRoom('bridge_stats');
-    console.log('📡 [BridgeStatusPanel] Subscription request sent for bridge_stats room');
-
-    // Listen for bridge stats updates from WebSocket
-    const unsubscribe = onMessage('bridge_stats_update', (data: WebSocketBridgeUpdate | any) => {
-      console.log('🌉 [BridgeStatusPanel] Received bridge stats update:', data);
+    try {
+      setLoading(true);
+      setError(null);
+      hasFetchedRef.current = true;
       
-      // Handle different data structures from WebSocket
-      let statsData: BridgeLatencyData | null = null;
+      console.log(`🌉 [BridgeStatusPanel-${componentInstanceId.current}] Starting API call...`);
+      const result = await coreApi.getBridgeStats({ limit: 10 });
       
-      if (data?.data?.stats) {
-        // Standard WebSocket format
-        console.log('📊 [BridgeStatusPanel] Processing bridge stats (nested):', data.data.stats);
-        statsData = data.data.stats;
-      } else if (data?.stats) {
-        // Direct stats format from Kafka
-        console.log('�� [BridgeStatusPanel] Processing bridge stats (direct):', data.stats);
-        statsData = data.stats;
-      } else if (data && typeof data === 'object' && data.provider) {
-        // Data is the stats object itself
-        console.log('📊 [BridgeStatusPanel] Processing bridge stats (object):', data);
-        statsData = data;
+      if (result.success && result.data?.bridgeStats) {
+        if (isMountedRef.current) {
+          setBridgeStats(result.data.bridgeStats);
+          console.log(`🌉 [BridgeStatusPanel-${componentInstanceId.current}] Fetched bridge stats:`, result.data.bridgeStats.length, 'items');
+        }
       } else {
-        console.warn('⚠️ [BridgeStatusPanel] No stats data in received message:', data);
+        throw new Error('Invalid response format');
       }
-      
-      if (statsData) {
-        updateBridgeStats(statsData);
+    } catch (err) {
+      console.error(`❌ [BridgeStatusPanel-${componentInstanceId.current}] Failed to fetch bridge stats:`, err);
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch bridge stats');
+        setBridgeStats([]);
       }
-    });
+      // Reset ref on error so user can retry
+      hasFetchedRef.current = false;
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []); // Empty dependency array - stable function
 
-    // Add debug logging for subscription confirmation
-    const unsubscribeDebug = onMessage('subscription-response', (data: any) => {
-      console.log('✅ [BridgeStatusPanel] Subscription response received:', data);
-    });
-
-    return () => {
-      console.log('🧹 [BridgeStatusPanel] Cleaning up subscriptions...');
-      unsubscribe();
-      unsubscribeDebug();
-      unsubscribeFromRoom('bridge_stats');
-      console.log('🧹 [BridgeStatusPanel] Unsubscribed from bridge_stats room');
-    };
-  }, [isWebSocketConnected, subscribeToRoom, unsubscribeFromRoom, onMessage]);
-
-  const updateBridgeStats = (newBridgeData: BridgeLatencyData) => {
+  // 🚀 OPTIMIZED: Memoize updateBridgeStats to prevent recreation
+  const updateBridgeStats = useCallback((newBridgeData: BridgeLatencyData) => {
+    if (!isMountedRef.current) return;
+    
     console.log('🔄 [BridgeStatusPanel] updateBridgeStats called with:', newBridgeData);
     
     const bridgeKey = `${newBridgeData.provider}-${newBridgeData.route}`;
@@ -154,36 +163,95 @@ export function BridgeStatusPanel() {
     
     // Remove the highlight after animation completes
     setTimeout(() => {
-      setRecentlyUpdated(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(bridgeKey);
-        console.log('🔄 [BridgeStatusPanel] Removed recent update highlight:', bridgeKey);
-        return newSet;
-      });
-    }, 1500); // 1.5 seconds highlight duration
-  };
-
-  const fetchBridgeStats = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const result = await coreApi.getBridgeStats({ limit: 10 });
-      
-      if (result.success && result.data?.bridgeStats) {
-        setBridgeStats(result.data.bridgeStats);
-        console.log('🌉 [BridgeStatusPanel] Fetched bridge stats:', result.data.bridgeStats);
-      } else {
-        throw new Error('Invalid response format');
+      if (isMountedRef.current) {
+        setRecentlyUpdated(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(bridgeKey);
+          console.log('🔄 [BridgeStatusPanel] Removed recent update highlight:', bridgeKey);
+          return newSet;
+        });
       }
-    } catch (err) {
-      console.error('❌ [BridgeStatusPanel] Failed to fetch bridge stats:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch bridge stats');
-      setBridgeStats([]);
-    } finally {
-      setLoading(false);
+    }, 1500); // 1.5 seconds highlight duration
+  }, []);
+
+  // 🚀 OPTIMIZED: Track component mount/unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // 🚀 OPTIMIZED: Single useEffect for initial fetch - ONLY runs once
+  useEffect(() => {
+    fetchBridgeStats();
+  }, []); // No dependencies - only run once on mount
+
+  // 🚀 OPTIMIZED: Separate WebSocket subscription useEffect with stable dependencies
+  useEffect(() => {
+    if (!isWebSocketConnected || !isMountedRef.current) {
+      console.log('🔌 [BridgeStatusPanel] WebSocket not connected, skipping subscription');
+      return;
     }
-  };
+
+    console.log('📡 [BridgeStatusPanel] WebSocket connected, subscribing to bridge_stats room...');
+    
+    // Use refs to get stable functions
+    const { subscribeToRoom: subscribe, unsubscribeFromRoom: unsubscribe, onMessage: onMsg } = statsSubscriptionRef.current;
+    
+    // Subscribe to bridge_stats room
+    subscribe('bridge_stats');
+    console.log('📡 [BridgeStatusPanel] Subscription request sent for bridge_stats room');
+
+    // Listen for bridge stats updates from WebSocket
+    const unsubscribeUpdate = onMsg('bridge_stats_update', (data: WebSocketBridgeUpdate | any) => {
+      if (!isMountedRef.current) return;
+      
+      console.log('🌉 [BridgeStatusPanel] Received bridge stats update:', data);
+      
+      // Handle different data structures from WebSocket
+      let statsData: BridgeLatencyData | null = null;
+      
+      if (data?.data?.stats) {
+        // Standard WebSocket format
+        console.log('📊 [BridgeStatusPanel] Processing bridge stats (nested):', data.data.stats);
+        statsData = data.data.stats;
+      } else if (data?.stats) {
+        // Direct stats format from Kafka
+        console.log('📊 [BridgeStatusPanel] Processing bridge stats (direct):', data.stats);
+        statsData = data.stats;
+      } else if (data && typeof data === 'object' && data.provider) {
+        // Data is the stats object itself
+        console.log('📊 [BridgeStatusPanel] Processing bridge stats (object):', data);
+        statsData = data;
+      } else {
+        console.warn('⚠️ [BridgeStatusPanel] No stats data in received message:', data);
+      }
+      
+      if (statsData) {
+        updateBridgeStats(statsData);
+      }
+    });
+
+    // Add debug logging for subscription confirmation
+    const unsubscribeDebug = onMsg('subscription-response', (data: any) => {
+      console.log('✅ [BridgeStatusPanel] Subscription response received:', data);
+    });
+
+    return () => {
+      console.log('🧹 [BridgeStatusPanel] Cleaning up subscriptions...');
+      unsubscribeUpdate();
+      unsubscribeDebug();
+      unsubscribe('bridge_stats');
+      console.log('🧹 [BridgeStatusPanel] Unsubscribed from bridge_stats room');
+    };
+  }, [isWebSocketConnected, updateBridgeStats]); // Only isWebSocketConnected and updateBridgeStats as dependencies
+
+  // 🚀 OPTIMIZED: Add manual refresh function for error state
+  const handleRefresh = useCallback(() => {
+    hasFetchedRef.current = false;
+    fetchBridgeStats();
+  }, [fetchBridgeStats]);
 
   const mapStatusToDisplay = (status: string) => {
     switch (status) {
@@ -292,7 +360,7 @@ export function BridgeStatusPanel() {
             {error}
           </p>
           <button
-            onClick={fetchBridgeStats}
+            onClick={handleRefresh}
             className="px-4 py-2 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
           >
             Try Again
@@ -305,7 +373,7 @@ export function BridgeStatusPanel() {
             No bridge data available
           </p>
           <button
-            onClick={fetchBridgeStats}
+            onClick={handleRefresh}
             className="px-4 py-2 text-sm bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             Refresh
