@@ -64,8 +64,6 @@ export interface WorkerConfig {
   circuitBreakerThreshold: number;
   circuitBreakerTimeout: number;
   batchSize: number;
-  rateLimitWindow: number;
-  rateLimitMax: number;
   cleanupInterval: number;
   statsInterval: number;
   // Periodic sync configuration
@@ -74,6 +72,7 @@ export interface WorkerConfig {
   periodicSyncOffHoursInterval: number;
   periodicSyncStaleThreshold: number;
   periodicSyncBatchSize: number;
+  periodicSyncMaxUsers: number;
 }
 
 export interface WorkerStats {
@@ -226,18 +225,11 @@ export interface SyncTriggerResponse {
 
 // Circuit Breaker Types
 export interface CircuitBreakerState {
-  state: 'closed' | 'open' | 'half-open';
+  state: 'open' | 'closed' | 'half-open';
   failureCount: number;
+  successCount: number;
   lastFailureTime?: Date;
   nextAttemptTime?: Date;
-  successCount: number;
-}
-
-export interface RateLimitInfo {
-  userId: string;
-  requests: number;
-  resetTime: Date;
-  isLimited: boolean;
 }
 
 // Configuration Types

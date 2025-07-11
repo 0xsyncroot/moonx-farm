@@ -7,6 +7,7 @@ export interface User {
   id: string;
   privy_user_id: string;
   wallet_address: string;
+  aa_wallet_address?: string;
   email?: string;
   created_at: Date;
   updated_at: Date;
@@ -46,6 +47,7 @@ export class DatabaseService {
   async createUser(userData: {
     privyUserId: string;
     walletAddress: string;
+    aaWalletAddress?: string;
     email?: string;
   }): Promise<User> {
     const logContext: LogContext = { 
@@ -58,6 +60,7 @@ export class DatabaseService {
       const insertData = {
         privy_user_id: userData.privyUserId,
         wallet_address: userData.walletAddress,
+        aa_wallet_address: userData.aaWalletAddress,
         email: userData.email,
         created_at: new Date(),
         updated_at: new Date(),

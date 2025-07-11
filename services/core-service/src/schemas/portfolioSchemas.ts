@@ -3,8 +3,15 @@ import { z } from 'zod';
 // Portfolio Filters Schema
 export const portfolioFiltersSchema = z.object({
   chainId: z.coerce.number().int().positive().optional(),
+  chainIds: z.string().optional(), // Comma-separated chain IDs
   minValueUSD: z.coerce.number().nonnegative().optional(),
-  showZeroBalances: z.coerce.boolean().default(false)
+  minValue: z.coerce.number().nonnegative().optional(), // Alias for minValueUSD
+  showZeroBalances: z.coerce.boolean().default(false),
+  includeSpam: z.coerce.boolean().default(false),
+  hideSmallBalances: z.coerce.boolean().default(false),
+  hideSpamTokens: z.coerce.boolean().default(true),
+  sortBy: z.enum(['value', 'balance', 'symbol']).default('value').optional(),
+  sortOrder: z.enum(['asc', 'desc']).default('desc').optional()
 });
 
 // Portfolio Sync Schema

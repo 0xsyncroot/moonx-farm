@@ -1,0 +1,13 @@
+{
+  "eventType": "system_announcement",
+  "source": "admin_panel",
+  "title": "🚀 MoonX Farm System Update",
+  "body": "New trading features and improved user experience are now live! Check out the latest updates in your dashboard.",
+  "priority": "medium",
+  "data": {
+    "category": "platform_update",
+    "version": "v2.1.0",
+    "url": "https://moonx.farm/updates",
+    "timestamp": "2024-01-15T10:30:00Z"
+  }
+} 

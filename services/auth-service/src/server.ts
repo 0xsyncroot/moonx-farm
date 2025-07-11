@@ -8,11 +8,11 @@ import swaggerUi from '@fastify/swagger-ui';
 
 import { createAuthServiceConfig } from '@moonx-farm/configs';
 import { createLogger } from '@moonx-farm/common';
-import { 
-  DatabaseManager, 
-  RedisManager, 
-  createDatabaseConfig, 
-  createRedisConfig 
+import {
+  DatabaseManager,
+  RedisManager,
+  createDatabaseConfig,
+  createRedisConfig
 } from '@moonx-farm/infrastructure';
 
 import { authRoutes } from './controllers/authController';
@@ -38,7 +38,7 @@ const logger = createLogger('auth-service');
 async function buildServer(): Promise<FastifyInstance> {
   // Fix MaxListenersExceededWarning
   process.setMaxListeners(20);
-  
+
   const server = Fastify({
     logger: config.isDevelopment() ? {
       level: config.get('LOG_LEVEL'),
@@ -137,7 +137,7 @@ This service handles:
     });
 
     logger.info('📚 Swagger UI enabled at /docs');
-    
+
     // Export OpenAPI spec as JSON
     server.get('/openapi.json', {
       schema: {
@@ -154,7 +154,7 @@ This service handles:
   });
 
   await server.register(cors, {
-    origin: config.isDevelopment() 
+    origin: config.isDevelopment()
       ? ['http://localhost:3000', 'http://localhost:3001']
       : [config.get('FRONTEND_URL') as string],
     credentials: true,
@@ -164,7 +164,37 @@ This service handles:
     max: 10000,
     timeWindow: '15 minutes',
     keyGenerator: (request) => {
-      return request.ip;
+      // Priority 1: X-Real-IP (set by nginx with $remote_addr - real client IP)
+      const xRealIp = request.headers['x-real-ip'];
+      if (xRealIp && typeof xRealIp === 'string') {
+        return xRealIp.trim();
+      }
+
+      // Priority 2: X-Forwarded-For (may contain chain of IPs, take the first one)
+      const xForwardedFor = request.headers['x-forwarded-for'];
+      if (xForwardedFor) {
+        // Handle both string and array cases
+        const forwardedIp = Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor;
+        if (typeof forwardedIp === 'string' && forwardedIp.trim()) {
+          // Take the first IP in the chain (original client IP)
+          const firstIp = forwardedIp.split(',')[0];
+          if (firstIp) {
+            return firstIp.trim();
+          }
+        }
+      }
+
+      // Priority 3: X-Forwarded (less common but sometimes used)
+      const xForwarded = request.headers['x-forwarded'];
+      if (xForwarded && typeof xForwarded === 'string') {
+        const match = xForwarded.match(/for=([^;,\s]+)/);
+        if (match && match[1]) {
+          return match[1].replace(/"/g, '').trim();
+        }
+      }
+
+      // Priority 4: Fastify's parsed IP (fallback)
+      return request.ip || 'unknown';
     },
   });
 
@@ -185,7 +215,7 @@ This service handles:
   // Initialize infrastructure managers (internal to server)
   const databaseConfig = createDatabaseConfig();
   const redisConfig = createRedisConfig();
-  
+
   const databaseManager = new DatabaseManager(databaseConfig);
   const redisManager = new RedisManager(redisConfig);
 
@@ -196,7 +226,7 @@ This service handles:
   // Connect through domain services (they manage infrastructure internally)
   await dbService.connect();
   await redisService.ping(); // Ensure Redis is ready
-  
+
   logger.info('✅ Auth services connected and ready');
 
   // Initialize JWT service
@@ -235,7 +265,7 @@ This service handles:
   }, async () => {
     const dbHealthy = dbService.isHealthy();
     const redisHealthy = await redisService.ping();
-    
+
     return {
       status: dbHealthy && redisHealthy ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
@@ -274,16 +304,16 @@ This service handles:
 async function start() {
   try {
     const server = await buildServer();
-    
+
     const host = config.get('AUTH_SERVICE_HOST') as string;
     const port = config.get('AUTH_SERVICE_PORT') as number;
 
     await server.listen({ host, port });
-    
+
     logger.info(`🚀 Auth Service running on http://${host}:${port}`);
     logger.info(`📋 Health check: http://${host}:${port}/health`);
     logger.info(`🔑 Auth endpoint: http://${host}:${port}/api/v1/auth`);
-    
+
     if (config.isDevelopment()) {
       logger.info(`📚 API Documentation: http://${host}:${port}/docs`);
       logger.info(`📄 OpenAPI Spec: http://${host}:${port}/openapi.json`);

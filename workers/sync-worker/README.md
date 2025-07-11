@@ -289,12 +289,12 @@ await kafkaEventPublisher.publishPortfolioUpdated(
 ### **2. WebSocket Gateway Consumption**
 ```typescript
 // WebSocket Gateway nhận từ Kafka
-kafkaConsumer.on('portfolio.updates', (event) => {
+kafkaConsumer.on('moonx.sync.worker.portfolio.updates', (event) => {
   // Broadcast to user room
   io.to(`user:${event.userId}`).emit('portfolio_update', event.data);
 });
 
-kafkaConsumer.on('sync.events', (event) => {
+kafkaConsumer.on('moonx.sync.worker.sync.events', (event) => {
   // Broadcast sync status
   io.to(`user:${event.userId}`).emit('sync_completed', event.data);
 });

@@ -6,7 +6,7 @@ import { LimitOrderInterface } from '@/components/orders/limit-order-interface'
 import { DCAInterface } from '@/components/orders/dca-interface'
 import { OrderHistory } from '@/components/orders/order-history'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
-import { Target, Repeat, Activity, BarChart3 } from 'lucide-react'
+import { Target, Repeat, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function OrdersPage() {

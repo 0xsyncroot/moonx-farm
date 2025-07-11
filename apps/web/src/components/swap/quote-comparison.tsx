@@ -14,10 +14,11 @@
  */
 
 import { useState, useMemo } from 'react'
-import { ChevronDown, ChevronUp, Clock, Zap, Shield, TrendingUp, AlertTriangle, ExternalLink, Star, ArrowRight, CheckCircle, Target } from 'lucide-react'
-import { formatCurrency, formatNumber, formatTokenAmount, cn } from '@/lib/utils'
+import { ChevronDown, ChevronUp, Clock, Zap, Shield, TrendingUp, AlertTriangle, Star, ArrowRight, CheckCircle, Target } from 'lucide-react'
+import { formatCurrency, formatTokenAmount, cn } from '@/lib/utils'
 import { Token } from '@/hooks/use-tokens'
 import { Quote } from '@/lib/api-client'
+import Image from 'next/image'
 
 interface QuoteComparisonProps {
   quotes: Quote[]
@@ -473,10 +474,12 @@ export function QuoteComparison({
                               <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                                 <div className="flex items-center gap-2 flex-1">
                                   {step.fromToken?.logoURI && (
-                                    <img 
+                                    <Image 
                                       src={step.fromToken.logoURI} 
                                       alt={step.fromToken.symbol}
-                                      className="w-4 h-4 rounded-full"
+                                      width={16}
+                                      height={16}
+                                      className="rounded-full"
                                       onError={(e) => { e.currentTarget.style.display = 'none' }}
                                     />
                                   )}
@@ -498,10 +501,12 @@ export function QuoteComparison({
                               <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                                 <div className="flex items-center gap-2 flex-1">
                                   {step.toToken?.logoURI && (
-                                    <img 
+                                    <Image 
                                       src={step.toToken.logoURI} 
                                       alt={step.toToken.symbol}
-                                      className="w-4 h-4 rounded-full"
+                                      width={16}
+                                      height={16}
+                                      className="rounded-full"
                                       onError={(e) => { e.currentTarget.style.display = 'none' }}
                                     />
                                   )}

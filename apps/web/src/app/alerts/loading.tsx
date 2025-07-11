@@ -1,8 +1,7 @@
 import { Header } from '@/components/layout/header'
 import { 
   Skeleton, 
-  SkeletonText, 
-  SkeletonCard,
+  SkeletonText,
   SkeletonList
 } from '@/components/ui/loading-spinner'
 

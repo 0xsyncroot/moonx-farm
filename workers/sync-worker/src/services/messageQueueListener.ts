@@ -111,7 +111,10 @@ export class MessageQueueListener {
       await this.redis.connect();
       logger.info('Redis connection established');
     } catch (error) {
-      logger.error('Failed to initialize Redis connection', { error });
+      logger.error('Failed to initialize Redis connection', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw error;
     }
   }
@@ -137,7 +140,10 @@ export class MessageQueueListener {
         ],
       });
     } catch (error) {
-      logger.error('Failed to start MessageQueueListener', { error });
+      logger.error('Failed to start MessageQueueListener', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw error;
     }
   }
@@ -166,7 +172,10 @@ export class MessageQueueListener {
       
       logger.info('MessageQueueListener stopped');
     } catch (error) {
-      logger.error('Error stopping MessageQueueListener', { error });
+      logger.error('Error stopping MessageQueueListener', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
     }
   }
 
@@ -185,24 +194,152 @@ export class MessageQueueListener {
   }
 
   private listenToQueue(queueName: string, handler: (message: CoreServiceMessage) => Promise<void>): void {
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 5;
+    
     const pollQueue = async () => {
-      if (!this.isRunning) return;
+      if (!this.isRunning) {
+        logger.debug(`Skipping queue ${queueName} - service not running`);
+        return;
+      }
 
       try {
-        const result = await this.redis.getClient().brpop(queueName, 1);
+        logger.debug(`Polling queue ${queueName}...`);
+        
+        // Check Redis connection first
+        if (!this.redis.getClient()) {
+          throw new Error('Redis client not available');
+        }
+
+        // Test Redis connection health before polling
+        try {
+          await this.redis.getClient().ping();
+        } catch (pingError) {
+          throw new Error(`Redis connection unhealthy: ${pingError instanceof Error ? pingError.message : String(pingError)}`);
+        }
+
+        // Use shorter timeout for brpop to avoid long hangs
+        const result = await this.redis.getClient().brpop(queueName, 0.5); // 0.5 second timeout
+        
         if (result) {
-          const message: CoreServiceMessage = JSON.parse(result[1]);
-          await handler(message);
+          logger.debug(`Received message from queue ${queueName}`, { 
+            messageLength: result[1]?.length || 0,
+            queueName 
+          });
+          
+          let message: CoreServiceMessage;
+          try {
+            message = JSON.parse(result[1]);
+          } catch (parseError) {
+            logger.error(`Failed to parse message from queue ${queueName}`, {
+              error: parseError instanceof Error ? parseError.message : String(parseError),
+              rawMessage: result[1],
+              queueName,
+            });
+            return;
+          }
+
+          // Validate message structure
+          if (!message.type || !message.data || !message.responseQueue) {
+            logger.error(`Invalid message structure from queue ${queueName}`, {
+              messageType: message.type,
+              hasData: !!message.data,
+              hasResponseQueue: !!message.responseQueue,
+              queueName,
+            });
+            return;
+          }
+
+          logger.debug(`Processing message from queue ${queueName}`, {
+            messageType: message.type,
+            responseQueue: message.responseQueue,
+            requestId: message.requestId,
+            queueName,
+          });
+
+          try {
+            await handler(message);
+            logger.debug(`Successfully processed message from queue ${queueName}`, {
+              messageType: message.type,
+              queueName,
+            });
+            
+            // Reset error counter on successful processing
+            consecutiveErrors = 0;
+          } catch (handlerError) {
+            logger.error(`Handler error for queue ${queueName}`, {
+              error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+              stack: handlerError instanceof Error ? handlerError.stack : undefined,
+              messageType: message.type,
+              queueName,
+            });
+          }
+        } else {
+          logger.debug(`No message received from queue ${queueName} (timeout)`);
+          // Reset error counter on successful poll (even if no message)
+          consecutiveErrors = 0;
         }
       } catch (error) {
-        logger.error(`Error polling queue ${queueName}`, { error });
+        consecutiveErrors++;
+        
+        // Determine error type for better logging
+        let errorType = 'unknown';
+        let delayMs = 1000;
+        
+        if (error instanceof Error) {
+          if (error.message.includes('Connection') || error.message.includes('ECONNREFUSED')) {
+            errorType = 'connection';
+            delayMs = 5000; // Longer delay for connection errors
+          } else if (error.message.includes('timeout') || error.message.includes('Command timed out')) {
+            errorType = 'timeout';
+            delayMs = 500; // Shorter delay for timeout errors
+          } else if (error.message.includes('ENOTFOUND')) {
+            errorType = 'dns_error';
+            delayMs = 10000; // Very long delay for DNS errors
+          } else if (error.message.includes('Redis') || error.message.includes('unhealthy')) {
+            errorType = 'redis_error';
+            delayMs = 3000; // Medium delay for Redis errors
+          }
+        }
+        
+        // Use exponential backoff for consecutive errors
+        if (consecutiveErrors > 1) {
+          delayMs = Math.min(delayMs * Math.pow(2, consecutiveErrors - 1), 30000); // Cap at 30 seconds
+        }
+        
+        const logLevel = consecutiveErrors > 3 ? 'error' : 'warn';
+        logger[logLevel](`Error polling queue ${queueName}`, { 
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          errorType,
+          queueName,
+          isRunning: this.isRunning,
+          redisClientExists: !!this.redis.getClient(),
+          consecutiveErrors,
+          nextRetryDelayMs: delayMs,
+        });
+        
+        // Stop polling if too many consecutive errors
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          logger.error(`Too many consecutive errors (${consecutiveErrors}) for queue ${queueName}, stopping polling`, {
+            queueName,
+            maxConsecutiveErrors,
+          });
+          return;
+        }
+        
+        // Add delay based on error type and consecutive errors
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
       
       // Continue polling
-      const timeout = setTimeout(pollQueue, 100);
-      this.messageListeners.set(queueName, timeout);
+      if (this.isRunning) {
+        const timeout = setTimeout(pollQueue, 100);
+        this.messageListeners.set(queueName, timeout);
+      }
     };
 
+    logger.info(`Starting to listen to queue ${queueName}`);
     pollQueue();
   }
 
@@ -214,6 +351,7 @@ export class MessageQueueListener {
         jobId: request.jobId,
         userId: request.userId,
         priority: request.priority,
+        responseQueue: message.responseQueue,
       });
 
       // Add job to BullMQ queue
@@ -226,13 +364,39 @@ export class MessageQueueListener {
         jobId: request.jobId,
       });
 
-      logger.debug('Sync job queued', {
+      logger.info('Sync job queued successfully', {
         jobId: request.jobId,
         bullmqJobId: job.id,
+        responseQueue: message.responseQueue,
+      });
+
+      // Send immediate response with "queued" status
+      const queuedResponse: SyncJobResponse = {
+        jobId: request.jobId,
+        status: 'queued',
+        metadata: {
+          bullmqJobId: job.id,
+          queuedAt: new Date().toISOString(),
+        },
+      };
+
+      await this.sendResponse(message.responseQueue, queuedResponse);
+      
+      logger.info('📤 Queued response sent to Core Service', {
+        jobId: request.jobId,
+        userId: request.userId,
+        responseQueue: message.responseQueue,
+        responseStatus: queuedResponse.status
       });
       
     } catch (error) {
-      logger.error('Error handling sync request', { error });
+      logger.error('Error handling sync request', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        jobId: message.data?.jobId,
+        userId: message.data?.userId,
+        responseQueue: message.responseQueue,
+      });
       
       // Send error response
       const response: SyncJobResponse = {
@@ -262,7 +426,13 @@ export class MessageQueueListener {
       await this.sendResponse(message.responseQueue, syncStatus);
       
     } catch (error) {
-      logger.error('Error handling sync status request', { error });
+      logger.error('Error handling sync status request', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        userId: message.data?.userId,
+        walletAddress: message.data?.walletAddress,
+        responseQueue: message.responseQueue,
+      });
       
       // Send default response
       const defaultResponse = {
@@ -298,7 +468,13 @@ export class MessageQueueListener {
       await this.sendResponse(message.responseQueue, operations);
       
     } catch (error) {
-      logger.error('Error handling sync operations request', { error });
+      logger.error('Error handling sync operations request', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        userId: message.data?.userId,
+        walletAddress: message.data?.walletAddress,
+        responseQueue: message.responseQueue,
+      });
       await this.sendResponse(message.responseQueue, []);
     }
   }
@@ -324,7 +500,13 @@ export class MessageQueueListener {
       await this.sendResponse(message.responseQueue, result);
       
     } catch (error) {
-      logger.error('Error handling cancel operation request', { error });
+      logger.error('Error handling cancel operation request', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        operationId: message.data?.operationId,
+        userId: message.data?.userId,
+        responseQueue: message.responseQueue,
+      });
       await this.sendResponse(message.responseQueue, {
         found: false,
         cancelled: false,
@@ -336,7 +518,12 @@ export class MessageQueueListener {
     try {
       await this.redis.getClient().lpush(responseQueue, JSON.stringify(data));
     } catch (error) {
-      logger.error('Error sending response', { responseQueue, error });
+      logger.error('Error sending response', { 
+        responseQueue, 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        dataKeys: data ? Object.keys(data) : [],
+      });
     }
   }
 
@@ -346,67 +533,77 @@ export class MessageQueueListener {
     try {
       const jobData = job.data as SyncJobData & { responseQueue: string };
       
-      logger.info('Processing sync job', {
+      logger.info('🎯 Received sync job from queue', {
         jobId: job.id,
         userId: jobData.userId,
         walletAddress: jobData.walletAddress,
+        priority: jobData.priority,
+        chainIds: jobData.chainIds,
+        responseQueue: jobData.responseQueue,
+        jobDataKeys: Object.keys(jobData)
       });
 
       // Process the sync job
+      logger.info('🚀 Starting sync job processing', {
+        jobId: job.id,
+        userId: jobData.userId,
+        walletAddress: jobData.walletAddress
+      });
+
       const result = await this.syncProcessor.processJob({
         id: job.id as string,
         data: jobData,
         priority: jobData.priority || 'medium',
       });
 
-      // Send success response to Core Service
-      const response: SyncJobResponse = {
-        jobId: job.id as string,
-        status: 'completed',
-        result,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        metadata: {
-          processingTime: Date.now() - startTime,
-          bullmqJobId: job.id,
-        },
-      };
-
-      await this.sendResponse(jobData.responseQueue, response);
-      
-      logger.info('Sync job completed', {
+      logger.info('✅ Sync job processing completed', {
         jobId: job.id,
         userId: jobData.userId,
+        walletAddress: jobData.walletAddress,
         tokensSync: result.tokensSync,
+        chainsSync: result.chainsSync,
+        totalValueUsd: result.totalValueUsd,
+        processingTime: Date.now() - startTime
+      });
+
+      // NOTE: No response sent here - already sent "queued" response in handleSyncRequest
+      // Core Service will poll status via separate endpoint if needed
+      
+      logger.info('🎉 Sync job completed successfully (no response sent)', {
+        jobId: job.id,
+        userId: jobData.userId,
+        walletAddress: jobData.walletAddress,
+        tokensSync: result.tokensSync,
+        chainsSync: result.chainsSync,
         totalValueUsd: result.totalValueUsd,
         processingTime: Date.now() - startTime,
+        note: 'Response already sent as queued status'
       });
 
       return result;
       
     } catch (error) {
-      logger.error('Error processing sync job', {
+      logger.error('❌ Sync job processing failed', {
         jobId: job.id,
         error: error instanceof Error ? error.message : String(error),
+        note: 'No error response sent - already sent queued response'
       });
 
-      // Send error response to Core Service
-      const jobData = job.data as SyncJobData & { responseQueue: string };
-      const response: SyncJobResponse = {
-        jobId: job.id as string,
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error',
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        metadata: {
-          processingTime: Date.now() - startTime,
-          bullmqJobId: job.id,
-        },
-      };
-
-      await this.sendResponse(jobData.responseQueue, response);
+      // NOTE: No error response sent here either
+      // Job failure will be tracked in sync_operations table
+      // Core Service can check status via separate endpoint
       
-      throw error;
+      return {
+        success: false,
+        jobId: job.id as string,
+        userId: (job.data as any).userId,
+        walletAddress: (job.data as any).walletAddress,
+        processingTime: Date.now() - startTime,
+        tokensSync: 0,
+        chainsSync: 0,
+        totalValueUsd: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -446,7 +643,11 @@ export class MessageQueueListener {
     try {
       return this.isRunning && await this.redis.isHealthy();
     } catch (error) {
-      logger.error('Health check failed', { error });
+      logger.error('Health check failed', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        isRunning: this.isRunning,
+      });
       return false;
     }
   }
@@ -477,7 +678,10 @@ export class MessageQueueListener {
         failedJobs: failed.length,
       };
     } catch (error) {
-      logger.error('Error getting stats', { error });
+      logger.error('Error getting stats', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return {
         isRunning: false,
         queueStats: { waiting: 0, active: 0, completed: 0, failed: 0 },
@@ -518,7 +722,10 @@ export class MessageQueueListener {
       
       logger.info('Graceful shutdown completed');
     } catch (error) {
-      logger.error('Error during graceful shutdown', { error });
+      logger.error('Error during graceful shutdown', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw error;
     }
   }

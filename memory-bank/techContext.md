@@ -21,8 +21,8 @@
 ### **Backend Services**
 | Service | Language | Framework | Database | Rationale |
 |---------|----------|-----------|----------|-----------|
-| **Core Service** | TypeScript | Fastify | PostgreSQL | Portfolio auto-sync, Order mgmt, P&L, Trading history |
-| **Sync Worker** | TypeScript | Cluster | PostgreSQL | Heavy-duty portfolio sync, batch operations |
+| **Core Service** | TypeScript | Fastify | PostgreSQL + MongoDB | Portfolio auto-sync, Order mgmt, P&L, Trading history + High-performance sync operations |
+| **Sync Worker** | TypeScript | Cluster | PostgreSQL + MongoDB | Heavy-duty portfolio sync, batch operations + User sync status tracking |
 | **Auth Service** | TypeScript | Fastify | PostgreSQL | JWT, Privy integration |
 | **Aggregator Service** | Go | Gin/Fiber | Redis | High performance quotes |
 | **Notify Service** | TypeScript | Socket.IO | Redis | Real-time notifications |
@@ -46,6 +46,7 @@
 | Component | Technology | Purpose |
 |-----------|------------|---------|
 | **Database** | PostgreSQL 15+ | Primary data storage |
+| **Document Store** | MongoDB 6+ | High-performance sync operations, user sync status |
 | **Cache** | Redis 7+ | Session, cache, pub/sub |
 | **Message Queue** | Apache Kafka | Event streaming |
 | **Container** | Docker | Containerization |
@@ -183,6 +184,73 @@ const redisConfig = {
   maxRetriesPerRequest: 3,
   lazyConnect: true
 };
+```
+
+#### **MongoDB as Document Store**
+**Use Cases**:
+- User sync status tracking cho high-frequency updates
+- Sync operation history với optimized query patterns
+- High-performance upsert operations cho user data
+- Atomic operations với `$setOnInsert` pattern
+
+**Configuration**:
+```javascript
+const mongoConfig = {
+  uri: process.env.MONGODB_URI,
+  dbName: process.env.MONGODB_DB_NAME || 'moonx-farm-v2',
+  options: {
+    retryWrites: true,
+    w: 'majority',
+    readPreference: 'primary',
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  }
+};
+```
+
+**MongoDB Collections**:
+```javascript
+// user_sync_status - User sync status tracking
+{
+  userId: String,
+  walletAddress: String,
+  syncStatus: Enum['never', 'pending', 'syncing', 'completed', 'failed'],
+  lastSyncAt: Date,
+  nextScheduledSync: Date,
+  totalSyncs: Number,
+  successfulSyncs: Number,
+  syncReason: Enum['manual_trigger', 'scheduled_sync', 'user_login', 'no_portfolio_data']
+}
+
+// sync_operations - Sync operation history
+{
+  operationId: String,
+  userId: String,
+  walletAddress: String,
+  operationType: Enum['portfolio_sync', 'balance_update'],
+  status: Enum['pending', 'running', 'completed', 'failed'],
+  startedAt: Date,
+  completedAt: Date,
+  metadata: Object
+}
+```
+
+**10 Optimized Indexes**:
+```javascript
+// user_sync_status indexes
+db.user_sync_status.createIndex({ userId: 1 }, { name: 'idx_user_id' });
+db.user_sync_status.createIndex({ walletAddress: 1 }, { name: 'idx_wallet_address' });
+db.user_sync_status.createIndex({ syncStatus: 1 }, { name: 'idx_sync_status' });
+db.user_sync_status.createIndex({ nextScheduledSync: 1 }, { name: 'idx_next_scheduled_sync' });
+db.user_sync_status.createIndex({ lastSyncAt: 1 }, { name: 'idx_last_sync_at' });
+db.user_sync_status.createIndex({ userId: 1, walletAddress: 1 }, { name: 'idx_user_wallet_compound' });
+
+// sync_operations indexes
+db.sync_operations.createIndex({ operationId: 1 }, { name: 'idx_operation_id' });
+db.sync_operations.createIndex({ userId: 1 }, { name: 'idx_user_id' });
+db.sync_operations.createIndex({ status: 1 }, { name: 'idx_status' });
+db.sync_operations.createIndex({ startedAt: 1 }, { name: 'idx_started_at' });
 ```
 
 ### **3. Microservices Communication**

@@ -40,16 +40,22 @@ class SyncWorkerApp {
 
       // Initialize Alchemy service
       this.alchemyService = new AlchemyService();
+      logger.info('✅ AlchemyService initialized');
 
-      // Initialize Database service
+      // Initialize Database service (includes MongoDB + PostgreSQL)
+      logger.info('🔄 Initializing Database service (PostgreSQL + MongoDB)...');
       this.databaseService = new DatabaseService();
       await this.databaseService.initialize();
+      logger.info('✅ Database service initialized (PostgreSQL + MongoDB with indexes)');
 
       // Initialize Kafka event publisher
+      logger.info('🔄 Initializing Kafka event publisher...');
       this.kafkaEventPublisher = new KafkaEventPublisher();
       await this.kafkaEventPublisher.initialize();
+      logger.info('✅ Kafka event publisher initialized');
 
       // Initialize sync processor with Kafka event publisher
+      logger.info('🔄 Initializing sync processor...');
       this.syncProcessor = new SyncProcessor(
         this.alchemyService, 
         this.databaseService,
@@ -58,18 +64,35 @@ class SyncWorkerApp {
       
       // Initialize sync processor (for state recovery)
       await this.syncProcessor.initialize();
+      logger.info('✅ Sync processor initialized with state recovery');
 
       // Initialize Redis-based message queue listener
+      logger.info('🔄 Initializing message queue listener...');
       this.messageQueueListener = new MessageQueueListener(this.syncProcessor);
       await this.messageQueueListener.initialize();
+      logger.info('✅ Message queue listener initialized');
 
       // Initialize periodic sync scheduler with database service
+      logger.info('🔄 Initializing periodic sync scheduler...');
       this.periodicSyncScheduler = new PeriodicSyncScheduler(this.databaseService);
+      logger.info('✅ Periodic sync scheduler initialized');
 
       // Initialize metrics collector
+      logger.info('🔄 Initializing metrics collector...');
       this.metricsCollector = new MetricsCollector();
+      logger.info('✅ Metrics collector initialized');
 
-      logger.info('✅ All services initialized successfully');
+      logger.info('✅ All services initialized successfully', {
+        services: [
+          'AlchemyService',
+          'DatabaseService (PostgreSQL + MongoDB)',
+          'KafkaEventPublisher',
+          'SyncProcessor',
+          'MessageQueueListener',
+          'PeriodicSyncScheduler',
+          'MetricsCollector'
+        ]
+      });
     } catch (error) {
       logger.error('❌ Failed to initialize services', {
         error: error instanceof Error ? error.message : String(error),
@@ -174,9 +197,21 @@ class SyncWorkerApp {
         this.periodicSyncScheduler?.isHealthy(),
       ]);
 
-      return healthChecks.every(check => 
+      const isHealthy = healthChecks.every((check: any) => 
         check === true || (check && check.connected === true)
       );
+
+      // Enhanced health check logging
+      if (!isHealthy) {
+        logger.warn('⚠️ Health check failed', {
+          databaseHealth: healthChecks[0],
+          kafkaHealth: healthChecks[1],
+          messageQueueHealth: healthChecks[2],
+          schedulerHealth: healthChecks[3]
+        });
+      }
+
+      return isHealthy;
     } catch (error) {
       logger.error('Health check failed', { error });
       return false;
@@ -188,11 +223,20 @@ class SyncWorkerApp {
    */
   async getStats(): Promise<any> {
     try {
-      const [queueStats, schedulerStats, kafkaStats] = await Promise.all([
+      const [queueStats, schedulerStats, kafkaStats, databaseHealth] = await Promise.all([
         this.messageQueueListener?.getStats(),
         this.periodicSyncScheduler?.getStats(),
         this.kafkaEventPublisher?.getStats(),
+        this.databaseService?.healthCheck(),
       ]);
+
+      // Get MongoDB-specific stats if available
+      let mongoStats = null;
+      try {
+        mongoStats = await this.databaseService?.mongoSyncService?.getSyncStatistics();
+      } catch (error) {
+        logger.debug('Could not get MongoDB stats', { error });
+      }
 
       return {
         uptime: process.uptime(),
@@ -202,6 +246,10 @@ class SyncWorkerApp {
         queue: queueStats,
         scheduler: schedulerStats,
         kafka: kafkaStats,
+        database: {
+          ...databaseHealth,
+          mongodb: mongoStats
+        },
         isHealthy: await this.isHealthy(),
       };
     } catch (error) {
@@ -244,7 +292,7 @@ class SyncWorkerApp {
       // Clear timeout
       clearTimeout(shutdownTimeout);
 
-      // Stop the app
+      // Stop the app (includes MongoDB + PostgreSQL disconnect)
       await this.stop();
       
       logger.info('✅ Graceful shutdown completed');

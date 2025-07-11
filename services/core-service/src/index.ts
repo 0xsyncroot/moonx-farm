@@ -9,6 +9,7 @@ import { portfolioRoutes } from './routes/portfolio';
 import { bitqueryRoutes } from './routes/bitquery';
 import { chainRoutes } from './routes/chains';
 import { syncRoutes } from './routes/sync';
+import { statsRoutes } from './routes/stats';
 
 const logger = createLogger('core-service');
 
@@ -16,7 +17,7 @@ const startServer = async () => {
   // Load configuration from @moonx-farm/configs
   const config = createCoreServiceConfig();
   const serverConfig = getServerConfig('core-service');
-  
+
   // Initialize Fastify with proper logger configuration
   const fastify = Fastify({
     logger: config.isDevelopment() ? {
@@ -58,7 +59,37 @@ const startServer = async () => {
         // Use user ID from token for rate limiting
         return authHeader;
       }
-      return request.ip;
+      // Priority 1: X-Real-IP (set by nginx with $remote_addr - real client IP)
+      const xRealIp = request.headers['x-real-ip'];
+      if (xRealIp && typeof xRealIp === 'string') {
+        return xRealIp.trim();
+      }
+
+      // Priority 2: X-Forwarded-For (may contain chain of IPs, take the first one)
+      const xForwardedFor = request.headers['x-forwarded-for'];
+      if (xForwardedFor) {
+        // Handle both string and array cases
+        const forwardedIp = Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor;
+        if (typeof forwardedIp === 'string' && forwardedIp.trim()) {
+          // Take the first IP in the chain (original client IP)
+          const firstIp = forwardedIp.split(',')[0];
+          if (firstIp) {
+            return firstIp.trim();
+          }
+        }
+      }
+
+      // Priority 3: X-Forwarded (less common but sometimes used)
+      const xForwarded = request.headers['x-forwarded'];
+      if (xForwarded && typeof xForwarded === 'string') {
+        const match = xForwarded.match(/for=([^;,\s]+)/);
+        if (match && match[1]) {
+          return match[1].replace(/"/g, '').trim();
+        }
+      }
+
+      // Priority 4: Fastify's parsed IP (fallback)
+      return request.ip || 'unknown';
     }
   });
 
@@ -94,27 +125,32 @@ const startServer = async () => {
   const databaseService = new DatabaseService();
   const cacheService = new CacheService();
   const authMiddleware = new AuthMiddleware();
-  
+
   // Connect to infrastructure
   await databaseService.connect();
   await cacheService.connect();
-  
+
   logger.info('Connected to database and cache');
 
   // Initialize portfolio service for portfolio routes
   const { PortfolioService } = await import('./services/portfolioService');
+  const { SyncProxyService } = await import('./services/syncProxyService');
   const portfolioService = new PortfolioService(databaseService, cacheService);
-  
-  logger.info('📦 Portfolio service initialized (sync delegated to sync worker)');
+  const syncProxyService = new SyncProxyService(databaseService);
+
+  // Initialize sync proxy service
+  await syncProxyService.initialize();
+
+  logger.info('📦 Portfolio service initialized with auto-sync trigger');
 
   // Health check routes
   fastify.get('/health', async (request, reply) => {
     const dbHealth = await databaseService.healthCheck();
     const cacheHealth = await cacheService.healthCheck();
-    
+
     const status = dbHealth.connected && cacheHealth ? 'healthy' : 'unhealthy';
     const statusCode = status === 'healthy' ? 200 : 503;
-    
+
     return reply.code(statusCode).send({
       status,
       timestamp: new Date().toISOString(),
@@ -135,12 +171,13 @@ const startServer = async () => {
     fastify.register(async function (fastify) {
       // Add auth middleware to all routes in this context
       fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
-      
-      // Register portfolio routes with shared services (no autoSyncService)
+
+      // Register portfolio routes with shared services including syncProxyService
       await portfolioRoutes(fastify, {
         databaseService,
         cacheService,
-        portfolioService
+        portfolioService,
+        syncProxyService
       });
     });
 
@@ -159,7 +196,7 @@ const startServer = async () => {
     fastify.register(async function (fastify) {
       // Add auth middleware to all routes in this context
       fastify.addHook('preHandler', authMiddleware.authenticate.bind(authMiddleware));
-      
+
       // Register order routes
       await orderRoutes(fastify);
     });
@@ -177,17 +214,25 @@ const startServer = async () => {
     fastify.register(async function (fastify) {
       await bitqueryRoutes(fastify);
     }, { prefix: '/bitquery' });
+
+    // Stats API Routes (no authentication required for read-only stats)
+    fastify.register(async function (fastify) {
+      await statsRoutes(fastify, {
+        databaseService,
+        cacheService
+      });
+    });
   }, { prefix: '/api/v1' });
 
   // Error handling
   fastify.setErrorHandler((error, request, reply) => {
-    logger.error('Request error', { 
+    logger.error('Request error', {
       error: error.message,
       stack: error.stack,
       url: request.url,
-      method: request.method 
+      method: request.method
     });
-    
+
     if (error.validation) {
       return reply.code(400).send({
         success: false,
@@ -207,8 +252,9 @@ const startServer = async () => {
   // Graceful shutdown
   const gracefulShutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully...`);
-    
+
     try {
+      await syncProxyService.shutdown();
       await databaseService.disconnect();
       await cacheService.disconnect();
       await fastify.close();
@@ -225,11 +271,11 @@ const startServer = async () => {
 
   // Start server with config-based settings
   try {
-    await fastify.listen({ 
-      port: serverConfig.port, 
-      host: serverConfig.host 
+    await fastify.listen({
+      port: serverConfig.port,
+      host: serverConfig.host
     });
-    
+
     logger.info(`🚀 Core Service running on ${serverConfig.host}:${serverConfig.port}`);
     logger.info(`📦 Portfolio management active (sync delegated to sync worker)`);
     // Swagger temporarily disabled

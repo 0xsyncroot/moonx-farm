@@ -85,7 +85,7 @@ export function SwapSettings({
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 
                                 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg opacity-0 
                                 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                    Maximum price difference you're willing to accept
+                    Maximum price difference you&apos;re willing to accept
                   </div>
                 </div>
               </div>

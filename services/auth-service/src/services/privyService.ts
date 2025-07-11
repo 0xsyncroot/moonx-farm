@@ -20,6 +20,8 @@ export interface PrivyLinkedAccount {
 export interface PrivyUser {
   id: string;
   createdAt: string;
+  eoaAddress?: string;
+  aaWalletAddress?: string;
   linkedAccounts: PrivyLinkedAccount[];
   mfaMethods: any[];
 }
@@ -29,6 +31,7 @@ export interface VerifyTokenResult {
   user: PrivyUser;
   // Optional fields phù hợp với social login - có thể undefined
   walletAddress?: string | undefined;
+  aaWalletAddress?: string | undefined;
   email?: string | undefined;
   socialProfile?: {
     provider: string;
@@ -65,7 +68,7 @@ export class PrivyService {
       }
 
       // Get user data từ Privy
-      const privyUser = await this.privy.getUser(claims.userId);
+      const privyUser = await this.privy.getUserById(claims.userId);
 
       if (!privyUser) {
         throw new Error('User not found in Privy');
@@ -75,6 +78,7 @@ export class PrivyService {
       const user: PrivyUser = {
         id: privyUser.id,
         createdAt: privyUser.createdAt ? privyUser.createdAt.toISOString() : new Date().toISOString(),
+        eoaAddress: privyUser.wallet?.address,
         linkedAccounts: (privyUser.linkedAccounts || []).map((account: any) => ({
           type: account.type,
           address: account.address,
@@ -86,6 +90,7 @@ export class PrivyService {
           profilePictureUrl: account.profilePictureUrl,
           socialId: account.subject || account.socialId
         })),
+        aaWalletAddress: privyUser.smartWallet?.address, // AA wallet address
         mfaMethods: []
       };
 
@@ -109,6 +114,7 @@ export class PrivyService {
         user,
         walletAddress: walletAccount?.address,
         email: emailAccount?.email || socialAccount?.email,
+        aaWalletAddress: user.aaWalletAddress,
         socialProfile: socialAccount ? {
           provider: socialAccount.type.replace('_oauth', ''),
           ...(socialAccount.username && { username: socialAccount.username }),

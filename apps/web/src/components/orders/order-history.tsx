@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { coreApi } from '@/lib/api-client'
 import { toast } from 'react-hot-toast'
 import { 
   Search, 
-  Filter, 
   Download,
   Clock,
   CheckCircle,
@@ -18,12 +17,7 @@ import {
   MoreHorizontal,
   Eye,
   RefreshCw,
-  Calendar,
-  BarChart3,
-  DollarSign,
   Activity,
-  ChevronDown,
-  SortDesc,
   ArrowUpDown
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
@@ -110,7 +104,7 @@ export function OrderHistory() {
     totalValue: orders.reduce((sum, o) => sum + (o.amountFrom * o.price), 0)
   }
 
-  const fetchOrders = async (showRefresh = false) => {
+  const fetchOrders = useCallback(async (showRefresh = false) => {
     try {
       if (showRefresh) setIsRefreshing(true)
       else setIsLoading(true)
@@ -123,20 +117,20 @@ export function OrderHistory() {
       
       if (response.success) {
         // Transform Core Service order data to match our interface
-        const transformedOrders = response.data.orders.map((order: any) => ({
+        const transformedOrders = response.data.orders.map((order: Record<string, unknown>) => ({
           id: order.orderId,
-          type: order.type.toLowerCase(),
-          status: order.status.toLowerCase(),
+          type: (order.type as string).toLowerCase(),
+          status: (order.status as string).toLowerCase(),
           tokenFrom: order.fromToken,
           tokenTo: order.toToken,
-          amountFrom: parseFloat(order.fromAmount),
-          amountTo: parseFloat(order.toAmount || '0'),
-          price: parseFloat(order.targetPrice || '0'),
-          timestamp: new Date(order.createdAt).getTime(),
-          txHash: order.executionCount > 0 ? `0x${order.orderId.slice(-8)}...` : undefined,
+          amountFrom: parseFloat(order.fromAmount as string),
+          amountTo: parseFloat((order.toAmount as string) || '0'),
+          price: parseFloat((order.targetPrice as string) || '0'),
+          timestamp: new Date(order.createdAt as string).getTime(),
+          txHash: (order.executionCount as number) > 0 ? `0x${(order.orderId as string).slice(-8)}...` : undefined,
           progress: order.status === 'pending' ? Math.random() * 30 + 20 : 100,
-          executedAmount: order.status === 'completed' ? parseFloat(order.fromAmount) : 
-                         order.status === 'pending' ? parseFloat(order.fromAmount) * (Math.random() * 0.3) : 0
+          executedAmount: order.status === 'completed' ? parseFloat(order.fromAmount as string) : 
+                         order.status === 'pending' ? parseFloat(order.fromAmount as string) * (Math.random() * 0.3) : 0
         }))
         
         setOrders(transformedOrders)
@@ -151,11 +145,11 @@ export function OrderHistory() {
       setIsLoading(false)
       setIsRefreshing(false)
     }
-  }
+  }, [statusFilter])
 
   useEffect(() => {
     fetchOrders()
-  }, [statusFilter])
+  }, [statusFilter, fetchOrders])
 
   // Auto-refresh every 30 seconds for pending orders
   useEffect(() => {
@@ -167,7 +161,7 @@ export function OrderHistory() {
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [orders])
+  }, [orders, fetchOrders])
 
   const filteredAndSortedOrders = orders.filter(order => {
     const matchesSearch = !searchQuery || 
@@ -339,7 +333,7 @@ export function OrderHistory() {
           <div className="flex gap-2">
             <select 
               value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => setSortBy(e.target.value as 'date' | 'amount' | 'status')}
               className="px-4 py-2 bg-background/50 border border-border rounded-lg text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 cursor-pointer"
             >
               <option value="date">Sort by Date</option>

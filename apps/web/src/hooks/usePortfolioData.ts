@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { coreApi } from '@/lib/api-client'
-import { toast } from 'react-hot-toast'
 
 // Types matching Core Service API response format
 interface TokenHolding {
@@ -170,10 +169,29 @@ export function usePortfolioData() {
           return result
         }
         
-        throw new Error(`Portfolio API failed: ${portfolioResponse.message || 'Unknown error'}`)
+        console.warn('Portfolio API failed:', portfolioResponse.message || 'Unknown error')
+        // Return fallback data for UI to continue working
+        return {
+          totalValue: 0,
+          totalChange: 0,
+          totalChangePercent: 0,
+          totalInvested: 0,
+          unrealizedPnL: 0,
+          realizedPnL: 0,
+          pnlData: {}
+        }
       } catch (error) {
         console.error('❌ Portfolio overview fetch error:', error)
-        throw error
+        // Return fallback data instead of throwing
+        return {
+          totalValue: 0,
+          totalChange: 0,
+          totalChangePercent: 0,
+          totalInvested: 0,
+          unrealizedPnL: 0,
+          realizedPnL: 0,
+          pnlData: {}
+        }
       } finally {
         delete portfolioCache.promises[cacheKey]
       }
@@ -195,42 +213,41 @@ export function usePortfolioData() {
       try {
         console.log('💼 Fetching token holdings...')
         
-        const response = await coreApi.getPortfolio({ 
+        const response = await coreApi.getTokenHoldings({ 
           includeSpam: false, 
-          minValueUSD: 1 
+          minValueUSD: 0 
         })
         
         console.log('💼 Holdings response:', response)
         
         if (response.success) {
-          // Handle different response structures according to README.md
+          // New API returns holdings array directly with allocation already calculated
           let holdings: TokenHolding[] = []
           
-          if (response.data.portfolio?.holdings) {
-            holdings = response.data.portfolio.holdings
-          } else if (response.data.holdings) {
-            holdings = response.data.holdings
-          } else if (Array.isArray(response.data)) {
-            holdings = response.data
+          // Handle null response (no portfolio data)
+          if (!response.data) {
+            console.log('💼 No holdings data available, returning empty holdings')
+            return []
           }
           
-          // Calculate total value for allocation calculation
-          const totalValue = holdings.reduce((sum, holding) => sum + holding.valueUSD, 0)
+          if (Array.isArray(response.data)) {
+            holdings = response.data
+          } else {
+            console.warn('💼 Unexpected holdings response structure:', response.data)
+            return []
+          }
           
-          // Add allocation percentage to each holding
-          const holdingsWithAllocation = holdings.map(holding => ({
-            ...holding,
-            allocation: totalValue > 0 ? (holding.valueUSD / totalValue) * 100 : 0
-          }))
-          
-          console.log('💼 Holdings result:', holdingsWithAllocation)
-          return holdingsWithAllocation
+          console.log('💼 Holdings result:', holdings)
+          return holdings
         }
         
-        throw new Error(`Portfolio API failed: ${response.message || 'Unknown error'}`)
+        console.warn('Token holdings API failed:', response.message || 'Unknown error')
+        // Return empty holdings for UI to continue working
+        return []
       } catch (error) {
         console.error('❌ Token holdings fetch error:', error)
-        throw error
+        // Return empty holdings instead of throwing
+        return []
       } finally {
         delete portfolioCache.promises[cacheKey]
       }
@@ -260,10 +277,39 @@ export function usePortfolioData() {
           return response.data
         }
         
-        throw new Error(`PnL API failed: ${response.message || 'Unknown error'}`)
+        console.warn(`PnL API failed for ${timeframe}:`, response.message || 'Unknown error')
+        // Return fallback PnL data for UI to continue working
+        return {
+          timeframe,
+          realizedPnlUSD: 0,
+          unrealizedPnlUSD: 0,
+          netPnlUSD: 0,
+          totalFeesUSD: 0,
+          winRate: 0,
+          totalTrades: 0,
+          profitableTrades: 0,
+          currentPortfolioValueUSD: 0,
+          portfolioChangePercent: 0,
+          biggestWinUSD: 0,
+          biggestLossUSD: 0
+        }
       } catch (error) {
         console.error(`❌ P&L data fetch error for ${timeframe}:`, error)
-        throw error
+        // Return fallback PnL data instead of throwing
+        return {
+          timeframe,
+          realizedPnlUSD: 0,
+          unrealizedPnlUSD: 0,
+          netPnlUSD: 0,
+          totalFeesUSD: 0,
+          winRate: 0,
+          totalTrades: 0,
+          profitableTrades: 0,
+          currentPortfolioValueUSD: 0,
+          portfolioChangePercent: 0,
+          biggestWinUSD: 0,
+          biggestLossUSD: 0
+        }
       } finally {
         delete portfolioCache.promises[cacheKey]
       }
@@ -298,10 +344,13 @@ export function usePortfolioData() {
           return trades
         }
         
-        throw new Error(`Trades API failed: ${response.message || 'Unknown error'}`)
+        console.warn('Trades API failed:', response.message || 'Unknown error')
+        // Return empty trades for UI to continue working
+        return []
       } catch (error) {
         console.error('❌ Trade history fetch error:', error)
-        throw error
+        // Return empty trades instead of throwing
+        return []
       } finally {
         delete portfolioCache.promises[cacheKey]
       }
@@ -314,7 +363,7 @@ export function usePortfolioData() {
   // Load all portfolio data
   const loadPortfolioData = useCallback(async (force = false) => {
     // Skip if there's a recent error and we're within backoff period
-    if (!force && error && errorCountRef.current > 0) {
+    if (!force && errorCountRef.current > 0) {
       const timeSinceError = Date.now() - lastErrorTimeRef.current
       const backoffDelay = getBackoffDelay()
       if (timeSinceError < backoffDelay) {
@@ -325,7 +374,7 @@ export function usePortfolioData() {
 
     try {
       console.log('🚀 Loading portfolio data...', { force })
-      setError(null)
+      // Don't set error state to prevent UI from showing errors
       
       // Check cache first
       if (!force && isCacheValid('portfolio') && portfolioCache.data) {
@@ -347,19 +396,43 @@ export function usePortfolioData() {
 
       console.log('🔄 Basic fetch results:', basicResults)
 
-      // Check if any failed
+      // Extract results with fallback values
       const [overviewResult, holdingsResult, tradesResult] = basicResults
       
+      let overviewData: any = {
+        totalValue: 0,
+        totalChange: 0,
+        totalChangePercent: 0,
+        totalInvested: 0,
+        unrealizedPnL: 0,
+        realizedPnL: 0,
+        pnlData: {}
+      }
+      
+      let holdingsData: any[] = []
+      let tradesData: any[] = []
+      
+      if (overviewResult.status === 'fulfilled') {
+        overviewData = (overviewResult as any).value
+      }
+      
+      if (holdingsResult.status === 'fulfilled') {
+        holdingsData = (holdingsResult as any).value
+      }
+      
+      if (tradesResult.status === 'fulfilled') {
+        tradesData = (tradesResult as any).value
+      }
+      
+      // Log any failures but continue with fallback data
       if (overviewResult.status === 'rejected') {
-        throw new Error(`Portfolio overview failed: ${overviewResult.reason}`)
+        console.error('Portfolio overview failed:', overviewResult.reason)
       }
-      
       if (holdingsResult.status === 'rejected') {
-        throw new Error(`Token holdings failed: ${holdingsResult.reason}`)
+        console.error('Token holdings failed:', holdingsResult.reason)
       }
-      
       if (tradesResult.status === 'rejected') {
-        throw new Error(`Trade history failed: ${tradesResult.reason}`)
+        console.error('Trade history failed:', tradesResult.reason)
       }
 
       // Step 2: Fetch default PnL data separately  
@@ -369,14 +442,28 @@ export function usePortfolioData() {
       } catch (error) {
         console.warn('Failed to fetch default PnL data:', error)
         // Continue without PnL data rather than failing entire load
+        defaultPnLData = {
+          timeframe: '30d',
+          realizedPnlUSD: 0,
+          unrealizedPnlUSD: 0,
+          netPnlUSD: 0,
+          totalFeesUSD: 0,
+          winRate: 0,
+          totalTrades: 0,
+          profitableTrades: 0,
+          currentPortfolioValueUSD: 0,
+          portfolioChangePercent: 0,
+          biggestWinUSD: 0,
+          biggestLossUSD: 0
+        }
       }
 
       // Step 3: Combine all data
-      const baseData = overviewResult.value
+      const baseData = overviewData
       const newData: PortfolioData = {
         ...baseData,
-        holdings: holdingsResult.value,
-        trades: tradesResult.value,
+        holdings: holdingsData,
+        trades: tradesData,
         lastUpdated: Date.now(),
         totalChange: defaultPnLData?.netPnlUSD || 0,
         totalChangePercent: defaultPnLData?.portfolioChangePercent || 0,
@@ -409,22 +496,35 @@ export function usePortfolioData() {
       lastErrorTimeRef.current = Date.now()
       
       const errorMessage = error instanceof Error ? error.message : 'Failed to load portfolio data'
-      setError(errorMessage)
       
-      // Only show toast for first few errors to avoid spam
-      if (errorCountRef.current <= 3) {
-        toast.error(errorMessage)
-      }
+      // Errors are logged to console for debugging only
+      // Don't set error state to prevent UI from showing error messages
       
-      // Fallback to cached data if available
+      // Fallback to cached data if available, or set empty data
       if (portfolioCache.data) {
         console.log('📦 Falling back to cached data')
         setPortfolioData(portfolioCache.data)
+      } else {
+        // Set empty data structure so UI can still render
+        const emptyData: PortfolioData = {
+          totalValue: 0,
+          totalChange: 0,
+          totalChangePercent: 0,
+          totalInvested: 0,
+          unrealizedPnL: 0,
+          realizedPnL: 0,
+          holdings: [],
+          trades: [],
+          pnlData: {},
+          lastUpdated: Date.now()
+        }
+        setPortfolioData(emptyData)
+        console.log('📦 Set empty data structure for UI')
       }
     } finally {
       setIsLoading(false)
     }
-  }, [error, getBackoffDelay, isCacheValid, fetchPortfolioOverview, fetchTokenHoldings, fetchTradeHistory, fetchPnLData])
+  }, [getBackoffDelay, isCacheValid, fetchPortfolioOverview, fetchTokenHoldings, fetchTradeHistory, fetchPnLData])
 
   // ✅ Store latest loadPortfolioData function in ref to avoid dependency issues
   useEffect(() => {
@@ -435,7 +535,7 @@ export function usePortfolioData() {
   const refreshData = useCallback(async (type: 'all' | 'portfolio' | 'pnl' | 'trades' = 'all') => {
     try {
       setRefreshing(true)
-      setError(null)
+      // Don't set error state to prevent UI from showing errors
       
       // Reset error count for manual refresh
       errorCountRef.current = 0
@@ -452,8 +552,8 @@ export function usePortfolioData() {
       }
     } catch (error) {
       console.error('Failed to refresh data:', error)
-      setError('Failed to refresh data')
-      toast.error('Failed to refresh data')
+      // Errors are logged to console for debugging only
+      // Don't set error state to prevent UI from showing error
     } finally {
       setRefreshing(false)
     }
@@ -491,8 +591,21 @@ export function usePortfolioData() {
       return pnlData
     } catch (error) {
       console.error('Failed to get P&L data:', error)
-      toast.error('Failed to load P&L data')
-      return null
+      // Return fallback data so UI can continue working
+      return {
+        timeframe,
+        realizedPnlUSD: 0,
+        unrealizedPnlUSD: 0,
+        netPnlUSD: 0,
+        totalFeesUSD: 0,
+        winRate: 0,
+        totalTrades: 0,
+        profitableTrades: 0,
+        currentPortfolioValueUSD: 0,
+        portfolioChangePercent: 0,
+        biggestWinUSD: 0,
+        biggestLossUSD: 0
+      }
     }
   }, [portfolioData?.pnlData, fetchPnLData])
 
@@ -532,14 +645,14 @@ export function usePortfolioData() {
     if (!mounted) return
 
     const interval = setInterval(() => {
-      // Only auto-refresh if not currently loading and no recent errors
-      if (!isLoading && !refreshing && (!error || errorCountRef.current === 0) && loadPortfolioDataRef.current) {
+      // Only auto-refresh if not currently loading
+      if (!isLoading && !refreshing && loadPortfolioDataRef.current) {
         loadPortfolioDataRef.current(false) // Use cache-aware loading
       }
     }, 5 * 60 * 1000) // 5 minutes
 
     return () => clearInterval(interval)
-  }, [mounted, isLoading, refreshing, error]) // ✅ Stable dependencies, uses ref for function calls
+  }, [mounted, isLoading, refreshing]) // ✅ Stable dependencies, uses ref for function calls
 
   return {
     // Data

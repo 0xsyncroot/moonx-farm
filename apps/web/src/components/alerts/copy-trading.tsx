@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { Copy, TrendingUp, Users, Star } from 'lucide-react'
+import React from 'react'
+import { Copy, TrendingUp, Star } from 'lucide-react'
 
 interface CopyTradingProps {
   // Add props as needed
+  className?: string
 }
 
 export function CopyTrading({}: CopyTradingProps) {
-  const [followedTraders, setFollowedTraders] = useState(0)
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-6">

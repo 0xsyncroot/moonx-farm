@@ -1,6 +1,6 @@
 'use client'
 
-import { Skeleton, SkeletonText, SkeletonCard } from '@/components/ui/loading-spinner'
+import { Skeleton, SkeletonText } from '@/components/ui/loading-spinner'
 import { cn } from '@/lib/utils'
 
 interface SwapInterfaceShimmerProps {

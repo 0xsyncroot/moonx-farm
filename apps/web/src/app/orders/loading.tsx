@@ -2,8 +2,7 @@ import { Header } from '@/components/layout/header'
 import { 
   Skeleton, 
   SkeletonText, 
-  SkeletonTable,
-  SkeletonCard
+  SkeletonTable
 } from '@/components/ui/loading-spinner'
 
 export default function OrdersLoading() {

@@ -40,11 +40,6 @@ const nextConfig = {
     ],
   },
 
-  compiler: {
-    removeConsole: {
-      exclude: ['error'], // Giữ lại console.error
-    },
-  },
 
   // Headers can now be configured since we're using Next.js server
   // Add custom headers here if needed

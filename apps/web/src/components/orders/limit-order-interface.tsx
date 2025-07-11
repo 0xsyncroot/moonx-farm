@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import Image from 'next/image'
 import { Clock, Target, AlertCircle, TrendingUp, TrendingDown, DollarSign, Zap, ChevronDown, Check } from 'lucide-react'
 import { TokenSelector } from '@/components/swap/token-selector'
 import { TradingViewChart, useChartMarkers } from '@/components/charts/tradingview-chart'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { Token } from '@/hooks/use-tokens'
 import { getDCAChartData, PriceDataPoint } from '@/lib/price-data-api'
 
@@ -310,7 +311,13 @@ export function LimitOrderInterface() {
                     {fromToken ? (
                       <>
                         {fromToken.logoURI ? (
-                          <img src={fromToken.logoURI} alt={fromToken.symbol} className="w-5 h-5 rounded-full" />
+                          <Image
+                            src={fromToken.logoURI}
+                            alt={fromToken.symbol}
+                            width={20}
+                            height={20}
+                            className="rounded-full"
+                          />
                         ) : (
                           <div className="w-5 h-5 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold">
                             {fromToken.symbol.charAt(0)}
@@ -347,7 +354,13 @@ export function LimitOrderInterface() {
                     {toToken ? (
                       <>
                         {toToken.logoURI ? (
-                          <img src={toToken.logoURI} alt={toToken.symbol} className="w-5 h-5 rounded-full" />
+                          <Image
+                            src={toToken.logoURI}
+                            alt={toToken.symbol}
+                            width={20}
+                            height={20}
+                            className="rounded-full"
+                          />
                         ) : (
                           <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
                             {toToken.symbol.charAt(0)}

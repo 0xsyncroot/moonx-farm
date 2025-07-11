@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Wallet, Search, TrendingUp, TrendingDown, ExternalLink, Plus, Eye } from 'lucide-react'
+import { Wallet, TrendingUp, TrendingDown, ExternalLink, Plus, Eye } from 'lucide-react'
 import { formatCurrency, formatNumber, formatAddress } from '@/lib/utils'
 
 interface TrackedWallet {

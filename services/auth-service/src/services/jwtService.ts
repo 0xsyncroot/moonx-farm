@@ -7,7 +7,8 @@ const logger = createLogger('jwt-service');
 export interface TokenPayload {
   userId: string;
   privyUserId: string;
-  walletAddress?: string; // Optional cho social login
+  walletAddress?: string; // Optional cho social login (EOA)
+  aaWalletAddress?: string; // AA wallet address  
   email?: string;
   iat?: number;
   exp?: number;

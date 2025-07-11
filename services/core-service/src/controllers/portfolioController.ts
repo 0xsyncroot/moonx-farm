@@ -2,10 +2,13 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { PortfolioService } from '../services/portfolioService';
 import { PnLService } from '../services/pnlService';
 import { TradesService } from '../services/tradesService';
+import { SyncProxyService } from '../services/syncProxyService';
+import { CacheService } from '../services/cacheService';
 import { AuthenticatedRequest, AuthMiddleware } from '../middleware/authMiddleware';
 import { PortfolioSyncRequest, PortfolioFilters, PnLRequest } from '../types';
 import { ApiResponse } from '../types';
 import { createLoggerForAnyService } from '@moonx-farm/common';
+import { Portfolio } from '../types';
 
 const logger = createLoggerForAnyService('core-service');
 
@@ -37,41 +40,65 @@ export class PortfolioController {
     private portfolioService: PortfolioService,
     private pnlService: PnLService,
     private tradesService: TradesService,
-    private authMiddleware: AuthMiddleware
+    private authMiddleware: AuthMiddleware,
+    private syncProxyService: SyncProxyService,
+    private cacheService: CacheService
   ) {}
 
-  // GET /portfolio - Get user portfolio (auto-synced)
+  // GET /portfolio - Get user portfolio (simplified)
   async getPortfolio(request: FastifyRequest<{ Querystring: PortfolioFilters }>, reply: FastifyReply) {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
       
-      // Try to get portfolio (cache first, then DB)
-      let portfolio = await this.portfolioService.getPortfolio(userId, walletAddress, request.query);
+      // Use AA wallet address if available, otherwise fallback to EOA
+      const targetWalletAddress = aaWalletAddress || walletAddress;
       
-      if (!portfolio) {
-        // No portfolio data - sync is now handled by sync worker
-        // User should use sync endpoints to trigger sync if needed
+      logger.info('Portfolio API called', { 
+        userId, 
+        walletAddress, 
+        aaWalletAddress, 
+        targetWalletAddress,
+        query: request.query 
+      });
+      
+      // Get portfolio data (cache + database)
+      const portfolio = await this.portfolioService.getPortfolio(userId, targetWalletAddress, request.query);
+      
+      logger.info('Portfolio query result', { 
+        userId, 
+        targetWalletAddress, 
+        hasPortfolio: !!portfolio,
+        holdingsCount: portfolio?.holdings?.length || 0,
+        lastSynced: portfolio?.lastSynced
+      });
+      
+      // Check if we need to trigger background sync
+      const shouldSync = await this.shouldTriggerBackgroundSync(userId, targetWalletAddress, portfolio);
+      
+      if (shouldSync) {
+        logger.info('Triggering background sync', { userId, targetWalletAddress, reason: shouldSync.reason });
         
-        return reply.code(202).send(createSuccessResponse({
-          portfolio: null,
-          status: 'no_data',
-          message: 'No portfolio data available. Please use /sync/trigger to initiate sync.'
-        }, 'Portfolio data not found'));
+        // Trigger sync in background (don't wait for it)
+        this.triggerBackgroundSync(userId, targetWalletAddress, shouldSync.priority, shouldSync.reason)
+          .catch((error: any) => logger.error('Background sync failed', { error }));
       }
 
-      // Check if data is stale (> 15 minutes old)
-      const now = new Date();
-      const diffMinutes = (now.getTime() - portfolio.lastSynced.getTime()) / (1000 * 60);
-      
-      // Note: Background sync is now handled by sync worker
-      // Users can manually trigger sync via /sync/trigger endpoint
+      // Return portfolio data or indicate sync in progress
+      if (!portfolio) {
+        return reply.code(202).send(createSuccessResponse(
+          null,
+          'Portfolio data not found, sync triggered'
+        ));
+      }
 
-      return reply.send(createSuccessResponse({ 
+      // Fix response structure for frontend compatibility
+      return reply.send(createSuccessResponse({
         portfolio,
-        syncStatus: diffMinutes > 15 ? 'stale' : 'current',
-        lastSynced: portfolio.lastSynced,
-        note: diffMinutes > 15 ? 'Data is stale. Consider using /sync/trigger to refresh.' : undefined
+        holdings: portfolio.holdings, // Add holdings at root level for backward compatibility
+        totalValueUSD: portfolio.totalValueUSD,
+        lastSynced: portfolio.lastSynced
       }, `Portfolio retrieved with ${portfolio.holdings?.length || 0} holdings`));
     } catch (error) {
       logger.error('Get portfolio error', { error: error instanceof Error ? error.message : String(error) });
@@ -79,17 +106,114 @@ export class PortfolioController {
     }
   }
 
-  // GET /portfolio/quick - Get quick portfolio overview (always fast)
+  // GET /portfolio/holdings - Get token holdings only
+  async getTokenHoldings(request: FastifyRequest<{ Querystring: PortfolioFilters }>, reply: FastifyReply) {
+    try {
+      const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
+      const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
+      
+      // Use AA wallet address if available, otherwise fallback to EOA
+      const targetWalletAddress = aaWalletAddress || walletAddress;
+      
+      logger.info('Token holdings API called', { 
+        userId, 
+        walletAddress, 
+        aaWalletAddress, 
+        targetWalletAddress,
+        query: request.query 
+      });
+
+      // Validate input
+      if (!userId || !targetWalletAddress) {
+        logger.warn('Invalid request parameters', { userId, targetWalletAddress });
+        return reply.code(400).send(createErrorResponse('Invalid user ID or wallet address'));
+      }
+      
+      // Get portfolio data to extract holdings
+      const portfolio = await this.portfolioService.getPortfolio(userId, targetWalletAddress, request.query);
+      
+      logger.info('Portfolio service result', { 
+        userId, 
+        targetWalletAddress, 
+        hasPortfolio: !!portfolio,
+        holdingsCount: portfolio?.holdings?.length || 0,
+        totalValueUSD: portfolio?.totalValueUSD || 0,
+        lastSynced: portfolio?.lastSynced
+      });
+      
+      if (!portfolio) {
+        // Check if we need to trigger background sync
+        const shouldSync = await this.shouldTriggerBackgroundSync(userId, targetWalletAddress, null);
+        
+        if (shouldSync) {
+          logger.info('Triggering background sync for holdings', { userId, targetWalletAddress, reason: shouldSync.reason });
+          
+          // Trigger sync in background (don't wait for it)
+          this.triggerBackgroundSync(userId, targetWalletAddress, shouldSync.priority, shouldSync.reason)
+            .catch((error: any) => logger.error('Background sync failed', { error }));
+        }
+
+        return reply.code(202).send(createSuccessResponse(
+          [],
+          'No holdings data found, sync triggered'
+        ));
+      }
+
+      // Validate portfolio data
+      if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+        logger.warn('Invalid portfolio holdings data', { 
+          userId, 
+          targetWalletAddress, 
+          holdingsType: typeof portfolio.holdings,
+          holdingsData: portfolio.holdings
+        });
+        return reply.code(500).send(createErrorResponse('Invalid portfolio data structure'));
+      }
+
+      // Calculate allocation percentages
+      const totalValue = portfolio.totalValueUSD;
+      const holdingsWithAllocation = portfolio.holdings.map(holding => ({
+        ...holding,
+        allocation: totalValue > 0 ? (holding.valueUSD / totalValue) * 100 : 0
+      }));
+
+      logger.info('Token holdings retrieved successfully', { 
+        userId, 
+        targetWalletAddress, 
+        holdingsCount: holdingsWithAllocation.length,
+        totalValueUSD: totalValue,
+        sampleHolding: holdingsWithAllocation[0] || null
+      });
+
+      return reply.send(createSuccessResponse(
+        holdingsWithAllocation,
+        `Retrieved ${holdingsWithAllocation.length} token holdings`
+      ));
+    } catch (error) {
+      logger.error('Get token holdings error', { 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        userId: this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest),
+        targetWalletAddress: this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest) || 
+                             this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest)
+      });
+      return reply.code(500).send(createErrorResponse('Failed to get token holdings'));
+    }
+  }
+
+  // GET /portfolio/quick - Get quick portfolio overview
   async getQuickPortfolio(request: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
       
-      // Quick data should always be available (short cache)
-      const quickData = await this.portfolioService.getQuickPortfolio(userId, walletAddress);
+      // Use AA wallet address if available, otherwise fallback to EOA
+      const targetWalletAddress = aaWalletAddress || walletAddress;
       
-      // Note: Auto sync is now handled by sync worker
-      // User can manually trigger sync if needed via /sync/trigger
+      // Get quick data from service
+      const quickData = await this.portfolioService.getQuickPortfolio(userId, targetWalletAddress);
       
       return reply.send(createSuccessResponse({
         ...quickData,
@@ -102,20 +226,36 @@ export class PortfolioController {
     }
   }
 
-  // POST /portfolio/refresh - Force refresh user portfolio
+  // POST /portfolio/refresh - Delegate to sync service
   async refreshPortfolio(request: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
 
-      // Note: Portfolio refresh is now handled by sync worker
-      // User should use /sync/trigger endpoint instead
+      const targetWalletAddress = aaWalletAddress || walletAddress;
+      logger.info('Refreshing portfolio', { userId, walletAddress, aaWalletAddress, targetWalletAddress });
+      
+      // Delegate to sync proxy service with forceRefresh=true to bypass rate limiting
+      const syncResult = await this.syncProxyService.triggerUserSync(
+        userId, 
+        targetWalletAddress, 
+        'high',
+        {
+          source: 'manual_refresh',
+          forceRefresh: true, // Force refresh bypasses rate limiting and circuit breaker
+          metadata: { triggeredBy: 'portfolio_refresh_api' }
+        }
+      );
 
-      return reply.send(createSuccessResponse({
-        message: 'Portfolio refresh has been moved to sync worker. Please use /api/v1/sync/trigger endpoint.',
-        redirect: '/api/v1/sync/trigger',
-        status: 'delegated'
-      }, 'Portfolio refresh delegated to sync worker'));
+      if (syncResult.success) {
+        return reply.send(createSuccessResponse({
+          syncOperationId: syncResult.syncOperationId,
+          message: 'Portfolio refresh triggered successfully (force refresh enabled)'
+        }, 'Portfolio refresh triggered'));
+      } else {
+        return reply.code(429).send(createErrorResponse(syncResult.message));
+      }
     } catch (error) {
       logger.error('Portfolio refresh error', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send(createErrorResponse('Failed to refresh portfolio'));
@@ -127,10 +267,14 @@ export class PortfolioController {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
+      
+      // Use AA wallet address if available, otherwise fallback to EOA
+      const targetWalletAddress = aaWalletAddress || walletAddress;
       
       const pnlData = await this.pnlService.calculatePnL(userId, {
         timeframe: request.query.timeframe || '24h',
-        walletAddress: request.query.walletAddress || walletAddress
+        walletAddress: request.query.walletAddress || targetWalletAddress
       });
 
       return reply.send(createSuccessResponse(pnlData, 
@@ -151,16 +295,20 @@ export class PortfolioController {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
       const { timeframe = '30d', breakdown = 'token' } = request.query;
+      
+      // Use AA wallet address if available, otherwise fallback to EOA
+      const targetWalletAddress = aaWalletAddress || walletAddress;
       
       // Get P&L data
       const pnlSummary = await this.pnlService.calculatePnL(userId, { 
         timeframe: timeframe as any,
-        walletAddress 
+        walletAddress: targetWalletAddress 
       });
 
       // Get portfolio data
-      const portfolio = await this.portfolioService.getPortfolio(userId, walletAddress);
+      const portfolio = await this.portfolioService.getPortfolio(userId, targetWalletAddress);
       
       // Generate analytics based on breakdown type
       let analyticsData: any = {};
@@ -346,6 +494,10 @@ export class PortfolioController {
     try {
       const userId = this.authMiddleware.getCurrentUserId(request as AuthenticatedRequest);
       const walletAddress = this.authMiddleware.getCurrentWalletAddress(request as AuthenticatedRequest);
+      const aaWalletAddress = this.authMiddleware.getCurrentAAWalletAddress(request as AuthenticatedRequest);
+      
+      // Use AA wallet address if available, otherwise fallback to EOA
+      const targetWalletAddress = aaWalletAddress || walletAddress;
       
       // Validate required fields
       const { txHash, chainId, fromToken, toToken, gasFeeUSD } = request.body;
@@ -368,7 +520,7 @@ export class PortfolioController {
       // Prepare trade data
       const tradeData = {
         userId,
-        walletAddress,
+        walletAddress: targetWalletAddress,
         txHash,
         chainId,
         blockNumber: request.body.blockNumber,
@@ -484,6 +636,126 @@ export class PortfolioController {
     } catch (error) {
       logger.error('Get sync status error', { error: error instanceof Error ? error.message : String(error) });
       return reply.code(500).send(createErrorResponse('Failed to get sync status'));
+    }
+  }
+
+  /**
+   * Determine if background sync should be triggered
+   */
+  private async shouldTriggerBackgroundSync(
+    userId: string, 
+    walletAddress: string, 
+    portfolio: Portfolio | null
+  ): Promise<{ reason: string; priority: 'high' | 'medium' | 'low' } | null> {
+    try {
+      // No portfolio data - high priority sync
+      if (!portfolio) {
+        return { reason: 'no_portfolio_data', priority: 'high' };
+      }
+
+      // Check portfolio data age
+      const dataAge = portfolio.lastSynced ? 
+        Date.now() - portfolio.lastSynced.getTime() : 
+        null;
+
+      // Data older than 5 minutes - medium priority sync
+      if (dataAge === null || dataAge > 5 * 60 * 1000) {
+        return { reason: 'stale_data', priority: 'medium' };
+      }
+
+      // Check user API call pattern
+      const shouldRefresh = await this.checkUserAPIPattern(userId, walletAddress);
+      if (shouldRefresh) {
+        return { reason: 'user_refresh_pattern', priority: 'medium' };
+      }
+
+      return null;
+    } catch (error) {
+      logger.error('Error determining sync need', { error });
+      return null;
+    }
+  }
+
+  /**
+   * Check if user API call pattern suggests need for refresh
+   */
+  private async checkUserAPIPattern(userId: string, walletAddress: string): Promise<boolean> {
+    try {
+      const cacheKey = `portfolio:api:${userId}:${walletAddress}`;
+      const cached = await this.cacheService.get<string>(cacheKey);
+      
+      if (!cached) {
+        // First time calling - update cache but don't trigger sync
+        await this.cacheService.set(cacheKey, Date.now().toString(), 120);
+        return false;
+      }
+      
+      const lastAPICall = parseInt(cached);
+      const timeDiff = Date.now() - lastAPICall;
+      
+      // Update cache
+      await this.cacheService.set(cacheKey, Date.now().toString(), 120);
+      
+      // Trigger sync if user hasn't called API in last 2 minutes
+      // (indicates they're actively using the app)
+      return timeDiff > 2 * 60 * 1000;
+    } catch (error) {
+      logger.error('Error checking API pattern', { error });
+      return false;
+    }
+  }
+
+  /**
+   * Trigger background sync (simplified)
+   */
+  private async triggerBackgroundSync(
+    userId: string,
+    walletAddress: string,
+    priority: 'high' | 'medium' | 'low',
+    reason: string
+  ): Promise<void> {
+    try {
+      // Use forceRefresh for high priority syncs to ensure immediate processing
+      const forceRefresh = priority === 'high';
+      
+      const result = await this.syncProxyService.triggerUserSync(userId, walletAddress, priority, {
+        source: reason,
+        bypassRateLimit: true, // Internal calls bypass rate limit
+        forceRefresh, // Force refresh for high priority syncs
+        metadata: {
+          triggeredBy: 'portfolio_controller',
+          reason
+        }
+      });
+      
+      if (result.success) {
+        logger.info('Background sync triggered', { 
+          userId, 
+          walletAddress, 
+          priority, 
+          reason,
+          forceRefresh,
+          syncOperationId: result.syncOperationId
+        });
+      } else {
+        logger.warn('Background sync failed', { 
+          userId, 
+          walletAddress, 
+          priority, 
+          reason, 
+          forceRefresh,
+          message: result.message
+        });
+      }
+    } catch (error: any) {
+      logger.error('Background sync error', { 
+        userId, 
+        walletAddress, 
+        priority, 
+        reason, 
+        error: error.message 
+      });
+      throw error;
     }
   }
 } 

@@ -474,6 +474,17 @@ class ApiClient {
     return response.data
   }
 
+  public async getTokenHoldings(params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }): Promise<any> {
+    const searchParams = new URLSearchParams()
+    if (params?.chainIds) searchParams.append('chainIds', params.chainIds)
+    if (params?.includeSpam !== undefined) searchParams.append('includeSpam', params.includeSpam.toString())
+    if (params?.minValueUSD) searchParams.append('minValueUSD', params.minValueUSD.toString())
+    
+    const url = `/portfolio/holdings${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.coreClient.get(url)
+    return response.data
+  }
+
   public async getQuickPortfolio(): Promise<any> {
     const response = await this.coreClient.get('/portfolio/quick')
     return response.data
@@ -484,8 +495,28 @@ class ApiClient {
     return response.data
   }
 
-  public async getPortfolioSyncStatus(): Promise<any> {
-    const response = await this.coreClient.get('/portfolio/sync-status')
+  // Sync Management
+  public async getSyncStatus(): Promise<any> {
+    const response = await this.coreClient.get('/sync/status')
+    return response.data
+  }
+
+  public async triggerSync(options: { 
+    syncType?: 'portfolio' | 'trades' | 'full'
+    priority?: 'high' | 'medium' | 'low'
+    source?: string
+  } = {}): Promise<any> {
+    const response = await this.coreClient.post('/sync/trigger', options)
+    return response.data
+  }
+
+  public async getSyncOperations(filters?: {
+    limit?: number
+    status?: string
+    type?: string
+    days?: number
+  }): Promise<any> {
+    const response = await this.coreClient.get('/sync/operations', { params: filters })
     return response.data
   }
 
@@ -642,6 +673,68 @@ class ApiClient {
     const response = await this.coreClient.get('/health')
     return response.data
   }
+
+  // ============ STATS SERVICE METHODS ============
+  // Stats API endpoints for chain performance and bridge status
+
+  public async getChainStats(params?: { limit?: number; chainIds?: string }): Promise<any> {
+    const searchParams = new URLSearchParams()
+    if (params?.limit) searchParams.append('limit', params.limit.toString())
+    if (params?.chainIds) searchParams.append('chainIds', params.chainIds)
+    
+    const url = `/stats/chain${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.coreClient.get(url)
+    return response.data
+  }
+
+  public async getBridgeStats(params?: { limit?: number; bridgeIds?: string }): Promise<any> {
+    const searchParams = new URLSearchParams()
+    if (params?.limit) searchParams.append('limit', params.limit.toString())
+    if (params?.bridgeIds) searchParams.append('bridgeIds', params.bridgeIds)
+    
+    const url = `/stats/bridge${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.coreClient.get(url)
+    return response.data
+  }
+
+  public async getAllStats(params?: { limit?: number }): Promise<any> {
+    const searchParams = new URLSearchParams()
+    if (params?.limit) searchParams.append('limit', params.limit.toString())
+    
+    const url = `/stats/all${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.coreClient.get(url)
+    return response.data
+  }
+
+  public async getStatsOverview(): Promise<any> {
+    const response = await this.coreClient.get('/stats/overview')
+    return response.data
+  }
+
+  public async getActiveAlerts(params?: { limit?: number; severity?: string }): Promise<any> {
+    const searchParams = new URLSearchParams()
+    if (params?.limit) searchParams.append('limit', params.limit.toString())
+    if (params?.severity) searchParams.append('severity', params.severity)
+    
+    const url = `/stats/alerts${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.coreClient.get(url)
+    return response.data
+  }
+
+  public async getAggregatedStats(params?: { timeframe?: string; interval?: string }): Promise<any> {
+    const searchParams = new URLSearchParams()
+    if (params?.timeframe) searchParams.append('timeframe', params.timeframe)
+    if (params?.interval) searchParams.append('interval', params.interval)
+    
+    const url = `/stats/aggregated${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+    const response = await this.coreClient.get(url)
+    return response.data
+  }
+
+  public async getStatsHealth(): Promise<any> {
+    const response = await this.coreClient.get('/stats/health')
+    return response.data
+  }
 }
 
 // Singleton instance
@@ -669,9 +762,17 @@ export const coreApi = {
   // Portfolio Management
   getPortfolio: (params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }) => 
     apiClient.getPortfolio(params),
+  getTokenHoldings: (params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }) => 
+    apiClient.getTokenHoldings(params),
   getQuickPortfolio: () => apiClient.getQuickPortfolio(),
   refreshPortfolio: () => apiClient.refreshPortfolio(),
-  getPortfolioSyncStatus: () => apiClient.getPortfolioSyncStatus(),
+  
+  // Sync Management (delegated to sync worker)
+  getSyncStatus: () => apiClient.getSyncStatus(),
+  triggerSync: (options?: { syncType?: 'portfolio' | 'trades' | 'full'; priority?: 'high' | 'medium' | 'low'; source?: string }) => 
+    apiClient.triggerSync(options),
+  getSyncOperations: (filters?: { limit?: number; status?: string; type?: string; days?: number }) => 
+    apiClient.getSyncOperations(filters),
   
   // P&L Analytics
   getPortfolioPnL: (params?: { timeframe?: string; walletAddress?: string }) => 
@@ -704,6 +805,20 @@ export const coreApi = {
   
   // Health Check
   checkHealth: () => apiClient.checkCoreHealth(),
+  
+  // Stats API
+  getChainStats: (params?: { limit?: number; chainIds?: string }) => 
+    apiClient.getChainStats(params),
+  getBridgeStats: (params?: { limit?: number; bridgeIds?: string }) => 
+    apiClient.getBridgeStats(params),
+  getAllStats: (params?: { limit?: number }) => 
+    apiClient.getAllStats(params),
+  getStatsOverview: () => apiClient.getStatsOverview(),
+  getActiveAlerts: (params?: { limit?: number; severity?: string }) => 
+    apiClient.getActiveAlerts(params),
+  getAggregatedStats: (params?: { timeframe?: string; interval?: string }) => 
+    apiClient.getAggregatedStats(params),
+  getStatsHealth: () => apiClient.getStatsHealth(),
 }
 
 export default apiClient 

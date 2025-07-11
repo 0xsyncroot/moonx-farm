@@ -1,0 +1,253 @@
+version: '3.8'
+
+services:
+  # ================================
+  # Stats Worker Service
+  # ================================
+  stats-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moonx-stats-worker
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=stats-worker
+      - SERVICE_VERSION=1.0.0
+      
+      # Cluster Configuration
+      - CLUSTER_MODE=true
+      - CLUSTER_WORKERS=2
+      
+      # Database
+      - MONGODB_URI=mongodb://mongodb:27017/moonx-farm
+      - MONGODB_DATABASE=moonx-farm
+      - MONGODB_MAX_POOL_SIZE=10
+      
+      # Message Queue
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CLIENT_ID=stats-worker
+      - KAFKA_GROUP_ID=stats-worker-group
+      - KAFKA_TOPIC_EVENTS=moonx.ws.events
+      
+      # Blockchain APIs
+      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
+      - BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
+      - BSC_RPC_URL=https://bnb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
+      - ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
+      
+      # External APIs
+      - DEFILLAMA_API_URL=https://api.llama.fi
+      - LIFI_API_URL=https://li.quest/v1
+      - RELAY_API_URL=https://api.relay.link
+      
+      # Job Scheduling
+      - STATS_COLLECTION_INTERVAL=0 */5 * * * *
+      - CHAIN_PERFORMANCE_INTERVAL=0 */1 * * * *
+      - BRIDGE_LATENCY_INTERVAL=0 */2 * * * *
+      
+      # Logging
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      
+      # Performance Thresholds
+      - CHAIN_HEALTHY_BLOCK_TIME=3
+      - CHAIN_DEGRADED_BLOCK_TIME=10
+      - BRIDGE_HEALTHY_LATENCY=1000
+      - BRIDGE_DEGRADED_LATENCY=3000
+      
+    # No ports needed for background worker
+    # ports:
+    #   - "3008:3008"
+    depends_on:
+      - mongodb
+      - kafka
+    networks:
+      - moonx-network
+    volumes:
+      - ./logs:/app/logs
+    # Health check via container logs instead of HTTP
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep 'node.*index.js' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ================================
+  # MongoDB Database
+  # ================================
+  mongodb:
+    image: mongo:7.0
+    container_name: moonx-mongodb
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-moonx123}
+      - MONGO_INITDB_DATABASE=moonx-farm
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - moonx-network
+    command: mongod --auth
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ================================
+  # Zookeeper (for Kafka)
+  # ================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: moonx-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - moonx-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ================================
+  # Kafka Message Queue
+  # ================================
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: moonx-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_DELETE_TOPIC_ENABLE: true
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - moonx-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ================================
+  # Redis Cache (Optional)
+  # ================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: moonx-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - moonx-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ================================
+  # Kafka UI (Development)
+  # ================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: moonx-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: moonx-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8080:8080"
+    networks:
+      - moonx-network
+    profiles:
+      - development
+
+  # ================================
+  # MongoDB Express (Development)
+  # ================================
+  mongo-express:
+    image: mongo-express:latest
+    container_name: moonx-mongo-express
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGODB_ROOT_PASSWORD:-moonx123}
+      ME_CONFIG_MONGODB_URL: mongodb://admin:${MONGODB_ROOT_PASSWORD:-moonx123}@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGODB_EXPRESS_PASSWORD:-moonx123}
+    ports:
+      - "8081:8081"
+    networks:
+      - moonx-network
+    profiles:
+      - development
+
+# ================================
+# Networks
+# ================================
+networks:
+  moonx-network:
+    driver: bridge
+    name: moonx-network
+
+# ================================
+# Volumes
+# ================================
+volumes:
+  mongodb_data:
+    driver: local
+    name: moonx-mongodb-data
+  mongodb_config:
+    driver: local
+    name: moonx-mongodb-config
+  kafka_data:
+    driver: local
+    name: moonx-kafka-data
+  zookeeper_data:
+    driver: local
+    name: moonx-zookeeper-data
+  zookeeper_logs:
+    driver: local
+    name: moonx-zookeeper-logs
+  redis_data:
+    driver: local
+    name: moonx-redis-data 

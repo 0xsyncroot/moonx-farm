@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { PortfolioService } from '../services/portfolioService';
 import { PnLService } from '../services/pnlService';
 import { TradesService } from '../services/tradesService';
+import { SyncProxyService } from '../services/syncProxyService';
 import { DatabaseService } from '../services/databaseService';
 import { CacheService } from '../services/cacheService';
 import { PortfolioController } from '../controllers/portfolioController';
@@ -15,18 +16,21 @@ export async function portfolioRoutes(
     databaseService: DatabaseService;
     cacheService: CacheService;
     portfolioService: PortfolioService;
+    syncProxyService?: SyncProxyService;
   }
 ) {
   // If services are not provided, create them (fallback - should not happen in production)
   let databaseService: DatabaseService;
   let cacheService: CacheService;
   let portfolioService: PortfolioService;
+  let syncProxyService: SyncProxyService;
 
   if (services) {
     // Use provided services (recommended approach)
     databaseService = services.databaseService;
     cacheService = services.cacheService;
     portfolioService = services.portfolioService;
+    syncProxyService = services.syncProxyService || new SyncProxyService(databaseService);
   } else {
     // Fallback: create new services (not recommended for production)
     console.warn('Portfolio routes: No services provided, creating new instances');
@@ -38,6 +42,7 @@ export async function portfolioRoutes(
     await cacheService.connect();
     
     portfolioService = new PortfolioService(databaseService, cacheService);
+    syncProxyService = new SyncProxyService(databaseService);
   }
 
   // Initialize remaining services
@@ -49,7 +54,9 @@ export async function portfolioRoutes(
     portfolioService,
     pnlService,
     tradesService,
-    authMiddleware
+    authMiddleware,
+    syncProxyService,
+    cacheService
   );
 
   // Portfolio Management Routes
@@ -68,6 +75,22 @@ export async function portfolioRoutes(
       }
     }
   }, portfolioController.getPortfolio.bind(portfolioController));
+
+  fastify.get('/portfolio/holdings', {
+    schema: {
+      tags: ['Portfolio'],
+      summary: 'Get token holdings only',
+      description: 'Retrieve only token holdings data from user_token_holdings table with allocation percentages',
+      querystring: {
+        type: 'object',
+        properties: {
+          chainIds: { type: 'string', description: 'Comma-separated chain IDs to filter' },
+          includeSpam: { type: 'boolean', description: 'Include spam tokens', default: false },
+          minValue: { type: 'number', description: 'Minimum token value in USD', default: 1 }
+        }
+      }
+    }
+  }, portfolioController.getTokenHoldings.bind(portfolioController));
 
   fastify.get('/portfolio/quick', {
     schema: {

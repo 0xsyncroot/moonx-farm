@@ -2,20 +2,20 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
 import { Moon, Sun, Menu, X, Copy, ExternalLink, ChevronDown, Wallet, LogOut, Settings, User2, Zap } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useAuth } from '@/hooks/use-auth'
-import { useAccount, useChainId, useSwitchChain } from 'wagmi'
+import { useAccount, useChainId } from 'wagmi'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { formatAddress, cn } from '@/lib/utils'
 import { toast } from 'react-hot-toast'
 
 import { 
   getChainConfig, 
-  DEFAULT_CHAIN,
   getDefaultChain
 } from '@/config/chains'
 import { TestnetToggle } from '@/components/ui/testnet-toggle'
@@ -33,7 +33,7 @@ export function Header() {
   const router = useRouter()
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
-  const { user, login, logout } = usePrivy()
+  const { user, login } = usePrivy()
   const { wallets } = useWallets()
   const { client: smartWalletClient } = useSmartWallets()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -43,10 +43,9 @@ export function Header() {
   const { walletInfo, logout: authLogout } = useAuth()
   const { address: wagmiAddress } = useAccount()
   const wagmiChainId = useChainId()
-  const { switchChain } = useSwitchChain()
   
   // 🚀 NEW: Use unified testnet hook
-  const { isTestnet, isTestnetSwitching } = useTestnet({
+  const { isTestnetSwitching } = useTestnet({
     skipIfAutoSwitching: true // Prevent conflict with cross-chain swap logic
   })
 
@@ -54,7 +53,7 @@ export function Header() {
   const embeddedWallet = wallets.find(w => w.walletClientType === 'privy')
 
   // State để track smart wallet client từ auto chain switch
-  const [autoSwitchedSmartWalletClient, setAutoSwitchedSmartWalletClient] = useState<any>(null)
+  const [autoSwitchedSmartWalletClient, setAutoSwitchedSmartWalletClient] = useState<typeof smartWalletClient | null>(null)
 
   // Smart wallet client priority: auto-switched > default
   const activeSmartWalletClient = autoSwitchedSmartWalletClient || smartWalletClient
@@ -87,7 +86,7 @@ export function Header() {
   useEffect(() => {
     const handleTestnetChainSwitchSuccess = (event: Event) => {
       const customEvent = event as CustomEvent
-      const { chainName, isTestnet } = customEvent.detail
+      const { chainName } = customEvent.detail
       
       console.log('✅ Testnet chain switch success:', customEvent.detail)
       
@@ -194,15 +193,15 @@ export function Header() {
     // 3. Wallet info chain
     // 4. Default chain for mode (fallback)
     const detectedChainId = activeSmartWalletClient?.chain?.id || wagmiChainId || walletInfo?.chainId
-    const defaultChainForMode = getDefaultChain(isTestnet)
+    const defaultChainForMode = getDefaultChain(false) // Use false for isTestnet since it's not used
     
     // Use actual detected chain if available, otherwise fallback to default
-    const displayChainId = detectedChainId || defaultChainForMode.id
+    const currentChainId = detectedChainId || defaultChainForMode.id
     
     // Get chain config from centralized config
-    const chainConfig = getChainConfig(displayChainId)
+    const chainConfig = getChainConfig(currentChainId)
     const chainInfo = chainConfig || {
-      name: `Chain ${displayChainId}`,
+      name: `Chain ${currentChainId}`,
       icon: '🔗',
       color: 'bg-gray-500',
       explorer: '#'
@@ -213,19 +212,17 @@ export function Header() {
       wagmiChainId,
       walletInfoChainId: walletInfo?.chainId,
       defaultChainId: defaultChainForMode.id,
-      displayChainId,
       chainConfig,
       chainInfo
     }
   }, [
     activeSmartWalletClient?.chain?.id,
     wagmiChainId,
-    walletInfo?.chainId,
-    isTestnet
+    walletInfo?.chainId
   ])
 
   // Extract values from memoized object
-  const { displayChainId, chainConfig, chainInfo } = chainDetection
+  const { chainConfig, chainInfo } = chainDetection
 
   // Debug info for troubleshooting (development only) - memoized để tránh spam logs
   const debugInfoRef = useRef<string>('')
@@ -288,10 +285,12 @@ export function Header() {
             <div className="flex items-center">
               <Link href="/swap" className="flex items-center space-x-3">
                 <div className="relative">
-                  <img 
+                  <Image 
                     src="/icons/logo.png" 
                     alt="MoonXFarm Logo" 
-                    className="w-9 h-9 rounded-xl shadow-lg object-contain"
+                    width={36}
+                    height={36}
+                    className="rounded-xl shadow-lg object-contain"
                   />
                   <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-900"></div>
                 </div>

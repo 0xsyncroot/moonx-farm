@@ -24,15 +24,13 @@ const SyncWorkerConfigSchema = BaseConfigSchema
     // Worker Configuration
     WORKER_CONCURRENCY: z.coerce.number().default(10),
     WORKER_MAX_JOBS: z.coerce.number().default(100),
-    WORKER_TIMEOUT: z.coerce.number().default(10000),
+    WORKER_TIMEOUT: z.coerce.number().default(60000),
     WORKER_RETRIES: z.coerce.number().default(3),
     WORKER_RETRY_DELAY: z.coerce.number().default(5000),
     WORKER_BACKOFF_MULTIPLIER: z.coerce.number().default(2.0),
     WORKER_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().default(5),
     WORKER_CIRCUIT_BREAKER_TIMEOUT: z.coerce.number().default(60000),
     WORKER_BATCH_SIZE: z.coerce.number().default(50),
-    WORKER_RATE_LIMIT_WINDOW: z.coerce.number().default(900000),
-    WORKER_RATE_LIMIT_MAX: z.coerce.number().default(5),
     WORKER_CLEANUP_INTERVAL: z.coerce.number().default(300000),
     WORKER_STATS_INTERVAL: z.coerce.number().default(30000),
     
@@ -42,6 +40,7 @@ const SyncWorkerConfigSchema = BaseConfigSchema
     PERIODIC_SYNC_OFF_HOURS_INTERVAL: z.coerce.number().default(900000),
     PERIODIC_SYNC_STALE_THRESHOLD: z.coerce.number().default(3600000),
     PERIODIC_SYNC_BATCH_SIZE: z.coerce.number().default(10),
+    PERIODIC_SYNC_MAX_USERS: z.coerce.number().default(0),
     
     // Cluster Configuration
     CLUSTER_MODE: z.enum(['auto', 'manual', 'single']).default('auto'),
@@ -71,8 +70,6 @@ const SyncWorkerConfigSchema = BaseConfigSchema
     
     // Performance Configuration
     ENABLE_CIRCUIT_BREAKER: z.coerce.boolean().default(false),
-    RATE_LIMIT_WINDOW: z.coerce.number().default(900000),
-    RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
     CACHE_TTL: z.coerce.number().default(300),
     CACHE_MAX_SIZE: z.coerce.number().default(1000),
     ENABLE_CACHE_WARMING: z.coerce.boolean().default(false),
@@ -107,15 +104,13 @@ try {
 export const workerConfig: WorkerConfig = {
   concurrency: parseInt(process.env.WORKER_CONCURRENCY || '10'),
   maxJobs: parseInt(process.env.WORKER_MAX_JOBS || '100'),
-  timeout: parseInt(process.env.WORKER_TIMEOUT || '10000'),
+  timeout: parseInt(process.env.WORKER_TIMEOUT || '60000'),
   retryAttempts: parseInt(process.env.WORKER_RETRIES || '3'),
   retryDelay: parseInt(process.env.WORKER_RETRY_DELAY || '5000'), // 5 seconds
   backoffMultiplier: parseFloat(process.env.WORKER_BACKOFF_MULTIPLIER || '2.0'),
   circuitBreakerThreshold: parseInt(process.env.WORKER_CIRCUIT_BREAKER_THRESHOLD || '5'),
   circuitBreakerTimeout: parseInt(process.env.WORKER_CIRCUIT_BREAKER_TIMEOUT || '60000'), // 1 minute
   batchSize: parseInt(process.env.WORKER_BATCH_SIZE || '50'),
-  rateLimitWindow: parseInt(process.env.WORKER_RATE_LIMIT_WINDOW || '900000'), // 15 minutes
-  rateLimitMax: parseInt(process.env.WORKER_RATE_LIMIT_MAX || '5'),
   cleanupInterval: parseInt(process.env.WORKER_CLEANUP_INTERVAL || '300000'), // 5 minutes
   statsInterval: parseInt(process.env.WORKER_STATS_INTERVAL || '30000'), // 30 seconds
   // Periodic sync configuration
@@ -123,7 +118,8 @@ export const workerConfig: WorkerConfig = {
   periodicSyncMarketHoursInterval: parseInt(process.env.PERIODIC_SYNC_MARKET_HOURS_INTERVAL || '300000'), // 5 minutes
   periodicSyncOffHoursInterval: parseInt(process.env.PERIODIC_SYNC_OFF_HOURS_INTERVAL || '900000'), // 15 minutes
   periodicSyncStaleThreshold: parseInt(process.env.PERIODIC_SYNC_STALE_THRESHOLD || '3600000'), // 1 hour
-  periodicSyncBatchSize: parseInt(process.env.PERIODIC_SYNC_BATCH_SIZE || '10')
+  periodicSyncBatchSize: parseInt(process.env.PERIODIC_SYNC_BATCH_SIZE || '10'),
+  periodicSyncMaxUsers: parseInt(process.env.PERIODIC_SYNC_MAX_USERS || '0'),
 };
 
 // Cluster configuration
@@ -195,8 +191,6 @@ export const appConfig = {
 // Performance configuration
 export const performanceConfig = {
   enableCircuitBreaker: process.env.ENABLE_CIRCUIT_BREAKER === 'true',
-  rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '900000'), // 15 minutes
-  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
   cacheTtl: parseInt(process.env.CACHE_TTL || '300'), // 5 minutes
   cacheMaxSize: parseInt(process.env.CACHE_MAX_SIZE || '1000'),
   enableCacheWarming: process.env.ENABLE_CACHE_WARMING === 'true',

@@ -26,7 +26,7 @@ interface ChatContextType {
   conversationId: string
   setIsOpen: (open: boolean) => void
   setIsWalkerEnabled: (enabled: boolean) => void
-  sendMessage: (content: string, context?: any) => Promise<void>
+  sendMessage: (content: string, context?: Record<string, unknown>) => Promise<void>
   clearChat: () => void
   startNewConversation: () => void
   addSystemMessage: (content: string) => void
@@ -81,7 +81,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     }
   }, [isAuthenticated, privyUser])
 
-  const sendMessage = async (content: string, context?: any) => {
+  const sendMessage = async (content: string, context?: Record<string, unknown>) => {
     if (!content.trim() || isLoading || !chatApiService.current) return
 
     const userMessage: ChatMessage = {

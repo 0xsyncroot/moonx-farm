@@ -1,13 +1,26 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { usePortfolioData } from '@/hooks/usePortfolioData'
+import { usePnLChart } from '@/hooks/usePnLChart'
 import { RefreshCw, TrendingUp, TrendingDown, BarChart3, Activity, Target, DollarSign, Award } from 'lucide-react'
 
 export function PnLChart() {
-  const { overview, pnlData, trades, isLoading, error, refresh, refreshing, cacheAge, getPnLData } = usePortfolioData()
+  const { pnlData, isLoading, error, refresh, refreshing, cacheAge, getPnLData } = usePnLChart()
   const [timeframe, setTimeframe] = useState<'24h' | '7d' | '30d' | '90d' | '1y'>('30d')
-  const [currentPnLData, setCurrentPnLData] = useState<any>(null)
+  const [currentPnLData, setCurrentPnLData] = useState<{
+    netPnlUSD?: number
+    realizedPnlUSD?: number
+    unrealizedPnlUSD?: number
+    totalTrades?: number
+    profitableTrades?: number
+    winRate?: number
+    totalFeesUSD?: number
+    avgTradeSize?: number
+    biggestWinUSD?: number
+    biggestLossUSD?: number
+    portfolioChangePercent?: number
+    currentPortfolioValueUSD?: number
+  } | null>(null)
 
   // Load PnL data for selected timeframe
   useEffect(() => {
@@ -23,41 +36,23 @@ export function PnLChart() {
     loadPnLData()
   }, [timeframe, pnlData, getPnLData])
 
-  // Use current PnL data or fallback to overview data
+  // Use current PnL data from the dedicated hook
   const pnlMetrics = useMemo(() => {
-    if (currentPnLData) {
-      return {
-        totalPnL: currentPnLData.netPnlUSD || 0,
-        realizedPnL: currentPnLData.realizedPnlUSD || 0,
-        unrealizedPnL: currentPnLData.unrealizedPnlUSD || 0,
-        totalTrades: currentPnLData.totalTrades || 0,
-        profitableTrades: currentPnLData.profitableTrades || 0,
-        winRate: currentPnLData.winRate || 0,
-        totalFees: currentPnLData.totalFeesUSD || 0,
-        avgTradeSize: currentPnLData.avgTradeSize || 0,
-        biggestWin: currentPnLData.biggestWinUSD || 0,
-        biggestLoss: currentPnLData.biggestLossUSD || 0,
-        portfolioChange: currentPnLData.portfolioChangePercent || 0,
-        currentValue: currentPnLData.currentPortfolioValueUSD || 0
-      }
-    }
-    
-    // Fallback to overview data
     return {
-      totalPnL: overview?.totalChange || 0,
-      realizedPnL: overview?.realizedPnL || 0,
-      unrealizedPnL: overview?.unrealizedPnL || 0,
-      totalTrades: trades.length || 0,
-      profitableTrades: trades.filter(t => t.pnl && t.pnl.netPnlUSD > 0).length || 0,
-      winRate: trades.length > 0 ? (trades.filter(t => t.pnl && t.pnl.netPnlUSD > 0).length / trades.length) * 100 : 0,
-      totalFees: trades.reduce((sum, t) => sum + (t.gasFeeUSD || 0), 0),
-      avgTradeSize: trades.length > 0 ? trades.reduce((sum, t) => sum + (t.fromToken.valueUSD || 0), 0) / trades.length : 0,
-      biggestWin: Math.max(0, ...trades.map(t => t.pnl?.netPnlUSD || 0)),
-      biggestLoss: Math.abs(Math.min(0, ...trades.map(t => t.pnl?.netPnlUSD || 0))),
-      portfolioChange: overview?.totalChangePercent || 0,
-      currentValue: overview?.totalValue || 0
+      totalPnL: currentPnLData?.netPnlUSD || 0,
+      realizedPnL: currentPnLData?.realizedPnlUSD || 0,
+      unrealizedPnL: currentPnLData?.unrealizedPnlUSD || 0,
+      totalTrades: currentPnLData?.totalTrades || 0,
+      profitableTrades: currentPnLData?.profitableTrades || 0,
+      winRate: currentPnLData?.winRate || 0,
+      totalFees: currentPnLData?.totalFeesUSD || 0,
+      avgTradeSize: currentPnLData?.avgTradeSize || 0,
+      biggestWin: currentPnLData?.biggestWinUSD || 0,
+      biggestLoss: currentPnLData?.biggestLossUSD || 0,
+      portfolioChange: currentPnLData?.portfolioChangePercent || 0,
+      currentValue: currentPnLData?.currentPortfolioValueUSD || 0
     }
-  }, [currentPnLData, overview, trades])
+  }, [currentPnLData])
 
   // Calculate total return metrics
   const totalReturn = pnlMetrics.totalPnL
@@ -153,7 +148,7 @@ export function PnLChart() {
         <div className="bg-error/10 border border-error/20 rounded-xl p-4 text-center">
           <div className="text-error font-medium mb-2">Failed to load P&L data</div>
           <div className="text-sm text-muted-foreground">
-            {overview ? 'Showing cached data' : 'Please try refreshing'}
+            {currentPnLData ? 'Showing cached data' : 'Please try refreshing'}
           </div>
         </div>
       )}

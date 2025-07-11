@@ -1,87 +1,198 @@
-import { createKafka, createKafkaConfig } from '@moonx-farm/infrastructure';
+/**
+ * Kafka Event Publisher for Sync Worker
+ * - Uses shared events system from @moonx-farm/infrastructure
+ * - Publishes sync-related events with proper envelope pattern
+ * - Type-safe event publishing
+ */
+
+import { 
+  KafkaEventPublisher,
+  EventPublisherConfig,
+  EventFactory,
+  DefaultPartitionStrategy,
+  DefaultDataClassificationStrategy,
+  EventFactoryOptions,
+  DataClassification
+} from '@moonx-farm/infrastructure';
 import { createLoggerForAnyService } from '@moonx-farm/common';
 
 const logger = createLoggerForAnyService('kafka-event-publisher');
 
-export interface SyncEvent {
-  type: 'sync.completed' | 'sync.failed' | 'sync.started' | 'portfolio.updated';
+// Sync Worker Event Types
+export type SyncWorkerEventType = 
+  | 'sync.started'
+  | 'sync.completed'
+  | 'sync.failed'
+  | 'portfolio.updated'
+  | 'user.activity'
+  | 'system.alert';
+
+// Sync Worker Event Data Types
+export interface SyncStartedEventData {
+  syncOperationId: string;
   userId: string;
   walletAddress: string;
-  data: Record<string, any>;
-  timestamp: number;
+  syncType: 'manual' | 'automatic' | 'scheduled';
+  chains: string[];
+  startedAt: number;
+}
+
+export interface SyncCompletedEventData {
+  syncOperationId: string;
+  userId: string;
+  walletAddress: string;
+  processingTime: number;
+  tokensSync: number;
+  chainsSync: number;
+  totalValueUsd: number;
+  success: boolean;
+  completedAt: number;
+}
+
+export interface SyncFailedEventData {
+  syncOperationId: string;
+  userId: string;
+  walletAddress: string;
+  error: string;
+  processingTime: number;
+  retryCount: number;
+  failedAt: number;
+}
+
+export interface PortfolioUpdatedEventData {
+  syncOperationId: string;
+  userId: string;
+  walletAddress: string;
+  totalValueUsd: number;
+  totalTokens: number;
+  totalChains: number;
+  tokens: Array<{
+    symbol: string;
+    valueUsd: number;
+    change24h?: number;
+  }>;
+  syncDuration: number;
+  updatedAt: number;
+}
+
+export interface UserActivityEventData {
+  userId: string;
+  activityType: 'sync_triggered' | 'portfolio_viewed' | 'manual_sync';
   metadata?: Record<string, any>;
+  timestamp: number;
 }
 
-export interface PortfolioUpdateEvent extends SyncEvent {
-  type: 'portfolio.updated';
-  data: {
-    totalValueUsd: number;
-    totalTokens: number;
-    totalChains: number;
-    tokens: Array<{
-      symbol: string;
-      valueUsd: number;
-      change24h?: number;
-    }>;
-    syncDuration: number;
-    syncOperationId: string;
-  };
+export interface SystemAlertEventData {
+  alertType: 'high_error_rate' | 'service_degradation' | 'maintenance';
+  message: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  service: string;
+  metadata?: Record<string, any>;
+  timestamp: number;
 }
 
-export interface SyncCompletedEvent extends SyncEvent {
-  type: 'sync.completed';
-  data: {
-    syncOperationId: string;
-    processingTime: number;
-    tokensSync: number;
-    chainsSync: number;
-    totalValueUsd: number;
-    success: boolean;
-  };
+/**
+ * Sync Worker specific partition strategy
+ */
+export class SyncWorkerPartitionStrategy extends DefaultPartitionStrategy {
+  override getPartitionKey(eventType: string, data: any, userId?: string): string {
+    // For sync events, use userId for consistent partitioning
+    if (eventType.startsWith('sync.') || eventType === 'portfolio.updated') {
+      return data.userId || userId || 'default';
+    }
+    
+    // For user activity, use userId
+    if (eventType === 'user.activity') {
+      return data.userId || userId || 'default';
+    }
+    
+    // For system alerts, use service name
+    if (eventType === 'system.alert') {
+      return data.service || 'sync-worker';
+    }
+    
+    return super.getPartitionKey(eventType, data, userId);
+  }
 }
 
-export interface SyncFailedEvent extends SyncEvent {
-  type: 'sync.failed';
-  data: {
-    syncOperationId: string;
-    error: string;
-    processingTime: number;
-    retryCount: number;
-  };
+/**
+ * Sync Worker specific data classification strategy
+ */
+export class SyncWorkerDataClassificationStrategy extends DefaultDataClassificationStrategy {
+  override getDataClassification(eventType: string, data: any): DataClassification {
+    // Portfolio data is confidential
+    if (eventType === 'portfolio.updated') {
+      return 'confidential';
+    }
+    
+    // Sync events contain user data
+    if (eventType.startsWith('sync.')) {
+      return 'confidential';
+    }
+    
+    // User activities are internal
+    if (eventType === 'user.activity') {
+      return 'internal';
+    }
+    
+    // System alerts are internal
+    if (eventType === 'system.alert') {
+      return 'internal';
+    }
+    
+    return super.getDataClassification(eventType, data);
+  }
 }
 
-export class KafkaEventPublisher {
-  private kafka: any;
-  private isConnected = false;
-
-  // Kafka topics for different event types
-  private readonly TOPICS = {
-    PORTFOLIO_UPDATES: 'portfolio.updates',
-    SYNC_EVENTS: 'sync.events',
-    SYSTEM_ALERTS: 'system.alerts',
-    USER_ACTIVITIES: 'user.activities',
-  };
+export class SyncWorkerKafkaEventPublisher {
+  private eventPublisher: KafkaEventPublisher;
+  private eventFactory: EventFactory;
+  private isInitialized = false;
 
   constructor() {
-    // Initialize Kafka using shared infrastructure
-    const kafkaConfig = createKafkaConfig();
-    this.kafka = createKafka({
-      ...kafkaConfig,
-      clientId: 'sync-worker-publisher',
-    });
+    // Configure event publisher
+    const publisherConfig: EventPublisherConfig = {
+      serviceName: 'sync-worker',
+      serviceVersion: '1.0.0',
+      kafka: {
+        brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
+        clientId: 'sync-worker-publisher',
+      },
+      topic: {
+        main: 'moonx.ws.events',
+        deadLetterQueue: 'moonx.ws.events.dlq',
+      },
+      options: {
+        enableValidation: true,
+        enableBatching: false,
+        enableRetry: true,
+        retryAttempts: 3,
+        retryDelay: 1000,
+      },
+    };
 
-    logger.info('KafkaEventPublisher initialized with shared infrastructure');
+    this.eventPublisher = new KafkaEventPublisher(publisherConfig);
+    
+    // Configure event factory with sync-worker specific strategies
+    this.eventFactory = new EventFactory(
+      'sync-worker',
+      '1.0.0',
+      new SyncWorkerPartitionStrategy(),
+      new SyncWorkerDataClassificationStrategy()
+    );
+
+    logger.info('SyncWorkerKafkaEventPublisher initialized with shared infrastructure');
   }
 
   async initialize(): Promise<void> {
-    if (this.isConnected) return;
+    if (this.isInitialized) return;
 
     try {
-      await this.kafka.connect();
-      this.isConnected = true;
-      logger.info('✅ Kafka event publisher connected');
+      await this.eventPublisher.connect();
+      this.isInitialized = true;
+      logger.info('✅ Sync worker event publisher connected');
     } catch (error) {
-      logger.error('❌ Failed to connect Kafka event publisher', {
+      logger.error('❌ Failed to connect sync worker event publisher', {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -89,14 +200,65 @@ export class KafkaEventPublisher {
   }
 
   async disconnect(): Promise<void> {
-    if (!this.isConnected) return;
+    if (!this.isInitialized) return;
 
     try {
-      await this.kafka.disconnect();
-      this.isConnected = false;
-      logger.info('Kafka event publisher disconnected');
+      await this.eventPublisher.disconnect();
+      this.isInitialized = false;
+      logger.info('Sync worker event publisher disconnected');
     } catch (error) {
-      logger.error('Error disconnecting Kafka event publisher', {
+      logger.error('Error disconnecting sync worker event publisher', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Publish sync started event
+   */
+  async publishSyncStarted(
+    syncOperationId: string,
+    userId: string,
+    walletAddress: string,
+    syncType: 'manual' | 'automatic' | 'scheduled',
+    chains: string[]
+  ): Promise<void> {
+    if (!this.isInitialized) {
+      logger.warn('Event publisher not initialized, skipping sync started event');
+      return;
+    }
+
+    try {
+      const eventData: SyncStartedEventData = {
+        syncOperationId,
+        userId,
+        walletAddress,
+        syncType,
+        chains,
+        startedAt: Date.now(),
+      };
+
+      await this.eventPublisher.publish('sync.started', eventData, {
+        userId,
+        correlationId: syncOperationId,
+        context: {
+          walletAddress,
+          syncType,
+          chains,
+        },
+      });
+
+      logger.info('📢 Sync started event published', {
+        syncOperationId,
+        userId,
+        syncType,
+        chains: chains.length,
+      });
+
+    } catch (error) {
+      logger.error('❌ Failed to publish sync started event', {
+        syncOperationId,
+        userId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -116,33 +278,27 @@ export class KafkaEventPublisher {
       totalValueUsd: number;
     }
   ): Promise<void> {
-    if (!this.isConnected) {
-      logger.warn('Kafka not connected, skipping sync completed event');
+    if (!this.isInitialized) {
+      logger.warn('Event publisher not initialized, skipping sync completed event');
       return;
     }
 
     try {
-      const event: SyncCompletedEvent = {
-        type: 'sync.completed',
+      const eventData: SyncCompletedEventData = {
+        ...syncData,
         userId,
         walletAddress,
-        data: {
-          ...syncData,
-          success: true,
-        },
-        timestamp: Date.now(),
-        metadata: {
-          source: 'sync-worker',
-          version: '1.0.0',
-        },
+        success: true,
+        completedAt: Date.now(),
       };
 
-      await this.kafka.publish(event, {
-        topic: this.TOPICS.SYNC_EVENTS,
-        key: userId,
-        headers: {
-          'event-type': 'sync.completed',
-          'source': 'sync-worker',
+      await this.eventPublisher.publish('sync.completed', eventData, {
+        userId,
+        correlationId: syncData.syncOperationId,
+        context: {
+          walletAddress,
+          processingTime: syncData.processingTime,
+          totalValueUsd: syncData.totalValueUsd,
         },
       });
 
@@ -150,6 +306,7 @@ export class KafkaEventPublisher {
         userId,
         syncOperationId: syncData.syncOperationId,
         processingTime: syncData.processingTime,
+        totalValueUsd: syncData.totalValueUsd,
       });
 
     } catch (error) {
@@ -174,30 +331,26 @@ export class KafkaEventPublisher {
       retryCount: number;
     }
   ): Promise<void> {
-    if (!this.isConnected) {
-      logger.warn('Kafka not connected, skipping sync failed event');
+    if (!this.isInitialized) {
+      logger.warn('Event publisher not initialized, skipping sync failed event');
       return;
     }
 
     try {
-      const event: SyncFailedEvent = {
-        type: 'sync.failed',
+      const eventData: SyncFailedEventData = {
+        ...failData,
         userId,
         walletAddress,
-        data: failData,
-        timestamp: Date.now(),
-        metadata: {
-          source: 'sync-worker',
-          version: '1.0.0',
-        },
+        failedAt: Date.now(),
       };
 
-      await this.kafka.publish(event, {
-        topic: this.TOPICS.SYNC_EVENTS,
-        key: userId,
-        headers: {
-          'event-type': 'sync.failed',
-          'source': 'sync-worker',
+      await this.eventPublisher.publish('sync.failed', eventData, {
+        userId,
+        correlationId: failData.syncOperationId,
+        context: {
+          walletAddress,
+          error: failData.error,
+          retryCount: failData.retryCount,
         },
       });
 
@@ -205,6 +358,7 @@ export class KafkaEventPublisher {
         userId,
         syncOperationId: failData.syncOperationId,
         error: failData.error,
+        retryCount: failData.retryCount,
       });
 
     } catch (error) {
@@ -235,30 +389,26 @@ export class KafkaEventPublisher {
       syncOperationId: string;
     }
   ): Promise<void> {
-    if (!this.isConnected) {
-      logger.warn('Kafka not connected, skipping portfolio updated event');
+    if (!this.isInitialized) {
+      logger.warn('Event publisher not initialized, skipping portfolio updated event');
       return;
     }
 
     try {
-      const event: PortfolioUpdateEvent = {
-        type: 'portfolio.updated',
+      const eventData: PortfolioUpdatedEventData = {
+        ...portfolioData,
         userId,
         walletAddress,
-        data: portfolioData,
-        timestamp: Date.now(),
-        metadata: {
-          source: 'sync-worker',
-          version: '1.0.0',
-        },
+        updatedAt: Date.now(),
       };
 
-      await this.kafka.publish(event, {
-        topic: this.TOPICS.PORTFOLIO_UPDATES,
-        key: userId,
-        headers: {
-          'event-type': 'portfolio.updated',
-          'source': 'sync-worker',
+      await this.eventPublisher.publish('portfolio.updated', eventData, {
+        userId,
+        correlationId: portfolioData.syncOperationId,
+        context: {
+          walletAddress,
+          totalValueUsd: portfolioData.totalValueUsd,
+          totalTokens: portfolioData.totalTokens,
         },
       });
 
@@ -286,35 +436,28 @@ export class KafkaEventPublisher {
     activityType: 'sync_triggered' | 'portfolio_viewed' | 'manual_sync',
     metadata?: Record<string, any>
   ): Promise<void> {
-    if (!this.isConnected) {
-      logger.warn('Kafka not connected, skipping user activity event');
+    if (!this.isInitialized) {
+      logger.warn('Event publisher not initialized, skipping user activity event');
       return;
     }
 
     try {
-      const event: SyncEvent = {
-        type: 'sync.started', // Generic type for user activity
+      const eventData: UserActivityEventData = {
         userId,
-        walletAddress: '', // Not always available for activity events
-        data: {
-          activityType,
-          timestamp: Date.now(),
-          ...metadata,
-        },
+        activityType,
         timestamp: Date.now(),
-        metadata: {
-          source: 'sync-worker',
-          version: '1.0.0',
-        },
       };
 
-      await this.kafka.publish(event, {
-        topic: this.TOPICS.USER_ACTIVITIES,
-        key: userId,
-        headers: {
-          'event-type': 'user.activity',
-          'activity-type': activityType,
-          'source': 'sync-worker',
+      // Only add metadata if it exists
+      if (metadata) {
+        eventData.metadata = metadata;
+      }
+
+      await this.eventPublisher.publish('user.activity', eventData, {
+        userId,
+        context: {
+          activityType,
+          ...metadata,
         },
       });
 
@@ -341,38 +484,31 @@ export class KafkaEventPublisher {
     severity: 'low' | 'medium' | 'high' | 'critical',
     metadata?: Record<string, any>
   ): Promise<void> {
-    if (!this.isConnected) {
-      logger.warn('Kafka not connected, skipping system alert');
+    if (!this.isInitialized) {
+      logger.warn('Event publisher not initialized, skipping system alert');
       return;
     }
 
     try {
-      const event: SyncEvent = {
-        type: 'sync.failed', // Generic type for system alerts
-        userId: 'system',
-        walletAddress: '',
-        data: {
-          alertType,
-          message,
-          severity,
-          timestamp: Date.now(),
-          ...metadata,
-        },
+      const eventData: SystemAlertEventData = {
+        alertType,
+        message,
+        severity,
+        service: 'sync-worker',
         timestamp: Date.now(),
-        metadata: {
-          source: 'sync-worker',
-          version: '1.0.0',
-        },
       };
 
-      await this.kafka.publish(event, {
-        topic: this.TOPICS.SYSTEM_ALERTS,
-        key: `system_${alertType}`,
-        headers: {
-          'event-type': 'system.alert',
-          'alert-type': alertType,
-          'severity': severity,
-          'source': 'sync-worker',
+      // Only add metadata if it exists
+      if (metadata) {
+        eventData.metadata = metadata;
+      }
+
+      await this.eventPublisher.publish('system.alert', eventData, {
+        context: {
+          alertType,
+          severity,
+          message,
+          service: 'sync-worker',
         },
       });
 
@@ -394,38 +530,17 @@ export class KafkaEventPublisher {
   /**
    * Batch publish events for better performance
    */
-  async publishBatch(events: SyncEvent[]): Promise<void> {
-    if (!this.isConnected || events.length === 0) {
+  async publishBatch(events: Array<{
+    eventType: SyncWorkerEventType;
+    data: any;
+    options?: EventFactoryOptions;
+  }>): Promise<void> {
+    if (!this.isInitialized || events.length === 0) {
       return;
     }
 
     try {
-      const publishPromises = events.map(event => {
-        let topic = this.TOPICS.SYNC_EVENTS; // Default topic
-
-        // Route to appropriate topic based on event type
-        switch (event.type) {
-          case 'portfolio.updated':
-            topic = this.TOPICS.PORTFOLIO_UPDATES;
-            break;
-          case 'sync.completed':
-          case 'sync.failed':
-          case 'sync.started':
-            topic = this.TOPICS.SYNC_EVENTS;
-            break;
-        }
-
-        return this.kafka.publish(event, {
-          topic,
-          key: event.userId,
-          headers: {
-            'event-type': event.type,
-            'source': 'sync-worker',
-          },
-        });
-      });
-
-      await Promise.all(publishPromises);
+      await this.eventPublisher.publishBatch(events);
 
       logger.info('📢 Batch events published', {
         eventCount: events.length,
@@ -444,9 +559,9 @@ export class KafkaEventPublisher {
    */
   async isHealthy(): Promise<boolean> {
     try {
-      return this.isConnected && await this.kafka.isHealthy();
+      return this.isInitialized && await this.eventPublisher.healthCheck();
     } catch (error) {
-      logger.error('Kafka event publisher health check failed', { error });
+      logger.error('Sync worker event publisher health check failed', { error });
       return false;
     }
   }
@@ -455,14 +570,16 @@ export class KafkaEventPublisher {
    * Get statistics
    */
   getStats(): {
-    connected: boolean;
-    topics: Record<string, string>;
+    initialized: boolean;
+    serviceName: string;
+    serviceVersion: string;
     metrics?: any;
   } {
     return {
-      connected: this.isConnected,
-      topics: this.TOPICS,
-      metrics: this.kafka.getMetrics ? this.kafka.getMetrics() : undefined,
+      initialized: this.isInitialized,
+      serviceName: 'sync-worker',
+      serviceVersion: '1.0.0',
+      metrics: this.eventPublisher.getMetrics ? this.eventPublisher.getMetrics() : undefined,
     };
   }
 
@@ -470,14 +587,20 @@ export class KafkaEventPublisher {
    * Graceful shutdown
    */
   async gracefulShutdown(): Promise<void> {
-    logger.info('📢 Graceful shutdown of Kafka event publisher...');
+    logger.info('📢 Graceful shutdown of sync worker event publisher...');
     
     try {
       await this.disconnect();
-      logger.info('📢 Kafka event publisher shutdown completed');
+      logger.info('📢 Sync worker event publisher shutdown completed');
     } catch (error) {
-      logger.error('❌ Error during Kafka event publisher shutdown', { error });
+      logger.error('❌ Error during sync worker event publisher shutdown', { error });
       throw error;
     }
   }
-} 
+}
+
+// Export singleton instance
+export const syncWorkerEventPublisher = new SyncWorkerKafkaEventPublisher();
+
+// Export class with alias for backward compatibility
+export { SyncWorkerKafkaEventPublisher as KafkaEventPublisher }; 

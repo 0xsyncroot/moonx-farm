@@ -1,10 +1,10 @@
 'use client'
 
 import { useRef, useEffect, useState, useCallback } from 'react'
-import { MessageCircle, X, Send, User, Sparkles, TrendingUp, Wallet, HelpCircle, Settings, Square, RotateCcw, Sun, Moon } from 'lucide-react'
+import { X, Send, User, TrendingUp, Wallet, HelpCircle, Settings, Square, RotateCcw, Sun, Moon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
-import { LoadingSpinner } from '@/components/ui/loading-spinner'
+
 import { useChat } from './chat-provider'
 import { LiliAvatar } from './lili-avatar'
 import ReactMarkdown from 'react-markdown'
@@ -94,7 +94,7 @@ const TypewriterText: React.FC<{
     else if (text.length > prevText.length && typingIndexRef.current >= prevText.length) {
       startTyping(text, typingIndexRef.current)
     }
-  }, [text, isStreaming, startTyping])
+  }, [text, isStreaming, startTyping, clearTyping])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -166,7 +166,7 @@ interface ChatWidgetProps {
 }
 
 export function ChatWidget({ className }: ChatWidgetProps) {
-  const { messages, isLoading, isOpen, setIsOpen, sendMessage, isWalkerEnabled, setIsWalkerEnabled, conversationId, startNewConversation, stopGeneration } = useChat()
+  const { messages, isLoading, isOpen, setIsOpen, sendMessage, isWalkerEnabled, setIsWalkerEnabled, startNewConversation, stopGeneration } = useChat()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -481,7 +481,7 @@ export function ChatWidget({ className }: ChatWidgetProps) {
                   <LiliAvatar size="lg" isAnimated={true} />
                 </div>
                 <p className={cn("text-xs mb-6", themeClasses.welcomeText)}>
-                  Hi! I'm Lili, your AI assistant for MoonX Farm - a DeFi trading platform with smart wallets, gasless transactions, and automated trading. How can I help you today?
+                  Hi! I&apos;m Lili, your AI assistant for MoonX Farm - a DeFi trading platform with smart wallets, gasless transactions, and automated trading. How can I help you today?
                 </p>
                 
                                  {/* Quick suggestions for first time users */}

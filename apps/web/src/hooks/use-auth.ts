@@ -46,17 +46,29 @@ export function useAuth() {
     error: userError 
   } = useQuery({
     queryKey: ['currentUser'],
-    queryFn: () => {
-      return authApi.getCurrentUser()
+    queryFn: async () => {
+      try {
+        const response = await authApi.getCurrentUser()
+        // If verify succeeds, set backend as authenticated
+        if (response.success && response.data?.user) {
+          setIsBackendAuthenticated(true)
+        }
+        return response
+      } catch (error) {
+        // If verify fails, reset backend authentication
+        setIsBackendAuthenticated(false)
+        throw error
+      }
     },
     enabled: (() => {
-      const enabled = isBackendAuthenticated && privyReady && typeof window !== 'undefined' && !!localStorage.getItem('accessToken')
+      // Call verify if we have accessToken, regardless of isBackendAuthenticated
+      const enabled = privyReady && typeof window !== 'undefined' && !!localStorage.getItem('accessToken')
       return enabled
     })(),
     retry: false,
     staleTime: 10 * 60 * 1000, // 10 minutes - longer cache
     refetchOnWindowFocus: false, // Don't refetch on focus
-    refetchOnMount: false, // Don't refetch on mount if data exists
+    refetchOnMount: true, // Allow refetch on mount to handle page refresh
   })
 
   // Backend login mutation
@@ -134,6 +146,10 @@ export function useAuth() {
     if (loginAttemptRef.current || backendLoginMutation.isPending) {
       return
     }
+    // Skip login if we already have accessToken (let verify query handle it)
+    if (typeof window !== 'undefined' && localStorage.getItem('accessToken')) {
+      return
+    }
 
     // Mark that we've attempted login for this user - BEFORE async call
     setAttemptedUser(privyUser.id)
@@ -173,6 +189,12 @@ export function useAuth() {
       // If backend still authenticated, logout from backend
       if (isBackendAuthenticated) {
         backendLogoutMutation.mutate()
+      }
+      
+      // Clear localStorage tokens when logged out
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('accessToken')
+        localStorage.removeItem('refreshToken')
       }
     }
   }, [privyReady, privyAuthenticated, isBackendAuthenticated])
@@ -236,7 +258,7 @@ export function useAuth() {
 
     // User data
     privyUser,
-    backendUser: backendUser?.data,
+    backendUser: backendUser?.data?.user,
     walletInfo: getWalletInfo(),
 
     // Functions

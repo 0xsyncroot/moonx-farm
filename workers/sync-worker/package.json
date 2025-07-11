@@ -30,7 +30,7 @@
     "@fastify/swagger": "^9.0.0",
     "@moonx-farm/common": "^1.0.6",
     "@moonx-farm/configs": "^1.0.3",
-    "@moonx-farm/infrastructure": "^1.0.8",
+    "@moonx-farm/infrastructure": "^1.0.14",
     "axios": "^1.7.2",
     "bull": "^4.12.9",
     "bullmq": "^5.8.0",

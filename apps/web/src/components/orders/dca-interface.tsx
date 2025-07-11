@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { Repeat, Clock, Calendar, TrendingUp, AlertCircle, DollarSign, BarChart3, ChevronDown } from 'lucide-react'
 import { TokenSelector } from '@/components/swap/token-selector'
 import { TradingViewChart, useChartMarkers } from '@/components/charts/tradingview-chart'
@@ -123,7 +124,7 @@ export function DCAInterface() {
   const [priceData, setPriceData] = useState<PriceDataPoint[]>([])
   const [isLoadingPriceData, setIsLoadingPriceData] = useState(false)
   const [dataSource, setDataSource] = useState<string>('fallback')
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null)
+  const [, setCurrentPrice] = useState<number | null>(null)
 
   // Load price data when token changes
   useEffect(() => {
@@ -207,7 +208,13 @@ export function DCAInterface() {
                   {sellToken ? (
                     <div className="flex items-center space-x-3">
                       {sellToken.logoURI ? (
-                        <img src={sellToken.logoURI} alt={sellToken.symbol} className="w-10 h-10 rounded-full ring-2 ring-border" />
+                        <Image
+                          src={sellToken.logoURI}
+                          alt={sellToken.symbol}
+                          width={40}
+                          height={40}
+                          className="rounded-full ring-2 ring-border"
+                        />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-lg">
                           {sellToken.symbol.charAt(0)}
@@ -244,7 +251,13 @@ export function DCAInterface() {
                   {buyToken ? (
                     <div className="flex items-center space-x-3">
                       {buyToken.logoURI ? (
-                        <img src={buyToken.logoURI} alt={buyToken.symbol} className="w-10 h-10 rounded-full ring-2 ring-border" />
+                        <Image
+                          src={buyToken.logoURI}
+                          alt={buyToken.symbol}
+                          width={40}
+                          height={40}
+                          className="rounded-full ring-2 ring-border"
+                        />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-lg">
                           {buyToken.symbol.charAt(0)}

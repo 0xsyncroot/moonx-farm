@@ -43,6 +43,9 @@ export class PeriodicSyncScheduler {
     enabled: process.env.PERIODIC_SYNC_ENABLED !== 'false', // enabled by default
   };
 
+  // Max users to load from database (configurable)
+  private readonly maxUsersToLoad = parseInt(process.env.PERIODIC_SYNC_MAX_USERS || '0'); // 0 = unlimited
+
   constructor(databaseService: DatabaseService) {
     this.databaseService = databaseService;
     
@@ -155,9 +158,10 @@ export class PeriodicSyncScheduler {
    */
   private async loadActiveUsersFromDatabase(): Promise<void> {
     try {
-      // Get users with recent activity (last 7 days)
-      const staleThreshold = 7 * 24 * 60 * 60 * 1000; // 7 days
-      const users = await this.databaseService.getUsersWithStaleData(staleThreshold, 1000);
+      // Get all users with sync enabled from user_sync_status table
+      // Use configurable limit (0 = unlimited)
+      const limit = this.maxUsersToLoad > 0 ? this.maxUsersToLoad : undefined;
+      const users = await this.databaseService.getAllEnabledUsers(limit);
 
       this.userSyncInfo.clear();
 
@@ -166,7 +170,7 @@ export class PeriodicSyncScheduler {
           userId: user.userId,
           walletAddress: user.walletAddress,
           lastSyncAt: user.lastUpdated,
-          lastActiveAt: user.lastUpdated,
+          lastActiveAt: user.lastUpdated, // Assume last sync = last active
           syncCount: 0,
           priority: 'medium',
         });
@@ -174,6 +178,7 @@ export class PeriodicSyncScheduler {
 
       logger.info('📅 Loaded active users from database', {
         userCount: this.userSyncInfo.size,
+        maxUsersConfig: this.maxUsersToLoad || 'unlimited'
       });
 
     } catch (error) {
@@ -335,9 +340,46 @@ export class PeriodicSyncScheduler {
         priority,
       });
 
+      // ✅ DEDUPLICATION: Check for active operations for all users
+      const activeOperations = await this.databaseService.mongoSyncService.getActiveSyncOperations();
+      const activeUserIds = new Set(activeOperations.map(op => op.userId));
+
+      // Filter out users who already have active operations
+      const filteredUsers = users.filter(user => {
+        const hasActiveOperation = activeUserIds.has(user.userId);
+        if (hasActiveOperation) {
+          logger.debug('📅 Skipping user with active sync operation', {
+            userId: user.userId,
+            walletAddress: user.walletAddress,
+            reason: 'deduplication',
+            source: 'periodic_sync'
+          });
+          return false;
+        }
+        return true;
+      });
+
+      if (filteredUsers.length === 0) {
+        logger.info('📅 No users to sync after deduplication', {
+          originalCount: users.length,
+          filteredCount: filteredUsers.length,
+          activeOperations: activeOperations.length,
+          priority
+        });
+        return;
+      }
+
+      logger.info('📅 Users filtered for periodic sync after deduplication', {
+        originalCount: users.length,
+        filteredCount: filteredUsers.length,
+        skippedCount: users.length - filteredUsers.length,
+        activeOperations: activeOperations.length,
+        priority
+      });
+
       const jobs = [];
 
-      for (const user of users) {
+      for (const user of filteredUsers) {
         const syncJobData: SyncJobData = {
           userId: user.userId,
           walletAddress: user.walletAddress,
@@ -347,6 +389,7 @@ export class PeriodicSyncScheduler {
             isMarketHours: this.isMarketHours(),
             lastSyncAt: user.lastSyncAt.toISOString(),
             scheduledAt: new Date().toISOString(),
+            deduplication_check: 'passed'
           },
         };
 
@@ -373,7 +416,9 @@ export class PeriodicSyncScheduler {
       await Promise.all(jobs);
 
       logger.info('✅ Periodic sync batch scheduled successfully', {
-        userCount: users.length,
+        originalCount: users.length,
+        scheduledCount: filteredUsers.length,
+        skippedCount: users.length - filteredUsers.length,
         priority,
       });
 

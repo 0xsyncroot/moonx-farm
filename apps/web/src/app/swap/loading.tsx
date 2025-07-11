@@ -2,7 +2,6 @@ import { Header } from '@/components/layout/header'
 import { 
   Skeleton, 
   SkeletonText, 
-  SkeletonCard, 
   SkeletonAvatar 
 } from '@/components/ui/loading-spinner'
 

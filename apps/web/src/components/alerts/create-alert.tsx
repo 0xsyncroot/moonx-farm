@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Bell, DollarSign, TrendingUp, Wallet, Target } from 'lucide-react'
+import { Plus, Bell, DollarSign, TrendingUp, Wallet } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type AlertType = 'price' | 'wallet' | 'volume'

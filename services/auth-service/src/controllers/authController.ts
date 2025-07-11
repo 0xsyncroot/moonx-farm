@@ -51,6 +51,7 @@ interface SafeUser {
   id: string;
   privyId: string;
   walletAddress: string;
+  aaWalletAddress: string;
   email?: string | undefined;
   isActive: boolean;
   createdAt: Date;
@@ -148,6 +149,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       // Social login không yêu cầu wallet address
       const walletAddress = privyResult.walletAddress;
+      const aaWalletAddress = privyResult.aaWalletAddress;
       const email = privyResult.email;
       const socialProfile = privyResult.socialProfile;
 
@@ -160,6 +162,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           user = await fastify.db.createUser({
             privyUserId: privyResult.userId,
             walletAddress: walletAddress || '', // Empty string nếu không có wallet
+            aaWalletAddress: aaWalletAddress,
             ...(email && { email }),
           });
           
@@ -191,6 +194,10 @@ export async function authRoutes(fastify: FastifyInstance) {
         
         if (walletAddress && user.wallet_address !== walletAddress) {
           updates.wallet_address = walletAddress;
+        }
+        
+        if (aaWalletAddress && user.aa_wallet_address !== aaWalletAddress) {
+          updates.aa_wallet_address = aaWalletAddress;
         }
 
         if (Object.keys(updates).length > 0) {
@@ -231,6 +238,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           userId: user.id,
           privyUserId: user.privy_user_id,
           walletAddress: user.wallet_address,
+          aaWalletAddress: user.aa_wallet_address,
           ...(user.email && { email: user.email }),
         }, {
           action: 'login',
@@ -307,6 +315,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         id: user.id,
         privyId: user.privy_user_id,
         walletAddress: user.wallet_address,
+        aaWalletAddress: user.aa_wallet_address || '',
         email: user.email,
         isActive: user.is_active,
         createdAt: user.created_at,
@@ -392,6 +401,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                   properties: {
                     id: { type: 'string' },
                     walletAddress: { type: 'string' },
+                    aaWalletAddress: { type: 'string' },
                     email: { type: 'string' },
                     isActive: { type: 'boolean' }
                   }
@@ -538,13 +548,13 @@ export async function authRoutes(fastify: FastifyInstance) {
         id: user.id,
         privyId: user.privy_user_id,
         walletAddress: user.wallet_address,
+        aaWalletAddress: user.aa_wallet_address || '',
         email: user.email,
         isActive: user.is_active,
         createdAt: user.created_at,
         updatedAt: user.updated_at,
         lastLoginAt: user.last_login_at,
       };
-
       const safeTokens: SafeTokenPair = {
         accessToken: newTokenPair.accessToken,
         refreshToken: newTokenPair.refreshToken, // Use new refresh token
@@ -720,7 +730,9 @@ export async function authRoutes(fastify: FastifyInstance) {
                   type: 'object',
                   properties: {
                     id: { type: 'string' },
+                    privyId: { type: 'string' },
                     walletAddress: { type: 'string' },
+                    aaWalletAddress: { type: 'string' },
                     email: { type: 'string' },
                     isActive: { type: 'boolean' }
                   }
@@ -752,11 +764,11 @@ export async function authRoutes(fastify: FastifyInstance) {
           message: 'User not found or account deactivated',
         });
       }
-
       const safeUser: SafeUser = {
         id: user.id,
         privyId: user.privy_user_id,
         walletAddress: user.wallet_address,
+        aaWalletAddress: user.aa_wallet_address || '',
         email: user.email,
         isActive: user.is_active,
         createdAt: user.created_at,

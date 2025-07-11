@@ -1,7 +1,6 @@
 'use client'
 
 import { usePrivy } from '@privy-io/react-auth'
-import { useAuth } from '@/hooks/use-auth'
 import { Token, coreApi } from '@/lib/api-client'
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useSwap } from '@/hooks/use-swap'

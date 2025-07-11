@@ -45,7 +45,7 @@ export interface SyncStatusResponse {
 export class MessageQueueService {
   private redis: RedisManager;
   private isConnected: boolean = false;
-  private responseTimeout: number = 30000; // 30 seconds
+  private responseTimeout: number = 90000; // 90 seconds
 
   // Queue names
   private readonly SYNC_REQUEST_QUEUE = 'sync:requests';

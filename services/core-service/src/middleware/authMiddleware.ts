@@ -7,6 +7,7 @@ interface AuthenticatedRequest extends FastifyRequest {
     id: string;
     privyId: string;
     walletAddress: string;
+    aaWalletAddress?: string;
     email?: string;
   };
 }
@@ -115,11 +116,20 @@ export class AuthMiddleware {
     return request.user.walletAddress;
   }
 
+  // Helper method to get current AA wallet address from authenticated request
+  getCurrentAAWalletAddress(request: AuthenticatedRequest): string | undefined {
+    if (!request.user) {
+      throw new Error('User not authenticated');
+    }
+    return request.user.aaWalletAddress;
+  }
+
   // Helper method to get full user object from authenticated request
   getCurrentUser(request: AuthenticatedRequest): {
     id: string;
     privyId: string;
     walletAddress: string;
+    aaWalletAddress?: string;
     email?: string;
   } {
     if (!request.user) {

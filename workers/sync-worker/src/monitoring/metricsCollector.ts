@@ -284,24 +284,11 @@ export class MetricsCollector {
    */
   recordCircuitBreakerEvent(
     userId: string,
-    event: 'opened' | 'closed' | 'half_open'
+    state: 'opened' | 'closed' | 'half-open'
   ): void {
     this.incrementCounter('circuit_breaker_events_total', 1, {
       user_id: userId,
-      event,
-    });
-  }
-
-  /**
-   * Record rate limit metrics
-   */
-  recordRateLimitEvent(
-    userId: string,
-    allowed: boolean
-  ): void {
-    this.incrementCounter('rate_limit_events_total', 1, {
-      user_id: userId,
-      result: allowed ? 'allowed' : 'denied',
+      state,
     });
   }
 

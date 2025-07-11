@@ -1,7 +1,22 @@
-import { Kafka, KafkaConfig, Producer, Consumer, ConsumerConfig, ProducerConfig, Admin } from 'kafkajs';
+import { Kafka, KafkaConfig, Producer, Consumer, ConsumerConfig, ProducerConfig, Admin, logLevel } from 'kafkajs';
 import { createLogger, ServiceUnavailableError, generateId } from '@moonx-farm/common';
 
 const logger = createLogger('kafka');
+
+/**
+ * Map log level strings to kafkajs enum values
+ * KafkaJS log levels: NOTHING=0, ERROR=1, WARN=2, INFO=4, DEBUG=5
+ */
+function mapLogLevel(level: string): logLevel {
+  switch (level) {
+    case 'nothing': return logLevel.NOTHING;
+    case 'error': return logLevel.ERROR;
+    case 'warn': return logLevel.WARN;
+    case 'info': return logLevel.INFO;
+    case 'debug': return logLevel.DEBUG;
+    default: return logLevel.WARN; // Default to WARN to reduce noise
+  }
+}
 
 /**
  * Kafka configuration options
@@ -22,7 +37,7 @@ export interface KafkaManagerConfig {
     retries?: number;
   };
   // Enhanced options
-  logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'nothing';
   maxConnections?: number;
   idleConnectionTimeout?: number;
   compression?: 'gzip' | 'snappy' | 'lz4' | 'zstd';
@@ -291,7 +306,7 @@ export class KafkaManager {
       sasl: config.sasl as any,
       connectionTimeout: config.connectionTimeout || 10000,
       requestTimeout: config.requestTimeout || 30000,
-      logLevel: (config.logLevel as any) || 'info',
+      logLevel: mapLogLevel(config.logLevel || 'warn'),
       retry: {
         initialRetryTime: config.retry?.initialRetryTime || 100,
         retries: config.retry?.retries || 8,
@@ -414,7 +429,7 @@ export class KafkaManager {
       // Enable transactions if requested
       if (options.enableTransactions && options.transactionalId) {
         // Transaction will be handled by the producer when sending messages
-        logger.debug('Producer configured for transactions', { 
+        logger.info('Producer configured for transactions', { 
           producerId: id,
           transactionalId: options.transactionalId,
         });
@@ -534,13 +549,15 @@ export class KafkaManager {
       this.updateTopicStats(options.topic, 'produced');
       this.updateAverageTime('produce', Date.now() - startTime);
 
-      logger.debug('Message published to Kafka', {
-        topic: options.topic,
-        key: options.key,
-        producerId,
-        size: JSON.stringify(data).length,
-        duration: Date.now() - startTime,
-      });
+      // Only log slow operations to reduce noise
+      if (Date.now() - startTime > 1000) {
+        logger.info('Slow message publish to Kafka', {
+          topic: options.topic,
+          key: options.key,
+          producerId,
+          duration: Date.now() - startTime,
+        });
+      }
     } catch (error) {
       const err = error as Error;
       this.metrics.producerErrors++;
@@ -608,12 +625,15 @@ export class KafkaManager {
       });
       this.updateAverageTime('produce', Date.now() - startTime);
 
-      logger.debug('Batch messages published to Kafka', {
-        messageCount: messages.length,
-        topics: Object.keys(messagesByTopic),
-        producerId,
-        duration: Date.now() - startTime,
-      });
+      // Only log batch operations that are slow or large
+      if (Date.now() - startTime > 1000 || messages.length > 100) {
+        logger.info('Kafka batch publish completed', {
+          messageCount: messages.length,
+          topics: Object.keys(messagesByTopic),
+          producerId,
+          duration: Date.now() - startTime,
+        });
+      }
     } catch (error) {
       const err = error as Error;
       this.metrics.producerErrors++;
@@ -663,14 +683,6 @@ export class KafkaManager {
 
             const parsedMessage = JSON.parse(value);
             
-            logger.debug('Processing Kafka message', {
-              topic,
-              partition,
-              offset: message.offset,
-              messageId,
-              consumerId,
-            });
-
             await handler(topic, parsedMessage, message);
             
             // Update metrics
@@ -678,14 +690,18 @@ export class KafkaManager {
             this.updateTopicStats(topic, 'consumed');
             this.updateAverageTime('consume', Date.now() - startTime);
             
-            logger.debug('Kafka message processed successfully', {
-              topic,
-              partition,
-              offset: message.offset,
-              messageId,
-              consumerId,
-              duration: Date.now() - startTime,
-            });
+            // Only log slow message processing to reduce noise
+            const processingTime = Date.now() - startTime;
+            if (processingTime > 1000) {
+              logger.info('Slow Kafka message processing', {
+                topic,
+                partition,
+                offset: message.offset,
+                messageId,
+                consumerId,
+                duration: processingTime,
+              });
+            }
           } catch (error) {
             const err = error as Error;
             this.metrics.consumerErrors++;
@@ -1076,7 +1092,7 @@ export function createKafkaConfig(): KafkaManagerConfig {
     } : undefined,
     connectionTimeout: parseInt(process.env.KAFKA_CONNECTION_TIMEOUT || '10000'),
     requestTimeout: parseInt(process.env.KAFKA_REQUEST_TIMEOUT || '30000'),
-    logLevel: (process.env.KAFKA_LOG_LEVEL as any) || 'info',
+    logLevel: process.env.KAFKA_LOG_LEVEL as 'debug' | 'info' | 'warn' | 'error' | 'nothing' || 'warn',
     maxConnections: parseInt(process.env.KAFKA_MAX_CONNECTIONS || '10'),
     idleConnectionTimeout: parseInt(process.env.KAFKA_IDLE_TIMEOUT || '300000'),
     compression: (process.env.KAFKA_COMPRESSION as any) || 'gzip',

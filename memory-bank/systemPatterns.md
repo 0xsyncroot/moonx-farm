@@ -59,6 +59,7 @@ graph TB
 
     subgraph "Data Layer"
         DB[(PostgreSQL<br/>Primary Data)]
+        MONGO[(MongoDB<br/>Sync Operations)]
         REDIS[(Redis<br/>Cache & Session)]
         KAFKA[(Kafka<br/>Event Streaming)]
     end
@@ -95,8 +96,10 @@ graph TB
     WALLET --> DB
     QUOTE --> REDIS
     SWAP --> DB
+    SWAP --> MONGO
     SWAP --> KAFKA
     POS --> DB
+    POS --> MONGO
     POS --> KAFKA
     NOTIFY --> REDIS
     NOTIFY --> KAFKA
@@ -141,7 +144,77 @@ graph TB
 └── Notify Service (3006)   # Real-time notifications
 ```
 
-### 2. **Event-Driven Architecture**
+### 2. **Hybrid Database Architecture**
+**Rationale**: Optimal performance cho different use cases, PostgreSQL for structured data + MongoDB for high-frequency operations
+
+**Database Strategy**:
+- **PostgreSQL**: Primary data storage (users, orders, portfolio holdings)
+- **MongoDB**: High-performance sync operations, user sync status tracking
+- **Redis**: Cache, session storage, rate limiting
+- **Kafka**: Event streaming, real-time notifications
+
+**MongoDB Collections**:
+```javascript
+// user_sync_status - Optimized for high-frequency updates
+{
+  userId: String,
+  walletAddress: String,
+  syncStatus: Enum['never', 'pending', 'syncing', 'completed', 'failed'],
+  lastSyncAt: Date,
+  nextScheduledSync: Date,
+  totalSyncs: Number,
+  successfulSyncs: Number,
+  syncReason: Enum['manual_trigger', 'scheduled_sync', 'user_login', 'no_portfolio_data']
+}
+
+// sync_operations - Track sync operation history
+{
+  operationId: String,
+  userId: String,
+  walletAddress: String,
+  operationType: Enum['portfolio_sync', 'balance_update'],
+  status: Enum['pending', 'running', 'completed', 'failed'],
+  startedAt: Date,
+  completedAt: Date,
+  metadata: Object
+}
+```
+
+**10 Optimized Indexes**:
+```javascript
+// Performance-optimized compound indexes
+db.user_sync_status.createIndex({ userId: 1 }, { name: 'idx_user_id' });
+db.user_sync_status.createIndex({ walletAddress: 1 }, { name: 'idx_wallet_address' });
+db.user_sync_status.createIndex({ syncStatus: 1 }, { name: 'idx_sync_status' });
+db.user_sync_status.createIndex({ nextScheduledSync: 1 }, { name: 'idx_next_scheduled_sync' });
+db.user_sync_status.createIndex({ lastSyncAt: 1 }, { name: 'idx_last_sync_at' });
+db.user_sync_status.createIndex({ userId: 1, walletAddress: 1 }, { name: 'idx_user_wallet_compound' });
+```
+
+**Atomic Operations Pattern**:
+```javascript
+// MongoDB upsert với $setOnInsert for atomic user sync status creation
+await userSyncStatusCollection.updateOne(
+  { userId, walletAddress },
+  {
+    $setOnInsert: {
+      userId,
+      walletAddress,
+      syncStatus: 'never',
+      totalSyncs: 0,
+      successfulSyncs: 0,
+      createdAt: new Date(),
+      syncReason: source
+    },
+    $set: {
+      updatedAt: new Date()
+    }
+  },
+  { upsert: true }
+);
+```
+
+### 3. **Event-Driven Architecture**
 **Rationale**: Loose coupling, eventual consistency, real-time updates
 
 **Event Flow**:

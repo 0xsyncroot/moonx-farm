@@ -1,23 +1,24 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { usePortfolioData } from '@/hooks/usePortfolioData'
+import Image from 'next/image'
+import { useTokenHoldings } from '@/hooks/useTokenHoldings'
 import { RefreshCw, Search, Eye, EyeOff, PieChart, ArrowUp, ArrowDown } from 'lucide-react'
 
 export function TokenHoldings() {
-  const { holdings, isLoading, error, refresh, refreshing, cacheAge } = usePortfolioData()
+  const { holdings, isLoading, error, refresh, refreshing, cacheAge } = useTokenHoldings()
   
   const [searchTerm, setSearchTerm] = useState('')
   const [sortBy, setSortBy] = useState<'value' | 'allocation' | 'symbol' | 'balance'>('value')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [hideSmallHoldings, setHideSmallHoldings] = useState(false)
 
-  // Default to empty array if no data
-  const data = holdings || []
+  // Memoize the data to prevent useMemo dependency issues
+  const data = useMemo(() => holdings || [], [holdings])
 
   // Filter and sort holdings
   const filteredHoldings = useMemo(() => {
-    let filtered = data.filter(holding => {
+    const filtered = data.filter(holding => {
       const matchesSearch = holding.tokenSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            holding.tokenName?.toLowerCase().includes(searchTerm.toLowerCase())
       const meetsMinimum = !hideSmallHoldings || holding.valueUSD >= 5 // $5 minimum
@@ -298,10 +299,12 @@ export function TokenHoldings() {
               <div className="col-span-4 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary/30 to-primary/20 flex items-center justify-center flex-shrink-0">
                   {holding.logoUrl ? (
-                    <img 
+                    <Image 
                       src={holding.logoUrl} 
                       alt={holding.tokenSymbol}
-                      className="w-6 h-6 rounded-full"
+                      width={24}
+                      height={24}
+                      className="rounded-full"
                       onError={(e) => {
                         e.currentTarget.style.display = 'none'
                         const nextElement = e.currentTarget.nextElementSibling as HTMLElement

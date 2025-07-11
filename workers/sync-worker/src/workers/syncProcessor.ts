@@ -2,25 +2,19 @@ import { randomUUID } from 'crypto';
 import { config } from '@/config';
 import { logger } from '@/utils/logger';
 import { AlchemyService, TokenBalance } from '@/services/alchemyService';
-import { DatabaseService, TokenHolding, SyncOperation } from '@/services/databaseService';
+import { DatabaseService, TokenHolding } from '@/services/databaseService';
 import { KafkaEventPublisher } from '@/services/kafkaEventPublisher';
-import { SyncJobData, SyncJobResult, CircuitBreakerState, RateLimitInfo } from '@/types';
+import { SyncJobData, SyncJobResult, CircuitBreakerState } from '@/types';
 
 export class SyncProcessor {
   private alchemyService: AlchemyService;
   private databaseService: DatabaseService;
   private kafkaEventPublisher: KafkaEventPublisher | undefined;
   private circuitBreaker: Map<string, CircuitBreakerState> = new Map();
-  private rateLimitMap: Map<string, RateLimitInfo> = new Map();
 
   // Worker identification
   private readonly workerId: string;
   private readonly workerVersion: string;
-
-  // Rate limiting configuration
-  private readonly RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
-  private readonly RATE_LIMIT_MAX_REQUESTS = 5; // Max 5 sync requests per user
-  private readonly MIN_SYNC_INTERVAL = 5 * 60 * 1000; // Minimum 5 minutes between syncs
 
   constructor(
     alchemyService: AlchemyService, 
@@ -52,12 +46,8 @@ export class SyncProcessor {
       // Load circuit breaker states from database
       await this.loadCircuitBreakerStates();
       
-      // Load rate limiting states from database
-      await this.loadRateLimitStates();
-      
       logger.info('✅ Sync processor initialized with state recovery', {
         circuitBreakers: this.circuitBreaker.size,
-        rateLimits: this.rateLimitMap.size,
         workerId: this.workerId,
       });
     } catch (error) {
@@ -69,268 +59,154 @@ export class SyncProcessor {
   }
 
   /**
-   * Load circuit breaker states from database
+   * Load circuit breaker states from MongoDB
    */
   private async loadCircuitBreakerStates(): Promise<void> {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       
-      // Get recent failed sync operations grouped by user
-      const query = `
-        SELECT 
-          user_id,
-          COUNT(*) as failure_count,
-          MAX(completed_at) as last_failure_time,
-          array_agg(error_message ORDER BY completed_at DESC) as recent_errors
-        FROM sync_operations 
-        WHERE status = 'failed' 
-        AND completed_at >= $1
-        GROUP BY user_id
-        HAVING COUNT(*) >= 3
-      `;
-      
-      const result = await this.databaseService.query(query, [oneHourAgo]);
-      
-      // Rebuild circuit breaker states
-      for (const row of result.rows) {
-        const userId = row.user_id;
-        const failureCount = parseInt(row.failure_count);
-        const lastFailureTime = new Date(row.last_failure_time);
-        
-        const circuitBreakerState: CircuitBreakerState = {
-          state: 'open',
-          failureCount,
-          lastFailureTime,
-          nextAttemptTime: new Date(lastFailureTime.getTime() + 15 * 60 * 1000), // 15 minutes timeout
-          successCount: 0,
-        };
-        
-        this.circuitBreaker.set(userId, circuitBreakerState);
-        
-        logger.warn('🔴 Circuit breaker restored as OPEN', {
-          userId,
-          failureCount,
-          lastFailureTime,
-          nextAttemptTime: circuitBreakerState.nextAttemptTime,
-        });
-      }
+      logger.info('📊 Loading circuit breaker states from MongoDB', {
+        timeWindow: '1 hour ago',
+        oneHourAgo
+      });
 
-      // Also check user_sync_status for additional context
-      const statusQuery = `
-        SELECT user_id, consecutive_failures, last_error_at, is_sync_enabled
-        FROM user_sync_status 
-        WHERE consecutive_failures >= 3 
-        AND last_error_at >= $1
-        AND is_sync_enabled = true
-      `;
+      // Get recent failed sync operations from MongoDB
+      logger.info('🔍 Querying failed operations for circuit breaker state recovery');
       
-      const statusResult = await this.databaseService.query(statusQuery, [oneHourAgo]);
+      // Get recent failed sync operations from MongoDB
+      const recentFailedOps = await this.databaseService.mongoSyncService.getRecentFailedOperations(oneHourAgo);
       
-      for (const row of statusResult.rows) {
-        const userId = row.user_id;
-        const consecutiveFailures = row.consecutive_failures;
-        const lastErrorAt = new Date(row.last_error_at);
+      // Group by userId and count failures
+      const userFailureCounts = new Map<string, { count: number; lastFailure: Date; errors: string[] }>();
+      
+      for (const op of recentFailedOps) {
+        if (!userFailureCounts.has(op.userId)) {
+          userFailureCounts.set(op.userId, { count: 0, lastFailure: new Date(0), errors: [] });
+        }
         
-        // Only update if not already set or has higher failure count
-        const existing = this.circuitBreaker.get(userId);
-        if (!existing || existing.failureCount < consecutiveFailures) {
+        const userFailures = userFailureCounts.get(op.userId)!;
+        userFailures.count++;
+        
+        const opCompletedAt = new Date(op.completedAt || op.startedAt);
+        if (opCompletedAt > userFailures.lastFailure) {
+          userFailures.lastFailure = opCompletedAt;
+        }
+        
+        if (op.errorMessage && userFailures.errors.length < 5) {
+          userFailures.errors.push(op.errorMessage);
+        }
+      }
+      
+      // Rebuild circuit breaker states for users with >= 3 failures
+      for (const [userId, failures] of userFailureCounts.entries()) {
+        if (failures.count >= 3) {
           const circuitBreakerState: CircuitBreakerState = {
             state: 'open',
-            failureCount: consecutiveFailures,
-            lastFailureTime: lastErrorAt,
-            nextAttemptTime: new Date(lastErrorAt.getTime() + 15 * 60 * 1000),
+            failureCount: failures.count,
+            lastFailureTime: failures.lastFailure,
+            nextAttemptTime: new Date(failures.lastFailure.getTime() + 15 * 60 * 1000), // 15 minutes timeout
             successCount: 0,
           };
           
           this.circuitBreaker.set(userId, circuitBreakerState);
           
-          logger.warn('🔴 Circuit breaker updated from sync status', {
+          logger.warn('🔴 Circuit breaker restored as OPEN from database', {
             userId,
-            consecutiveFailures,
-            lastErrorAt,
+            failureCount: failures.count,
+            lastFailureTime: failures.lastFailure,
+            nextAttemptTime: circuitBreakerState.nextAttemptTime,
+            recentErrors: failures.errors.slice(0, 3) // Show last 3 errors
           });
         }
       }
 
-      logger.info('📊 Circuit breaker states loaded', {
+      // Get MongoDB sync statistics for additional context
+      try {
+        const mongoStats = await this.databaseService.mongoSyncService.getSyncStatistics();
+        
+        logger.info('✅ Circuit breaker state loaded from MongoDB', {
+          activeCircuitBreakers: this.circuitBreaker.size,
+          mongoStats: {
+            recentSyncs: mongoStats.recentSyncs,
+            failedSyncs: mongoStats.failedSyncs,
+            avgSyncDuration: mongoStats.avgSyncDuration
+          }
+        });
+      } catch (mongoError) {
+        logger.warn('Could not load MongoDB sync statistics', {
+          error: mongoError instanceof Error ? mongoError.message : String(mongoError)
+        });
+      }
+
+      logger.info('📊 Circuit breaker states loaded from MongoDB', {
         activeCircuitBreakers: this.circuitBreaker.size,
+        totalFailedOperations: recentFailedOps.length
       });
       
     } catch (error) {
-      logger.error('❌ Failed to load circuit breaker states', {
+      logger.error('❌ Failed to load circuit breaker states from MongoDB', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
   /**
-   * Load rate limiting states from database
-   */
-  private async loadRateLimitStates(): Promise<void> {
-    try {
-      const fifteenMinutesAgo = new Date(Date.now() - this.RATE_LIMIT_WINDOW);
-      
-      // Get recent sync operations per user within rate limit window
-      const query = `
-        SELECT 
-          user_id,
-          COUNT(*) as recent_requests,
-          MIN(started_at) as window_start,
-          MAX(started_at) as last_request_time
-        FROM sync_operations 
-        WHERE started_at >= $1
-        GROUP BY user_id
-        HAVING COUNT(*) >= 1
-      `;
-      
-      const result = await this.databaseService.query(query, [fifteenMinutesAgo]);
-      
-      for (const row of result.rows) {
-        const userId = row.user_id;
-        const recentRequests = parseInt(row.recent_requests);
-        const windowStart = new Date(row.window_start);
-        const lastRequestTime = new Date(row.last_request_time);
-        
-        const rateLimitInfo: RateLimitInfo = {
-          userId,
-          requests: recentRequests,
-          resetTime: new Date(windowStart.getTime() + this.RATE_LIMIT_WINDOW),
-          isLimited: recentRequests >= this.RATE_LIMIT_MAX_REQUESTS,
-        };
-        
-        this.rateLimitMap.set(userId, rateLimitInfo);
-        
-        if (rateLimitInfo.isLimited) {
-          logger.warn('🚫 Rate limit restored as LIMITED', {
-            userId,
-            requestCount: recentRequests,
-            maxRequests: this.RATE_LIMIT_MAX_REQUESTS,
-            windowStart,
-          });
-        }
-      }
-
-      logger.info('📊 Rate limit states loaded', {
-        trackedUsers: this.rateLimitMap.size,
-        limitedUsers: Array.from(this.rateLimitMap.values()).filter(r => r.isLimited).length,
-      });
-      
-    } catch (error) {
-      logger.error('❌ Failed to load rate limit states', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /**
-   * Save circuit breaker state to database
+   * Save circuit breaker state to MongoDB user_sync_status
    */
   private async saveCircuitBreakerState(userId: string, state: CircuitBreakerState): Promise<void> {
     try {
-      // Update user_sync_status with circuit breaker information
-      const query = `
-        INSERT INTO user_sync_status (
-          user_id, wallet_address, last_sync_at, sync_reason, sync_type, sync_status,
-          consecutive_failures, last_error_at, is_sync_enabled, sync_metadata
-        ) 
-        SELECT DISTINCT 
-          $1 as user_id,
-          wallet_address,
-          $2 as last_sync_at,
-          'circuit_breaker' as sync_reason,
-          'portfolio' as sync_type,
-          'failed' as sync_status,
-          $3 as consecutive_failures,
-          $4 as last_error_at,
-          CASE WHEN $5 = 'open' THEN false ELSE true END as is_sync_enabled,
-          $6 as sync_metadata
-        FROM sync_operations 
-        WHERE user_id = $1 
-        LIMIT 1
-        ON CONFLICT (user_id, wallet_address) DO UPDATE SET
-          consecutive_failures = $3,
-          last_error_at = $4,
-          is_sync_enabled = CASE WHEN $5 = 'open' THEN false ELSE true END,
-          sync_metadata = sync_metadata || $6,
-          updated_at = NOW()
-      `;
-      
+      // Get the user's wallet address from their most recent sync operation
+      // In a production system, you might want to handle multiple wallets per user
+      const recentOps = await this.databaseService.getSyncOperations(
+        { userId },
+        { limit: 1, orderBy: 'startedAt', orderDirection: 'desc' }
+      );
+
+      if (recentOps.length === 0) {
+        logger.warn('No sync operations found for user, cannot save circuit breaker state', { userId });
+        return;
+      }
+
+      const walletAddress = recentOps[0]?.walletAddress;
+      if (!walletAddress) {
+        logger.warn('No wallet address found in sync operation, cannot save circuit breaker state', { userId });
+        return;
+      }
+
+      const isEnabled = state.state !== 'open';
+
       const metadata = {
         circuit_breaker_state: state.state,
         failure_count: state.failureCount,
         next_attempt_time: state.nextAttemptTime?.toISOString(),
         worker_id: this.workerId,
-        updated_by: 'sync_processor'
+        updated_by: 'sync_processor',
+        updated_at: new Date().toISOString()
       };
-      
-      await this.databaseService.query(query, [
-        userId,
-        state.lastFailureTime,
-        state.failureCount,
-        state.lastFailureTime,
-        state.state,
-        JSON.stringify(metadata)
-      ]);
-      
-      logger.debug('💾 Circuit breaker state saved to database', {
-        userId,
-        state: state.state,
-        failureCount: state.failureCount,
-      });
-      
-    } catch (error) {
-      logger.error('❌ Failed to save circuit breaker state', {
-        userId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 
-  /**
-   * Save rate limiting state to database  
-   */
-  private async saveRateLimitState(userId: string, rateLimitInfo: RateLimitInfo): Promise<void> {
-    try {
-      // We'll use sync_operations metadata to track rate limiting
-      // Find the most recent sync operation for this user and update its metadata
-      const query = `
-        UPDATE sync_operations 
-        SET metadata = metadata || $2,
-            updated_at = NOW()
-        WHERE user_id = $1 
-        AND id = (
-          SELECT id FROM sync_operations 
-          WHERE user_id = $1 
-          ORDER BY started_at DESC 
-          LIMIT 1
-        )
-      `;
-      
-      const metadata = {
-        rate_limit_info: {
-          request_count: rateLimitInfo.requests,
-          reset_time: rateLimitInfo.resetTime.toISOString(),
-          is_limited: rateLimitInfo.isLimited,
-          max_requests: this.RATE_LIMIT_MAX_REQUESTS,
-          window_duration_ms: this.RATE_LIMIT_WINDOW,
-          updated_by: 'sync_processor',
-          worker_id: this.workerId
-        }
-      };
-      
-      await this.databaseService.query(query, [
+      // Use MongoDB service to update circuit breaker state
+      const result = await this.databaseService.mongoSyncService.updateCircuitBreakerState(
         userId,
-        JSON.stringify(metadata)
-      ]);
-      
-      logger.debug('💾 Rate limit state saved to database', {
-        userId,
-        requestCount: rateLimitInfo.requests,
-        isLimited: rateLimitInfo.isLimited,
-      });
+        walletAddress,
+        isEnabled,
+        state.failureCount,
+        metadata
+      );
+
+      if (result) {
+        logger.debug('💾 Circuit breaker state saved to MongoDB', {
+          userId,
+          walletAddress,
+          state: state.state,
+          failureCount: state.failureCount,
+          isEnabled
+        });
+      } else {
+        logger.warn('Circuit breaker state save returned null result', { userId, walletAddress });
+      }
       
     } catch (error) {
-      logger.error('❌ Failed to save rate limit state', {
+      logger.error('❌ Failed to save circuit breaker state to MongoDB', {
         userId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -355,37 +231,60 @@ export class SyncProcessor {
         userId: job.data.userId,
         walletAddress: job.data.walletAddress,
         priority: job.priority,
+        forceRefresh: job.data.forceRefresh,
       });
 
-      // Create sync operation record
-      const syncOperation: SyncOperation = {
-        id: syncOperationId,
-        userId: job.data.userId,
-        walletAddress: job.data.walletAddress,
-        type: 'portfolio',
-        status: 'running',
-        priority: job.priority,
-        startedAt: new Date(),
-        retryCount: 0,
-        workerId: this.workerId,
-        workerVersion: this.workerVersion,
-        metadata: {
-          jobId: job.id,
-          chainIds: job.data.chainIds || []
-        }
-      };
+      // Sync operation will be created in MongoDB
 
-      await this.databaseService.saveSyncOperation(syncOperation);
+      // Create sync operation in MongoDB
+      try {
+        await this.databaseService.mongoSyncService.createSyncOperation(
+          syncOperationId,
+          job.data.userId,
+          job.data.walletAddress,
+          'portfolio',
+          job.priority,
+          {
+            jobId: job.id,
+            chainIds: job.data.chainIds || [],
+            forceRefresh: job.data.forceRefresh,
+            workerId: this.workerId,
+            workerVersion: this.workerVersion
+          }
+        );
 
-      // Check rate limiting
-      const rateLimitCheck = this.checkRateLimit(job.data.userId);
-      if (!rateLimitCheck.allowed) {
-        throw new Error(`Rate limit exceeded for user ${job.data.userId}`);
+        // Also mark sync as started in user_sync_status
+        await this.databaseService.mongoSyncService.markSyncStarted(
+          job.data.userId,
+          job.data.walletAddress,
+          'portfolio',
+          'manual'
+        );
+
+        logger.info('📝 Sync operation created in MongoDB', {
+          syncOperationId,
+          userId: job.data.userId,
+          walletAddress: job.data.walletAddress
+        });
+      } catch (mongoError) {
+        logger.error('Failed to create sync operation in MongoDB', {
+          syncOperationId,
+          userId: job.data.userId,
+          error: mongoError instanceof Error ? mongoError.message : String(mongoError)
+        });
+        throw mongoError;
       }
 
-      // Check circuit breaker
-      if (this.isCircuitBreakerOpen(job.data.userId)) {
-        throw new Error(`Circuit breaker open for user ${job.data.userId}`);
+      // Check circuit breaker - BYPASS if forceRefresh is true
+      if (!job.data.forceRefresh) {
+        if (this.isCircuitBreakerOpen(job.data.userId)) {
+          throw new Error(`Circuit breaker open for user ${job.data.userId}`);
+        }
+      } else {
+        logger.info('⚡ Force refresh enabled - bypassing circuit breaker', {
+          userId: job.data.userId,
+          jobId: job.id
+        });
       }
 
       // Perform the actual sync
@@ -394,23 +293,50 @@ export class SyncProcessor {
       // Record success for circuit breaker
       this.recordSuccess(job.data.userId);
 
-      // Update rate limit
-      this.updateRateLimit(job.data.userId);
-
       const processingTime = Date.now() - startTime;
 
-      // Update sync operation with success
-      const completedSyncOperation: SyncOperation = {
-        ...syncOperation,
-        status: 'completed',
-        completedAt: new Date(),
-        duration: processingTime,
-        tokensSync: result.tokensSync,
-        chainsSync: result.chainsSync,
-        totalValueUsd: result.totalValueUsd
-      };
+      // Update sync operation and status in MongoDB
+      try {
+        await this.databaseService.mongoSyncService.updateSyncOperation(
+          syncOperationId,
+          {
+            status: 'completed',
+            completedAt: new Date(),
+            duration: processingTime,
+            tokensSync: result.tokensSync,
+            chainsSync: result.chainsSync,
+            totalValueUsd: result.totalValueUsd,
+            workerId: this.workerId,
+            workerVersion: this.workerVersion
+          }
+        );
 
-      await this.databaseService.saveSyncOperation(completedSyncOperation);
+        // Also mark sync as completed in user_sync_status
+        await this.databaseService.mongoSyncService.markSyncCompleted(
+          job.data.userId,
+          job.data.walletAddress,
+          {
+            tokensCount: result.tokensSync,
+            chainsCount: result.chainsSync,
+            totalValueUsd: result.totalValueUsd,
+            syncDurationMs: processingTime
+          }
+        );
+
+        logger.info('📝 Sync operation updated as completed in MongoDB', {
+          syncOperationId,
+          userId: job.data.userId,
+          walletAddress: job.data.walletAddress,
+          tokensSync: result.tokensSync,
+          totalValueUsd: result.totalValueUsd
+        });
+      } catch (mongoError) {
+        logger.error('Failed to update sync operation as completed in MongoDB', {
+          syncOperationId,
+          userId: job.data.userId,
+          error: mongoError instanceof Error ? mongoError.message : String(mongoError)
+        });
+      }
 
       logger.info('✅ Sync job completed', {
         jobId: job.id,
@@ -483,33 +409,38 @@ export class SyncProcessor {
       // Record failure for circuit breaker
       this.recordFailure(job.data.userId);
 
-      // Update sync operation with failure
+      // Update sync operation as failed in MongoDB
       try {
-        const failedSyncOperation: SyncOperation = {
-          id: syncOperationId,
+        await this.databaseService.mongoSyncService.updateSyncOperation(
+          syncOperationId,
+          {
+            status: 'failed',
+            completedAt: new Date(),
+            duration: processingTime,
+            error: errorMessage,
+            workerId: this.workerId,
+            workerVersion: this.workerVersion
+          }
+        );
+
+        // Also mark sync as failed in user_sync_status
+        await this.databaseService.mongoSyncService.markSyncFailed(
+          job.data.userId,
+          job.data.walletAddress,
+          errorMessage
+        );
+
+        logger.info('📝 Sync operation updated as failed in MongoDB', {
+          syncOperationId,
           userId: job.data.userId,
           walletAddress: job.data.walletAddress,
-          type: 'portfolio',
-          status: 'failed',
-          priority: job.priority,
-          startedAt: new Date(startTime),
-          completedAt: new Date(),
-          duration: processingTime,
-          retryCount: 0,
-          error: errorMessage,
-          workerId: this.workerId,
-          workerVersion: this.workerVersion,
-          metadata: {
-            jobId: job.id,
-            chainIds: job.data.chainIds || []
-          }
-        };
-
-        await this.databaseService.saveSyncOperation(failedSyncOperation);
-      } catch (dbError) {
-        logger.error('Failed to save failed sync operation', {
+          error: errorMessage
+        });
+      } catch (mongoError) {
+        logger.error('Failed to update sync operation as failed in MongoDB', {
           syncOperationId,
-          error: dbError instanceof Error ? dbError.message : String(dbError)
+          userId: job.data.userId,
+          error: mongoError instanceof Error ? mongoError.message : String(mongoError)
         });
       }
 
@@ -558,7 +489,7 @@ export class SyncProcessor {
   }
 
   /**
-   * Perform actual portfolio sync
+   * Perform actual portfolio sync with MongoDB user sync status tracking
    */
   private async performPortfolioSync(
     jobData: SyncJobData
@@ -567,6 +498,7 @@ export class SyncProcessor {
     chainsSync: number;
     totalValueUsd: number;
   }> {
+    const syncStartTime = Date.now();
     try {
       const { userId, walletAddress, chainIds } = jobData;
 
@@ -577,19 +509,52 @@ export class SyncProcessor {
         userId,
         walletAddress,
         chainsCount: chainsToSync.length,
+        chainsToSync,
+        providedChainIds: chainIds
       });
 
-      // Get full portfolio from Alchemy
+      // Mark sync as started in MongoDB
+      await this.databaseService.mongoSyncService.markSyncStarted(
+        userId,
+        walletAddress,
+        'portfolio',
+        'manual'
+      );
+
+      // Step 1: Get full portfolio from Alchemy
+      logger.info('📡 Calling Alchemy API for portfolio data', {
+        userId,
+        walletAddress,
+        chainsToSync
+      });
+      
       const portfolio = await this.alchemyService.getFullPortfolio(
         walletAddress,
         chainsToSync
       );
 
+      logger.info('📡 Alchemy API response received', {
+        userId,
+        walletAddress,
+        portfolioLength: portfolio.length,
+        portfolioSample: portfolio.slice(0, 3).map(t => ({
+          symbol: t.tokenSymbol,
+          value: t.valueUSD,
+          balance: t.balanceFormatted
+        }))
+      });
+
       const tokensSync = portfolio.length;
       const chainsSync = chainsToSync.length;
       const totalValueUsd = portfolio.reduce((sum, token) => sum + token.valueUSD, 0);
 
-      // Transform Alchemy data to TokenHolding format
+      // Step 2: Transform Alchemy data to TokenHolding format
+      logger.info('🔄 Transforming Alchemy data to database format', {
+        userId,
+        walletAddress,
+        tokensToTransform: portfolio.length
+      });
+
       const holdings: TokenHolding[] = portfolio.map(token => ({
         id: randomUUID(), // Generate UUID for each holding
         userId,
@@ -610,15 +575,63 @@ export class SyncProcessor {
         alchemyData: token.alchemyData
       }));
 
-      // Save portfolio holdings to database
+      logger.info('✅ Transformation completed', {
+        userId,
+        walletAddress,
+        holdingsCount: holdings.length,
+        holdingsSample: holdings.slice(0, 3).map(h => ({
+          symbol: h.tokenSymbol,
+          value: h.valueUSD,
+          chainId: h.chainId
+        }))
+      });
+
+      // Step 3: Save portfolio holdings to database
+      logger.info('💾 Saving portfolio holdings to database', {
+        userId,
+        walletAddress,
+        holdingsToSave: holdings.length
+      });
+
       await this.databaseService.savePortfolioHoldings(userId, walletAddress, holdings);
 
-      logger.info('📊 Portfolio sync completed and saved to database', {
+      logger.info('✅ Database save completed', {
+        userId,
+        walletAddress,
+        savedHoldings: holdings.length
+      });
+
+      // Step 4: Mark sync as completed in MongoDB
+      const syncDurationMs = Date.now() - syncStartTime;
+      await this.databaseService.mongoSyncService.markSyncCompleted(
+        userId,
+        walletAddress,
+        {
+          tokensCount: tokensSync,
+          chainsCount: chainsSync,
+          totalValueUsd: totalValueUsd,
+          syncDurationMs: syncDurationMs
+        }
+      );
+
+      // Step 5: Verify saved data
+      logger.info('🔍 Verifying saved data', {
+        userId,
+        walletAddress
+      });
+
+      const savedHoldings = await this.databaseService.getUserTokenHoldings(userId);
+      
+      logger.info('📊 Portfolio sync completed successfully', {
         userId,
         walletAddress,
         tokensSync,
         chainsSync,
-        totalValueUsd: totalValueUsd.toFixed(2),
+        totalValueUsd: Number(totalValueUsd).toFixed(2),
+        savedHoldingsCount: savedHoldings.length,
+        savedTotalValue: savedHoldings.length > 0 ? 
+          Number(savedHoldings.reduce((sum: number, h: any) => sum + (Number(h.valueUSD) || 0), 0)).toFixed(2) : 
+          '0.00'
       });
 
       return {
@@ -628,98 +641,29 @@ export class SyncProcessor {
       };
 
     } catch (error) {
+      // Mark sync as failed in MongoDB
+      try {
+        await this.databaseService.mongoSyncService.markSyncFailed(
+          jobData.userId,
+          jobData.walletAddress,
+          error instanceof Error ? error.message : String(error)
+        );
+      } catch (mongoError) {
+        logger.error('Failed to mark sync as failed in MongoDB', {
+          userId: jobData.userId,
+          walletAddress: jobData.walletAddress,
+          error: mongoError instanceof Error ? mongoError.message : String(mongoError)
+        });
+      }
+
       logger.error('❌ Portfolio sync failed', {
         userId: jobData.userId,
         walletAddress: jobData.walletAddress,
+        step: 'performPortfolioSync',
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
-    }
-  }
-
-  /**
-   * Rate limiting check
-   */
-  private checkRateLimit(userId: string): { allowed: boolean; remainingRequests?: number; resetTime?: Date } {
-    try {
-      const now = Date.now();
-      const userRateLimit = this.rateLimitMap.get(userId);
-
-      if (!userRateLimit) {
-        return { allowed: true };
-      }
-
-      // Check if rate limit window has expired
-      if (now > userRateLimit.resetTime.getTime()) {
-        // Reset rate limit
-        this.rateLimitMap.delete(userId);
-        return { allowed: true };
-      }
-
-      // Check if user has exceeded rate limit
-      if (userRateLimit.requests >= this.RATE_LIMIT_MAX_REQUESTS) {
-        return {
-          allowed: false,
-          remainingRequests: 0,
-          resetTime: userRateLimit.resetTime
-        };
-      }
-
-      return {
-        allowed: true,
-        remainingRequests: this.RATE_LIMIT_MAX_REQUESTS - userRateLimit.requests,
-        resetTime: userRateLimit.resetTime
-      };
-
-    } catch (error) {
-      logger.error('Error checking rate limit', {
-        userId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return { allowed: true }; // Allow on error
-    }
-  }
-
-  /**
-   * Update rate limit for user
-   */
-  private updateRateLimit(userId: string): void {
-    try {
-      const now = Date.now();
-      const resetTime = new Date(now + this.RATE_LIMIT_WINDOW);
-      const userRateLimit = this.rateLimitMap.get(userId);
-
-      if (!userRateLimit || now > userRateLimit.resetTime.getTime()) {
-        // Create new rate limit entry
-        const newRateLimit = {
-          userId,
-          requests: 1,
-          resetTime,
-          isLimited: false
-        };
-        this.rateLimitMap.set(userId, newRateLimit);
-        
-        // Save to database (async, don't block main flow)
-        this.saveRateLimitState(userId, newRateLimit).catch(error => {
-          logger.warn('Failed to save new rate limit state', { userId, error });
-        });
-      } else {
-        // Update existing rate limit
-        userRateLimit.requests++;
-        userRateLimit.isLimited = userRateLimit.requests >= this.RATE_LIMIT_MAX_REQUESTS;
-        this.rateLimitMap.set(userId, userRateLimit);
-        
-        // Save to database (async, don't block main flow)
-        this.saveRateLimitState(userId, userRateLimit).catch(error => {
-          logger.warn('Failed to save updated rate limit state', { userId, error });
-        });
-      }
-
-    } catch (error) {
-      logger.error('Error updating rate limit', {
-        userId,
-        error: error instanceof Error ? error.message : String(error),
-      });
     }
   }
 
@@ -878,7 +822,7 @@ export class SyncProcessor {
 
       return {
         circuitBreakers: this.circuitBreaker.size,
-        rateLimits: this.rateLimitMap.size,
+        rateLimits: 0, // Rate limiting is removed
         activeCircuitBreakers,
       };
 
@@ -902,13 +846,6 @@ export class SyncProcessor {
     try {
       const now = Date.now();
       
-      // Clean up expired rate limits
-      for (const [userId, rateLimit] of this.rateLimitMap.entries()) {
-        if (now > rateLimit.resetTime.getTime()) {
-          this.rateLimitMap.delete(userId);
-        }
-      }
-
       // Clean up old circuit breaker states
       for (const [userId, circuitState] of this.circuitBreaker.entries()) {
         if (circuitState.nextAttemptTime && now > circuitState.nextAttemptTime.getTime() + (24 * 60 * 60 * 1000)) {
@@ -918,7 +855,6 @@ export class SyncProcessor {
       }
 
       logger.debug('Cleanup completed', {
-        rateLimits: this.rateLimitMap.size,
         circuitBreakers: this.circuitBreaker.size,
       });
 
@@ -930,7 +866,7 @@ export class SyncProcessor {
   }
 
   /**
-   * Get user sync status for Core Service
+   * Get user sync status for Core Service - now using MongoDB
    */
   async getUserSyncStatus(userId: string, walletAddress: string): Promise<{
     userId: string;
@@ -945,11 +881,11 @@ export class SyncProcessor {
     nextScheduledSync: Date | null;
   }> {
     try {
-      // Get user sync status from database
-      const syncStatusData = await this.databaseService.getUserSyncStatus(userId);
+      // Get user sync status from MongoDB
+      const syncStatusData = await this.databaseService.mongoSyncService.getUserSyncStatus(userId, walletAddress);
       
-      // Get active sync operations
-      const activeSyncOperations = await this.databaseService.getActiveSyncOperations(userId);
+      // Get active sync operations from MongoDB
+      const activeSyncOperations = await this.databaseService.mongoSyncService.getActiveSyncOperations(userId);
       
       // Get latest token holdings
       const tokenHoldings = await this.databaseService.getUserTokenHoldings(userId);
@@ -993,7 +929,7 @@ export class SyncProcessor {
       };
 
     } catch (error) {
-      logger.error('Error getting user sync status', {
+      logger.error('Error getting user sync status from MongoDB', {
         userId,
         walletAddress,
         error: error instanceof Error ? error.message : String(error),
@@ -1016,7 +952,7 @@ export class SyncProcessor {
   }
 
   /**
-   * Get user sync operations for Core Service
+   * Get user sync operations for Core Service - using MongoDB
    */
   async getUserSyncOperations(
     userId: string,
@@ -1057,16 +993,20 @@ export class SyncProcessor {
         conditions.startedAt = { $gte: daysAgo };
       }
 
-      // Get sync operations from database
-      const operations = await this.databaseService.getSyncOperations(conditions, {
-        limit,
-        orderBy: 'startedAt',
-        orderDirection: 'desc',
-      });
+      // Get sync operations from MongoDB
+      const mongoFilters: any = { limit, days };
+      if (status) mongoFilters.status = status;
+      if (type) mongoFilters.type = type;
+      
+      const operations = await this.databaseService.mongoSyncService.getSyncOperations(
+        userId,
+        walletAddress,
+        mongoFilters
+      );
 
       // Format operations for Core Service
       const formattedOperations = operations.map((op: any) => ({
-        id: op.id,
+        id: op.operationId || op._id,
         userId: op.userId,
         walletAddress: op.walletAddress,
         type: op.type,
@@ -1074,11 +1014,11 @@ export class SyncProcessor {
         priority: op.priority,
         startedAt: op.startedAt,
         completedAt: op.completedAt,
-        duration: op.duration,
+        duration: op.durationMs,
         tokensSync: op.tokensSync,
         chainsSync: op.chainsSync,
         totalValueUsd: op.totalValueUsd,
-        error: op.error,
+        error: op.errorMessage,
         workerId: op.workerId,
         workerVersion: op.workerVersion,
         metadata: op.metadata,

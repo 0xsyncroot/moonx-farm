@@ -20,6 +20,8 @@ import { WagmiProvider, createConfig, http } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
+import type { Chain } from 'wagmi/chains'
+import type { Transport } from 'viem'
 import {
   getWagmiChains,
   DEFAULT_CHAIN,
@@ -33,13 +35,13 @@ const supportedChains = getWagmiChains()
 
 // Create wagmi config for v2 with custom RPC URLs
 const config = createConfig({
-  chains: supportedChains as any,
+  chains: supportedChains as unknown as readonly [Chain, ...Chain[]],
   transports: supportedChains.reduce((acc, chain) => {
     acc[chain.id] = http(chain.rpcUrls.default.http[0], {
       batch: true,
     })
     return acc
-  }, {} as any),
+  }, {} as Record<number, Transport>),
 })
 
 // Create a client for react-query
@@ -51,7 +53,7 @@ interface PrivyProviderProps {
 
 // Theme-aware Privy Provider
 function ThemedPrivyProvider({ children }: PrivyProviderProps) {
-  const { theme, resolvedTheme } = useTheme()
+  const { resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   
   // Get chains for Privy config

@@ -2,6 +2,7 @@ import { DatabaseManager, createDatabase } from '@moonx-farm/infrastructure';
 import { createLoggerForAnyService } from '@moonx-farm/common';
 import { config } from '@/config';
 import { randomUUID } from 'crypto';
+import { MongoSyncService } from './mongoSyncService';
 
 const logger = createLoggerForAnyService('database-service');
 
@@ -47,7 +48,9 @@ export interface SyncOperation {
 
 export class DatabaseService {
   private db: DatabaseManager;
+  public mongoSyncService: MongoSyncService; // Made public for access from SyncProcessor
   private isConnected = false;
+  private isMongoConnected = false;
 
   constructor() {
     this.db = createDatabase({
@@ -61,19 +64,35 @@ export class DatabaseService {
       minConnections: config.database.min,
       idleTimeoutMs: config.database.idle
     });
-    logger.info('DatabaseService initialized for sync worker');
+    
+    // Initialize MongoDB sync service for high-performance user sync status operations
+    this.mongoSyncService = new MongoSyncService();
+    
+    logger.info('DatabaseService initialized for sync worker with MongoDB integration');
   }
 
   /**
-   * Initialize database connection
+   * Initialize database connections (PostgreSQL + MongoDB)
    */
   async initialize(): Promise<void> {
-    if (this.isConnected) return;
+    if (this.isConnected && this.isMongoConnected) return;
 
     try {
-      await this.db.connect();
-      this.isConnected = true;
-      logger.info('✅ Database connected successfully');
+      // Initialize PostgreSQL connection
+      if (!this.isConnected) {
+        await this.db.connect();
+        this.isConnected = true;
+        logger.info('✅ PostgreSQL connected successfully');
+      }
+
+      // Initialize MongoDB connection
+      if (!this.isMongoConnected) {
+        await this.mongoSyncService.initialize();
+        this.isMongoConnected = true;
+        logger.info('✅ MongoDB connected successfully');
+      }
+
+      logger.info('✅ All database services connected successfully');
     } catch (error) {
       logger.error('❌ Database connection failed', {
         error: error instanceof Error ? error.message : String(error)
@@ -83,41 +102,76 @@ export class DatabaseService {
   }
 
   /**
-   * Disconnect from database
+   * Disconnect from databases (PostgreSQL + MongoDB)
    */
   async disconnect(): Promise<void> {
-    if (!this.isConnected) return;
-
     try {
-      await this.db.disconnect();
-      this.isConnected = false;
-      logger.info('Database disconnected');
+      // Disconnect PostgreSQL
+      if (this.isConnected) {
+        await this.db.disconnect();
+        this.isConnected = false;
+        logger.info('PostgreSQL disconnected');
+      }
+
+      // Disconnect MongoDB
+      if (this.isMongoConnected) {
+        await this.mongoSyncService.shutdown();
+        this.isMongoConnected = false;
+        logger.info('MongoDB disconnected');
+      }
+
+      logger.info('All database services disconnected');
     } catch (error) {
-      logger.error('Error disconnecting database', {
+      logger.error('Error disconnecting databases', {
         error: error instanceof Error ? error.message : String(error)
       });
     }
   }
 
   /**
-   * Check database health
+   * Check health of both PostgreSQL and MongoDB
    */
-  async healthCheck(): Promise<{ connected: boolean; responseTime?: number }> {
-    if (!this.isConnected) {
-      return { connected: false };
-    }
-
+  async healthCheck(): Promise<{ 
+    connected: boolean; 
+    responseTime?: number;
+    mongodb?: boolean;
+    postgresql?: boolean;
+  }> {
     try {
       const startTime = Date.now();
-      await this.db.query('SELECT 1');
-      const responseTime = Date.now() - startTime;
       
-      return { connected: true, responseTime };
+      // Check PostgreSQL health
+      let postgresqlHealthy = false;
+      if (this.isConnected) {
+        try {
+          await this.db.query('SELECT 1');
+          postgresqlHealthy = true;
+        } catch (error) {
+          logger.error('PostgreSQL health check failed', { error });
+        }
+      }
+
+      // Check MongoDB health
+      const mongodbHealthy = this.isMongoConnected && await this.mongoSyncService.isHealthy();
+      
+      const responseTime = Date.now() - startTime;
+      const overallConnected = postgresqlHealthy && mongodbHealthy;
+      
+      return {
+        connected: overallConnected,
+        responseTime,
+        postgresql: postgresqlHealthy,
+        mongodb: mongodbHealthy
+      };
     } catch (error) {
       logger.error('Database health check failed', {
         error: error instanceof Error ? error.message : String(error)
       });
-      return { connected: false };
+      return { 
+        connected: false,
+        postgresql: false,
+        mongodb: false
+      };
     }
   }
 
@@ -134,65 +188,130 @@ export class DatabaseService {
     }
 
     try {
-      // Prepare batch queries
-      const queries = [];
-      
-      // Clear existing holdings for this user/wallet
-      queries.push({
-        text: 'DELETE FROM user_token_holdings WHERE user_id = $1 AND wallet_address = $2',
-        params: [userId, walletAddress]
+      logger.info('💾 Starting database save operation', {
+        userId,
+        walletAddress,
+        holdingsToSave: holdings.length,
+        holdingsSample: holdings.slice(0, 3).map(h => ({
+          symbol: h.tokenSymbol,
+          value: h.valueUSD,
+          chainId: h.chainId
+        }))
       });
 
-      // Insert new holdings
-      if (holdings.length > 0) {
-        for (const holding of holdings) {
-          queries.push({
-            text: `
-              INSERT INTO user_token_holdings (
-                id, user_id, wallet_address, chain_id, token_address, 
-                token_symbol, token_name, token_decimals, balance, 
-                balance_formatted, price_usd, value_usd, logo_url, 
-                is_spam, is_verified, last_updated, alchemy_data
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-            `,
-            params: [
-              holding.id || randomUUID(), // Use UUID instead of string concat
-              holding.userId,
-              holding.walletAddress,
-              holding.chainId,
-              holding.tokenAddress,
-              holding.tokenSymbol,
-              holding.tokenName,
-              holding.tokenDecimals,
-              holding.balance,
-              holding.balanceFormatted,
-              holding.priceUSD,
-              holding.valueUSD,
-              holding.logoUrl || null,
-              holding.isSpam || false,
-              holding.isVerified || false,
-              holding.lastUpdated,
-              holding.alchemyData ? JSON.stringify(holding.alchemyData) : null
-            ]
+      if (holdings.length === 0) {
+        // If no holdings, clear existing data
+        const deleteQuery = 'DELETE FROM user_token_holdings WHERE user_id = $1 AND wallet_address = $2';
+        await this.db.query(deleteQuery, [userId, walletAddress]);
+        logger.info('🗑️ Cleared existing holdings (no new holdings to save)', {
+          userId,
+          walletAddress
+        });
+        return;
+      }
+
+      // Use UPSERT (ON CONFLICT) to avoid duplicate key violations
+      const queries = [];
+      
+      // First, clear existing holdings for this user/wallet
+      const deleteQuery = {
+        text: 'DELETE FROM user_token_holdings WHERE user_id = $1 AND wallet_address = $2',
+        params: [userId, walletAddress]
+      };
+      queries.push(deleteQuery);
+
+      logger.info('🗑️ Prepared delete query for existing holdings', {
+        userId,
+        walletAddress
+      });
+
+      // Insert new holdings with UPSERT
+      for (const [index, holding] of holdings.entries()) {
+        const upsertQuery = {
+          text: `
+            INSERT INTO user_token_holdings (
+              id, user_id, wallet_address, chain_id, token_address, 
+              token_symbol, token_name, token_decimals, balance, 
+              balance_formatted, price_usd, value_usd, logo_url, 
+              is_spam, is_verified, last_updated, alchemy_data
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            ON CONFLICT (user_id, wallet_address, chain_id, token_address) 
+            DO UPDATE SET
+              token_symbol = EXCLUDED.token_symbol,
+              token_name = EXCLUDED.token_name,
+              token_decimals = EXCLUDED.token_decimals,
+              balance = EXCLUDED.balance,
+              balance_formatted = EXCLUDED.balance_formatted,
+              price_usd = EXCLUDED.price_usd,
+              value_usd = EXCLUDED.value_usd,
+              logo_url = EXCLUDED.logo_url,
+              is_spam = EXCLUDED.is_spam,
+              is_verified = EXCLUDED.is_verified,
+              last_updated = EXCLUDED.last_updated,
+              alchemy_data = EXCLUDED.alchemy_data
+          `,
+          params: [
+            holding.id || randomUUID(),
+            holding.userId,
+            holding.walletAddress,
+            holding.chainId,
+            holding.tokenAddress,
+            holding.tokenSymbol,
+            holding.tokenName,
+            holding.tokenDecimals,
+            holding.balance,
+            holding.balanceFormatted,
+            holding.priceUSD,
+            holding.valueUSD,
+            holding.logoUrl || null,
+            holding.isSpam || false,
+            holding.isVerified || false,
+            holding.lastUpdated,
+            holding.alchemyData ? JSON.stringify(holding.alchemyData) : null
+          ]
+        };
+        queries.push(upsertQuery);
+
+        // Log first few queries for debugging
+        if (index < 3) {
+          logger.info(`📝 Prepared upsert query ${index + 1}`, {
+            userId,
+            walletAddress,
+            symbol: holding.tokenSymbol,
+            value: holding.valueUSD,
+            chainId: holding.chainId,
+            tokenAddress: holding.tokenAddress
           });
         }
       }
 
+      logger.info('🔄 Executing batch transaction with UPSERT', {
+        userId,
+        walletAddress,
+        totalQueries: queries.length,
+        deleteQueries: 1,
+        upsertQueries: queries.length - 1
+      });
+
       // Execute batch transaction
       await this.db.batch(queries);
 
-      logger.info('💾 Portfolio holdings saved to database', {
+      logger.info('✅ Database save operation completed successfully', {
         userId,
         walletAddress,
-        holdingsCount: holdings.length,
-        totalValue: holdings.reduce((sum, h) => sum + h.valueUSD, 0).toFixed(2)
+        savedHoldings: holdings.length,
+        totalQueries: queries.length,
+        totalValue: holdings.length > 0 ? 
+          Number(holdings.reduce((sum, h) => sum + (Number(h.valueUSD) || 0), 0)).toFixed(2) : 
+          '0.00'
       });
 
     } catch (error) {
       logger.error('❌ Failed to save portfolio holdings', {
         userId,
         walletAddress,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        holdingsCount: holdings.length
       });
       throw error;
     }
@@ -362,9 +481,54 @@ export class DatabaseService {
   }
 
   /**
-   * Get users with stale portfolio data
+   * Get users with stale data (older than threshold) - now using MongoDB
    */
   async getUsersWithStaleData(staleThresholdMs: number, limit: number = 50): Promise<Array<{
+    userId: string;
+    walletAddress: string;
+    lastUpdated: Date;
+    totalValueUSD: number;
+  }>> {
+    if (!this.isMongoConnected) {
+      throw new Error('MongoDB not connected');
+    }
+
+    try {
+      logger.info('🔍 Loading users with stale data from MongoDB user_sync_status', {
+        staleThresholdMs,
+        limit
+      });
+
+      const results = await this.mongoSyncService.getUsersWithStaleData(staleThresholdMs, limit);
+
+      logger.info('📊 Users with stale data from MongoDB', {
+        foundUsers: results.length,
+        sampleUsers: results.slice(0, 3).map(user => ({
+          userId: user.userId,
+          lastSyncAt: user.lastSyncAt,
+          totalValue: user.totalValueUsd
+        }))
+      });
+
+      return results.map(user => ({
+        userId: user.userId,
+        walletAddress: user.walletAddress,
+        lastUpdated: user.lastSyncAt,
+        totalValueUSD: user.totalValueUsd
+      }));
+
+    } catch (error) {
+      logger.error('❌ Failed to get users with stale data from MongoDB', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get users with activity within specified timeframe (for periodic sync)
+   */
+  async getUsersWithActivity(activityThresholdMs: number, limit: number = 1000): Promise<Array<{
     userId: string;
     walletAddress: string;
     lastUpdated: Date;
@@ -375,22 +539,38 @@ export class DatabaseService {
     }
 
     try {
-      const staleThreshold = new Date(Date.now() - staleThresholdMs);
+      const activityThreshold = new Date(Date.now() - activityThresholdMs);
       
+      logger.info('🔍 Loading users with recent activity from user_sync_status', {
+        activityThreshold: activityThreshold.toISOString(),
+        activityThresholdMs,
+        limit
+      });
+
       const query = `
         SELECT 
           user_id,
           wallet_address,
-          MAX(last_updated) as last_updated,
-          SUM(value_usd) as total_value_usd
-        FROM user_token_holdings 
-        WHERE last_updated < $1
-        GROUP BY user_id, wallet_address
-        ORDER BY last_updated ASC
+          last_sync_at as last_updated,
+          total_value_usd
+        FROM user_sync_status 
+        WHERE last_sync_at >= $1 
+          AND is_sync_enabled = true
+        ORDER BY last_sync_at DESC
         LIMIT $2
       `;
 
-      const result = await this.db.query(query, [staleThreshold, limit]);
+      const result = await this.db.query(query, [activityThreshold, limit]);
+
+      logger.info('📊 Users with recent activity query result', {
+        foundUsers: result.rows.length,
+        activityThreshold: activityThreshold.toISOString(),
+        sampleUsers: result.rows.slice(0, 3).map(row => ({
+          userId: row.user_id,
+          lastUpdated: row.last_updated,
+          totalValue: row.total_value_usd
+        }))
+      });
 
       return result.rows.map(row => ({
         userId: row.user_id,
@@ -400,7 +580,52 @@ export class DatabaseService {
       }));
 
     } catch (error) {
-      logger.error('❌ Failed to get users with stale data', {
+      logger.error('❌ Failed to get users with recent activity', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get all users with sync enabled (for periodic sync scheduler) - now using MongoDB
+   */
+  async getAllEnabledUsers(limit?: number): Promise<Array<{
+    userId: string;
+    walletAddress: string;
+    lastUpdated: Date;
+    totalValueUSD: number;
+  }>> {
+    if (!this.isMongoConnected) {
+      throw new Error('MongoDB not connected');
+    }
+
+    try {
+      logger.info('🔍 Loading all enabled users from MongoDB user_sync_status', {
+        limit: limit || 'unlimited'
+      });
+
+      const results = await this.mongoSyncService.getAllEnabledUsers(limit);
+
+      logger.info('📊 All enabled users from MongoDB', {
+        foundUsers: results.length,
+        limitApplied: limit || 'none',
+        sampleUsers: results.slice(0, 3).map(user => ({
+          userId: user.userId,
+          lastSyncAt: user.lastSyncAt,
+          totalValue: user.totalValueUsd
+        }))
+      });
+
+      return results.map(user => ({
+        userId: user.userId,
+        walletAddress: user.walletAddress,
+        lastUpdated: user.lastSyncAt,
+        totalValueUSD: user.totalValueUsd
+      }));
+
+    } catch (error) {
+      logger.error('❌ Failed to get enabled users from MongoDB', {
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
@@ -419,54 +644,74 @@ export class DatabaseService {
   }
 
   /**
-   * Get user sync status
+   * DEPRECATED: Function moved to MongoDB - use mongoSyncService.getUserSyncStatus instead
+   * Get user sync status from MongoDB (simplified for backward compatibility)
    */
-  async getUserSyncStatus(userId: string): Promise<{
+  async getUserSyncStatus(userId: string, walletAddress?: string): Promise<{
     userId: string;
     lastSyncAt: Date | null;
     totalSyncs: number;
     successfulSyncs: number;
     lastSyncDuration: number | null;
   } | null> {
-    if (!this.isConnected) {
-      throw new Error('Database not connected');
+    if (!this.isMongoConnected) {
+      throw new Error('MongoDB not connected');
     }
 
     try {
-      const result = await this.db.query(`
-        SELECT 
-          user_id,
-          last_sync_at,
-          total_syncs,
-          successful_syncs,
-          last_sync_duration
-        FROM user_sync_status 
-        WHERE user_id = $1
-      `, [userId]);
+      // If walletAddress is provided, use it directly
+      if (walletAddress) {
+        const result = await this.mongoSyncService.getUserSyncStatus(userId, walletAddress);
+        
+        if (!result) {
+          return null;
+        }
 
-      if (result.rows.length === 0) {
+        return {
+          userId: result.userId,
+          lastSyncAt: result.lastSyncAt,
+          totalSyncs: result.totalSyncs,
+          successfulSyncs: result.successfulSyncs,
+          lastSyncDuration: result.syncDurationMs ?? null,
+        };
+      }
+
+      // If no walletAddress provided, get from token holdings
+      const userTokenHoldings = await this.getUserTokenHoldings(userId);
+      if (userTokenHoldings.length === 0) {
         return null;
       }
 
-      const row = result.rows[0];
+      const firstWalletAddress = userTokenHoldings[0]?.walletAddress;
+      if (!firstWalletAddress) {
+        return null;
+      }
+
+      const result = await this.mongoSyncService.getUserSyncStatus(userId, firstWalletAddress);
+
+      if (!result) {
+        return null;
+      }
+
       return {
-        userId: row.user_id,
-        lastSyncAt: row.last_sync_at,
-        totalSyncs: row.total_syncs,
-        successfulSyncs: row.successful_syncs,
-        lastSyncDuration: row.last_sync_duration,
+        userId: result.userId,
+        lastSyncAt: result.lastSyncAt,
+        totalSyncs: result.totalSyncs,
+        successfulSyncs: result.successfulSyncs,
+        lastSyncDuration: result.syncDurationMs ?? null,
       };
     } catch (error) {
-      logger.error('Error getting user sync status', {
+      logger.error('Error getting user sync status from MongoDB', {
         userId,
+        walletAddress,
         error: error instanceof Error ? error.message : String(error)
       });
-      throw error;
+      return null;
     }
   }
 
   /**
-   * Get active sync operations for user
+   * Get active sync operations for a user
    */
   async getActiveSyncOperations(userId: string): Promise<SyncOperation[]> {
     if (!this.isConnected) {
@@ -477,8 +722,8 @@ export class DatabaseService {
       const result = await this.db.query(`
         SELECT 
           id, user_id, wallet_address, type, status, priority,
-          started_at, completed_at, duration, tokens_sync, chains_sync,
-          total_value_usd, error, retry_count, worker_id, worker_version,
+          started_at, completed_at, duration_ms, tokens_synced, chains_synced,
+          total_value_usd, error_message, retry_count, worker_id, worker_version,
           metadata
         FROM sync_operations 
         WHERE user_id = $1 AND status IN ('pending', 'running')
@@ -494,11 +739,11 @@ export class DatabaseService {
         priority: row.priority,
         startedAt: row.started_at,
         completedAt: row.completed_at,
-        duration: row.duration,
-        tokensSync: row.tokens_sync,
-        chainsSync: row.chains_sync,
+        duration: row.duration_ms, // Map duration_ms to duration
+        tokensSync: row.tokens_synced,
+        chainsSync: row.chains_synced,
         totalValueUsd: row.total_value_usd,
-        error: row.error,
+        error: row.error_message,
         retryCount: row.retry_count,
         workerId: row.worker_id,
         workerVersion: row.worker_version,
@@ -522,6 +767,10 @@ export class DatabaseService {
     }
 
     try {
+      logger.info('🔍 Querying database for user token holdings', {
+        userId
+      });
+
       const result = await this.db.query(`
         SELECT 
           id, user_id, wallet_address, chain_id, token_address,
@@ -533,7 +782,17 @@ export class DatabaseService {
         ORDER BY value_usd DESC
       `, [userId]);
 
-      return result.rows.map(row => ({
+      logger.info('📊 Database query completed', {
+        userId,
+        rowsReturned: result.rows.length,
+        sampleData: result.rows.slice(0, 3).map(row => ({
+          symbol: row.token_symbol,
+          value: row.value_usd,
+          chainId: row.chain_id
+        }))
+      });
+
+      const holdings = result.rows.map(row => ({
         id: row.id,
         userId: row.user_id,
         walletAddress: row.wallet_address,
@@ -552,10 +811,25 @@ export class DatabaseService {
         lastUpdated: row.last_updated,
         alchemyData: row.alchemy_data,
       }));
-    } catch (error) {
-      logger.error('Error getting user token holdings', {
+
+      logger.info('✅ User token holdings retrieved successfully', {
         userId,
-        error: error instanceof Error ? error.message : String(error)
+        holdingsCount: holdings.length,
+        totalValue: holdings.length > 0 ? 
+          Number(holdings.reduce((sum, h) => sum + (Number(h.valueUSD) || 0), 0)).toFixed(2) : 
+          '0.00',
+        topHoldings: holdings.slice(0, 3).map(h => ({
+          symbol: h.tokenSymbol,
+          value: (Number(h.valueUSD) || 0).toFixed(2)
+        }))
+      });
+
+      return holdings;
+    } catch (error) {
+      logger.error('❌ Error getting user token holdings', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
     }
@@ -620,8 +894,8 @@ export class DatabaseService {
       const query = `
         SELECT 
           id, user_id, wallet_address, type, status, priority,
-          started_at, completed_at, duration, tokens_sync, chains_sync,
-          total_value_usd, error, retry_count, worker_id, worker_version,
+          started_at, completed_at, duration_ms, tokens_synced, chains_synced,
+          total_value_usd, error_message, retry_count, worker_id, worker_version,
           metadata
         FROM sync_operations 
         ${whereClause}
@@ -633,7 +907,8 @@ export class DatabaseService {
 
       const result = await this.db.query(query, params);
 
-      return result.rows.map(row => ({
+      // Map database columns to interface properties
+      const operations = result.rows.map(row => ({
         id: row.id,
         userId: row.user_id,
         walletAddress: row.wallet_address,
@@ -642,16 +917,25 @@ export class DatabaseService {
         priority: row.priority,
         startedAt: row.started_at,
         completedAt: row.completed_at,
-        duration: row.duration,
-        tokensSync: row.tokens_sync,
-        chainsSync: row.chains_sync,
+        duration: row.duration_ms, // Map duration_ms to duration
+        tokensSync: row.tokens_synced,
+        chainsSync: row.chains_synced,
         totalValueUsd: row.total_value_usd,
-        error: row.error,
+        error: row.error_message,
         retryCount: row.retry_count,
         workerId: row.worker_id,
         workerVersion: row.worker_version,
-        metadata: row.metadata,
+        metadata: row.metadata
       }));
+
+      logger.debug('Sync operations retrieved', {
+        conditions,
+        operationsCount: operations.length,
+        limit
+      });
+
+      return operations;
+
     } catch (error) {
       logger.error('Error getting sync operations', {
         conditions,

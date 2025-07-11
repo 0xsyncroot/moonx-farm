@@ -51,6 +51,15 @@ Central Platform Service providing **Order Management**, **Portfolio Sync**, **P
 ### 🔷 Trading History
 - `GET /api/v1/portfolio/trades` - Recent trades (read-only, last 30 days)
 
+### 🔷 Stats & Analytics (Read-Only)
+- `GET /api/v1/stats/chain` - Chain performance metrics
+- `GET /api/v1/stats/bridge` - Bridge latency metrics
+- `GET /api/v1/stats/all` - Combined chain + bridge stats
+- `GET /api/v1/stats/alerts` - Chain + bridge alerts
+- `GET /api/v1/stats/overview` - System overview dashboard
+- `GET /api/v1/stats/aggregated` - Time-based aggregated stats
+- `GET /api/v1/stats/health` - Stats service health check
+
 ### 🔷 Sync Management (User + Admin)
 **User Endpoints (Authentication required):**
 - `POST /api/v1/sync/trigger` - Manual sync for current user
@@ -878,6 +887,371 @@ x-api-key: your-admin-api-key
     }
   },
   "message": "Retrieved 20 recent trades",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### **Stats & Analytics APIs**
+
+#### `GET /api/v1/stats/chain` - Chain Performance Stats
+**Purpose**: Get comprehensive chain performance metrics and network health data
+
+**Query Parameters**:
+```typescript
+{
+  chainIds?: string;        // Optional: comma-separated chain IDs (e.g. "1,137,10")
+  startTime?: string;       // Optional: ISO timestamp (e.g. "2024-01-15T00:00:00Z")
+  endTime?: string;         // Optional: ISO timestamp  
+  limit?: number;           // Default: 100, Max: 500
+  offset?: number;          // Default: 0
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "chainStats": [
+      {
+        "chainId": 1,
+        "chainName": "Ethereum",
+        "chainSymbol": "ETH",
+        "blockNumber": 18985623,
+        "blockTime": 12.1,
+        "avgBlockTime": 12.05,
+        "blockSize": 85234,
+        "blocksProduced": 720,
+        "gasPrice": 35.2,
+        "avgGasPrice": 42.8,
+        "gasUsed": 14500000,
+        "gasLimit": 30000000,
+        "gasUtilization": 48.3,
+        "transactionCount": 185,
+        "totalTransactions": 133200,
+        "pendingTransactionCount": 45623,
+        "failedTransactionCount": 2840,
+        "transactionSuccessRate": 97.9,
+        "avgTransactionFee": 18.50,
+        "volume24h": 2850000000.50,
+        "volumeChange24h": 12.5,
+        "transactionVolume": 45600.25,
+        "bridgeVolumeIn": 125000000.00,
+        "bridgeVolumeOut": 98000000.00,
+        "dexVolume": 1250000000.00,
+        "activeAddresses": 285000,
+        "newAddresses": 12500,
+        "activeContracts": 45600,
+        "nativeTokenPrice": 3250.75,
+        "nativeTokenPriceChange24h": 2.8,
+        "marketCap": 391000000000.00,
+        "circulatingSupply": 120280000.00,
+        "tvl": 45600000000.00,
+        "tvlChange24h": 5.2,
+        "activeProtocols": 2850,
+        "topProtocolsByTVL": [
+          {
+            "name": "Uniswap V3",
+            "tvl": 4200000000.00,
+            "change24h": 3.2
+          },
+          {
+            "name": "Aave V3",
+            "tvl": 3800000000.00,
+            "change24h": -1.5
+          }
+        ],
+        "rpcLatency": 150,
+        "rpcErrors": 12,
+        "rpcSuccessRate": 99.2,
+        "nodeVersion": "Geth/v1.13.8",
+        "nodeStatus": "healthy",
+        "syncStatus": "synced",
+        "peerCount": 50,
+        "timestamp": "2024-01-15T10:30:00Z",
+        "alerts": []
+      }
+    ],
+    "bridgeStats": [],
+    "dexStats": [],
+    "tokenStats": [],
+    "totalCount": 1,
+    "hasMore": false,
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "Retrieved chain stats for 1 chain",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/stats/bridge` - Bridge Latency Stats
+**Purpose**: Get bridge performance metrics including latency, success rates, and volume data
+
+**Query Parameters**:
+```typescript
+{
+  chainIds?: string;        // Optional: comma-separated chain IDs
+  bridgeIds?: string;       // Optional: comma-separated bridge IDs
+  bridgeProtocols?: string; // Optional: comma-separated protocols (e.g. "LayerZero,Wormhole")
+  startTime?: string;       // Optional: ISO timestamp
+  endTime?: string;         // Optional: ISO timestamp
+  limit?: number;           // Default: 100, Max: 500
+  offset?: number;          // Default: 0
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "chainStats": [],
+    "bridgeStats": [
+      {
+        "bridgeId": "layerzero-eth-polygon",
+        "bridgeName": "LayerZero",
+        "bridgeProtocol": "LayerZero",
+        "bridgeType": "native",
+        "fromChainId": 1,
+        "fromChainName": "Ethereum",
+        "fromChainSymbol": "ETH",
+        "toChainId": 137,
+        "toChainName": "Polygon",
+        "toChainSymbol": "MATIC",
+        "avgLatency": 180.5,
+        "minLatency": 120.0,
+        "maxLatency": 450.0,
+        "p95Latency": 320.0,
+        "p99Latency": 420.0,
+        "medianLatency": 175.0,
+        "successRate": 98.5,
+        "failureRate": 1.5,
+        "timeoutRate": 0.3,
+        "totalTransactions": 15600,
+        "successfulTransactions": 15366,
+        "failedTransactions": 234,
+        "pendingTransactions": 45,
+        "volume24h": 45000000.00,
+        "volumeChange24h": 8.5,
+        "transactionVolume": 15600,
+        "avgTransactionSize": 2884.62,
+        "largestTransaction": 150000.00,
+        "topTokensByVolume": [
+          {
+            "tokenSymbol": "USDC",
+            "tokenAddress": "0xa0b86a33e6ba9c...",
+            "volume": 25000000.00,
+            "percentage": 55.6
+          },
+          {
+            "tokenSymbol": "WETH",
+            "tokenAddress": "0xc02aaa39b223f...",
+            "volume": 12000000.00,
+            "percentage": 26.7
+          }
+        ],
+        "avgFee": 12.50,
+        "avgFeePercentage": 0.43,
+        "totalFeesCollected": 195000.00,
+        "liquidityFrom": 125000000.00,
+        "liquidityTo": 98000000.00,
+        "liquidityUtilization": 15.2,
+        "liquidityImbalance": 27000000.00,
+        "status": "optimal",
+        "lastSuccessfulTransaction": "2024-01-15T10:25:00Z",
+        "maxCapacity": 1000,
+        "currentCapacity": 950,
+        "capacityUtilization": 95.0,
+        "activeValidators": 12,
+        "requiredValidators": 10,
+        "validatorUptime": 99.5,
+        "timestamp": "2024-01-15T10:30:00Z",
+        "alerts": []
+      }
+    ],
+    "dexStats": [],
+    "tokenStats": [],
+    "totalCount": 1,
+    "hasMore": false,
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "Retrieved bridge stats for 1 bridge",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/stats/all` - Combined Chain + Bridge Stats
+**Purpose**: Get both chain and bridge stats in a single request
+
+**Query Parameters**: Same as chain and bridge endpoints combined
+
+**Response**: Contains both `chainStats` and `bridgeStats` arrays populated
+
+#### `GET /api/v1/stats/alerts` - Chain + Bridge Alerts
+**Purpose**: Get active alerts for chains and bridges
+
+**Query Parameters**:
+```typescript
+{
+  chainIds?: string;        // Optional: comma-separated chain IDs
+  bridgeIds?: string;       // Optional: comma-separated bridge IDs
+  severity?: "low" | "medium" | "high" | "critical"; // Optional: filter by severity
+  resolved?: boolean;       // Optional: filter by resolved status
+  startTime?: string;       // Optional: ISO timestamp
+  endTime?: string;         // Optional: ISO timestamp
+  limit?: number;           // Default: 50, Max: 200
+  offset?: number;          // Default: 0
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "chainAlerts": [
+      {
+        "id": "alert-uuid",
+        "chainId": 1,
+        "type": "high_gas_price",
+        "severity": "medium",
+        "message": "Gas price elevated: 85.2 gwei (threshold: 50 gwei)",
+        "threshold": 50.0,
+        "currentValue": 85.2,
+        "timestamp": "2024-01-15T10:15:00Z",
+        "resolved": false
+      }
+    ],
+    "bridgeAlerts": [
+      {
+        "id": "alert-uuid",
+        "bridgeId": "layerzero-eth-polygon",
+        "type": "high_latency",
+        "severity": "high",
+        "message": "Bridge latency elevated: 450s (threshold: 300s)",
+        "threshold": 300.0,
+        "currentValue": 450.0,
+        "timestamp": "2024-01-15T10:20:00Z",
+        "resolved": false
+      }
+    ],
+    "totalCount": 2,
+    "hasMore": false,
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "Retrieved 2 active alerts",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/stats/overview` - System Overview Dashboard
+**Purpose**: Get high-level system overview for dashboards
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalChains": 6,
+    "healthyChains": 5,
+    "totalBridges": 15,
+    "activeBridges": 14,
+    "totalDEXs": 0,
+    "activeDEXs": 0,
+    "totalTokensTracked": 0,
+    "totalVolume24h": 5400000000.00,
+    "volumeChange24h": 12.5,
+    "totalTVL": 185000000000.00,
+    "tvlChange24h": 3.8,
+    "totalTransactions24h": 2850000,
+    "totalActiveAddresses24h": 485000,
+    "totalBridgeTransfers24h": 85600,
+    "totalAlerts": 8,
+    "criticalAlerts": 0,
+    "chainAlerts": 3,
+    "bridgeAlerts": 5,
+    "dexAlerts": 0,
+    "systemStatus": "healthy",
+    "overallUptime": 99.2,
+    "chainStats": [
+      {
+        "chainId": 1,
+        "chainName": "Ethereum",
+        "nodeStatus": "healthy",
+        "volume24h": 2850000000.00,
+        "alerts": []
+      }
+    ],
+    "bridgeStats": [
+      {
+        "bridgeId": "layerzero-eth-polygon",
+        "bridgeName": "LayerZero",
+        "status": "optimal",
+        "volume24h": 45000000.00,
+        "alerts": []
+      }
+    ],
+    "dexStats": [],
+    "topTokens": [],
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "System overview retrieved",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/stats/aggregated` - Time-based Aggregated Stats
+**Purpose**: Get aggregated statistics over time periods
+
+**Query Parameters**:
+```typescript
+{
+  timeframe: "hour" | "day" | "week" | "month"; // Required
+  chainIds?: string;        // Optional: comma-separated chain IDs
+  bridgeIds?: string;       // Optional: comma-separated bridge IDs
+  startTime?: string;       // Optional: ISO timestamp
+  endTime?: string;         // Optional: ISO timestamp
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "aggregation": {
+      "timeframe": "day",
+      "metrics": {
+        "avgBlockTime": 12.05,
+        "avgRpcLatency": 145.2,
+        "avgBridgeLatency": 185.5,
+        "alertCount": 15,
+        "successRate": 98.2
+      },
+      "breakdown": {}
+    },
+    "data": {},
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "Aggregated stats for day timeframe",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+#### `GET /api/v1/stats/health` - Stats Service Health Check
+**Purpose**: Check health of stats service and its dependencies
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "connected": true,
+    "mongodb": true,
+    "cache": true,
+    "responseTime": 25
+  },
+  "message": "Stats service is healthy",
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```

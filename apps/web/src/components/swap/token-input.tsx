@@ -1,11 +1,11 @@
 // 🚀 IMPROVED: Token input with unlimited precision and responsive text sizing
 import { ChevronDown, AlertTriangle } from 'lucide-react'
 import Image from 'next/image'
-import { NumericFormat } from 'react-number-format'
+import { NumericFormat, NumberFormatValues } from 'react-number-format'
 import { useState, useEffect, useCallback } from 'react'
 import { Token } from '@/hooks/use-tokens'
-import { useTokenBalance, formatTokenBalance, hasSufficientBalance } from '@/hooks/use-token-balance'
-import { formatCurrency, cn } from '@/lib/utils'
+import { useTokenBalance, hasSufficientBalance } from '@/hooks/use-token-balance'
+import { cn } from '@/lib/utils'
 
 interface TokenInputProps {
   type: 'from' | 'to'
@@ -65,8 +65,8 @@ export function TokenInput({
       }
       
       return !hasSufficientBalance(balance.balance, currentAmount, token.decimals)
-    } catch (error) {
-      console.warn('Error checking insufficient balance:', error)
+    } catch (err) {
+      console.warn('Error checking insufficient balance:', err)
       return false
     }
   }, [readOnly, isFromToken, token, balance.balance, pendingAmount, amount])
@@ -145,13 +145,13 @@ export function TokenInput({
       
       // Call parent's onAmountChange
       onAmountChange(valueToSet)
-    } catch (error) {
-      console.error('Error handling balance click:', error)
+    } catch (err) {
+      console.error('Error handling balance click:', err)
     }
   }
 
   // 🔧 FIX: Enhanced input change handler
-  const handleInputChange = (values: any) => {
+  const handleInputChange = (values: NumberFormatValues) => {
     const newValue = values.value
     
     // 🚀 IMPROVED: Better logging for debugging large numbers

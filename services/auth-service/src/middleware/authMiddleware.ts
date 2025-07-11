@@ -7,6 +7,7 @@ interface AuthenticatedUser {
   userId: string;
   privyUserId: string;
   walletAddress?: string; // Optional for social login
+  aaWalletAddress?: string; // AA wallet address
   email?: string;
   tokenId: string;
 }
@@ -225,7 +226,7 @@ export async function authMiddleware(
         throw new Error('Invalid token payload');
       }
 
-      const { userId, privyUserId, walletAddress, email, jti, type } = decoded as any;
+      const { userId, privyUserId, walletAddress, aaWalletAddress, email, jti, type } = decoded as any;
 
       // Validate required fields
       if (!userId || !privyUserId || !jti) {
@@ -302,6 +303,7 @@ export async function authMiddleware(
         userId,
         privyUserId,
         walletAddress,
+        aaWalletAddress,
         email,
         tokenId: jti,
       };
@@ -421,7 +423,7 @@ export const authenticate = async (
       throw new Error('Invalid token payload');
     }
 
-    const { userId, privyUserId, walletAddress, email, jti, type } = decoded as any;
+    const { userId, privyUserId, walletAddress, aaWalletAddress, email, jti, type } = decoded as any;
 
     if (!userId || !privyUserId || !jti) {
       throw new Error('Missing required token fields');
@@ -463,6 +465,7 @@ export const authenticate = async (
       userId,
       privyUserId,
       walletAddress,
+      aaWalletAddress,
       email,
       tokenId: jti,
     };

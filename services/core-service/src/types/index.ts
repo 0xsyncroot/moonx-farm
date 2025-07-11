@@ -158,6 +158,9 @@ export interface PaginatedResponse<T> {
   };
 }
 
+// Re-export stats types
+export * from './stats';
+
 // Request Types
 export interface PaginationQuery {
   page?: number;
@@ -178,8 +181,12 @@ export interface TradeFilters extends PaginationQuery {
 }
 
 export interface PortfolioFilters {
-  chainIds?: number[];
+  chainId?: number;
+  chainIds?: string; // Comma-separated chain IDs
   minValueUSD?: number;
+  minValue?: number; // Alias for minValueUSD
+  showZeroBalances?: boolean;
+  includeSpam?: boolean;
   hideSmallBalances?: boolean;
   hideSpamTokens?: boolean;
   sortBy?: 'value' | 'symbol' | 'balance';
@@ -216,6 +223,10 @@ export interface TokenHolding {
     isSpam: boolean;
     possibleSpam: boolean;
   };
+  // Additional fields extracted from alchemy_data
+  logoUrl?: string;
+  isSpam?: boolean;
+  isVerified?: boolean;
 }
 
 // Real Trade Tracking (read-only)
@@ -323,15 +334,25 @@ export interface SyncOperation {
   id: string;
   userId: string;
   walletAddress: string;
-  type: 'portfolio' | 'trades' | 'full'; // Fix: match database constraint values
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; // Fix: match database constraint values
+  type: 'portfolio' | 'trades' | 'metadata' | 'full'; // Fix: match database and sync worker
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  priority?: 'high' | 'medium' | 'low';
   startedAt: Date;
   completedAt?: Date;
+  duration?: number;
+  tokensSync?: number;
+  chainsSync?: number;
+  totalValueUsd?: number;
   error?: string;
+  retryCount?: number;
+  workerId?: string;
+  workerVersion?: string;
   metadata?: {
     chainsCount?: number;
     tokensCount?: number;
     tradesCount?: number;
+    source?: string;
+    triggeredBy?: string;
   };
 }
 
@@ -347,14 +368,7 @@ export interface PnLRequest {
   walletAddress?: string; // If not provided, use authenticated user's wallet
 }
 
-export interface PortfolioFilters {
-  chainIds?: number[];
-  minValueUSD?: number;
-  hideSmallBalances?: boolean; // Hide balances < $1
-  hideSpamTokens?: boolean;
-  sortBy?: 'value' | 'symbol' | 'balance';
-  sortOrder?: 'asc' | 'desc';
-}
+
 
 // Pagination for responses
 export interface PaginatedResponse<T> {

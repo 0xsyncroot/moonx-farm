@@ -1,26 +1,26 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { usePortfolioData } from '@/hooks/usePortfolioData'
+import { useTradeHistory } from '@/hooks/useTradeHistory'
 import { RefreshCw, History, Filter, Search, ChevronDown, ChevronUp, ArrowRightLeft, TrendingUp, TrendingDown, Calendar, Clock } from 'lucide-react'
 import { formatUnits } from 'ethers'
 
 export function TradeHistory() {
-  const { trades, isLoading, error, refresh, refreshing, cacheAge } = usePortfolioData()
+  const { trades, isLoading, error, refresh, refreshing, cacheAge } = useTradeHistory()
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'swap' | 'buy' | 'sell'>('all')
   const [showFilters, setShowFilters] = useState(false)
 
   // Default to empty array if no data
-  const data = trades || []
+  const data = useMemo(() => trades || [], [trades])
 
   // Filter trades with safe property access
   const filteredTrades = useMemo(() => {
-    let filtered = data.filter(trade => {
-      const tradeData = trade as any
-      const fromSymbol = tradeData.fromToken?.symbol || tradeData.tokenIn?.symbol || ''
-      const toSymbol = tradeData.toToken?.symbol || tradeData.tokenOut?.symbol || ''
-      const txHash = tradeData.txHash || ''
+    const filtered = data.filter(trade => {
+      const tradeData = trade as unknown as Record<string, unknown>
+      const fromSymbol = ((tradeData.fromToken as Record<string, unknown>)?.symbol || (tradeData.tokenIn as Record<string, unknown>)?.symbol || '') as string
+      const toSymbol = ((tradeData.toToken as Record<string, unknown>)?.symbol || (tradeData.tokenOut as Record<string, unknown>)?.symbol || '') as string
+      const txHash = (tradeData.txHash || '') as string
       
       const matchesSearch = fromSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            toSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -35,24 +35,24 @@ export function TradeHistory() {
     })
 
     // Sort by timestamp (newest first)
-    return filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    return filtered.sort((a, b) => new Date((b as unknown as Record<string, unknown>).timestamp as string).getTime() - new Date((a as unknown as Record<string, unknown>).timestamp as string).getTime())
   }, [data, searchTerm, filterType])
 
   // Calculate summary statistics with safe property access
   const summary = useMemo(() => {
     const totalTrades = filteredTrades.length
     const totalVolume = filteredTrades.reduce((sum, trade) => {
-      const tradeData = trade as any
-      return sum + (tradeData.valueUSD || tradeData.fromToken?.valueUSD || 0)
+      const tradeData = trade as unknown as Record<string, unknown>
+      return sum + (Number(tradeData.valueUSD) || Number((tradeData.fromToken as Record<string, unknown>)?.valueUSD) || 0)
     }, 0)
     const profitableTrades = filteredTrades.filter(trade => {
-      const tradeData = trade as any
-      const pnl = tradeData.profitLoss ?? tradeData.pnl?.netPnlUSD ?? 0
+      const tradeData = trade as unknown as Record<string, unknown>
+      const pnl = Number(tradeData.profitLoss) || Number((tradeData.pnl as Record<string, unknown>)?.netPnlUSD) || 0
       return pnl > 0
     }).length
     const totalPnL = filteredTrades.reduce((sum, trade) => {
-      const tradeData = trade as any
-      return sum + (tradeData.profitLoss ?? tradeData.pnl?.netPnlUSD ?? 0)
+      const tradeData = trade as unknown as Record<string, unknown>
+      return sum + (Number(tradeData.profitLoss) || Number((tradeData.pnl as Record<string, unknown>)?.netPnlUSD) || 0)
     }, 0)
     
     return {
@@ -279,7 +279,7 @@ export function TradeHistory() {
                 <label className="block text-sm font-medium mb-2">Trade Type</label>
                 <select
                   value={filterType}
-                  onChange={(e) => setFilterType(e.target.value as any)}
+                  onChange={(e) => setFilterType(e.target.value as 'all' | 'swap' | 'buy' | 'sell')}
                   className="w-full px-3 py-2 bg-card/50 border border-border/50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   <option value="all">All Types</option>
@@ -335,7 +335,32 @@ export function TradeHistory() {
           </div>
         ) : (
           filteredTrades.map((trade, index) => {
-            const tradeData = trade as any
+            const tradeData = trade as unknown as {
+              type?: string
+              txHash?: string
+              timestamp?: string
+              platform?: string
+              dexName?: string
+              fromToken?: {
+                amount?: string
+                decimals?: number
+                symbol?: string
+                valueUSD?: number
+              }
+              toToken?: {
+                amount?: string
+                decimals?: number
+                symbol?: string
+                valueUSD?: number
+              }
+              valueUSD?: number
+              profitLoss?: number
+              pnl?: {
+                netPnlUSD?: number
+              }
+              gasFeeUSD?: number
+              chainId?: number
+            }
             return (
               <div
                 key={`${tradeData.txHash || index}-${index}`}

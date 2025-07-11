@@ -142,7 +142,7 @@ export function LiliScreenWalker({ className }: LiliScreenWalkerProps) {
 
       return () => clearTimeout(initTimeout)
     }
-  }, [isEnabled, moveToRandomPosition, getSafeBoundaries])
+  }, [isEnabled, moveToRandomPosition, getSafeBoundaries, isInitialized])
 
   // Movement interval (optimized)
   useEffect(() => {
@@ -160,7 +160,7 @@ export function LiliScreenWalker({ className }: LiliScreenWalkerProps) {
       clearInterval(moveInterval)
       clearInterval(bubbleInterval)
     }
-  }, [isEnabled, isInitialized, isHovered, moveToRandomPosition, showRandomBubble])
+  }, [isEnabled, isInitialized, moveToRandomPosition, showRandomBubble])
 
   // Handle window resize (optimized)
   useEffect(() => {
@@ -231,7 +231,7 @@ export function LiliScreenWalker({ className }: LiliScreenWalkerProps) {
           transform: `translateX(-50%) translateY(-50%) ${direction === 'left' ? 'scaleX(-1)' : ''}`,
           transition: `left var(--movement-duration, 1.5s) cubic-bezier(0.4, 0.0, 0.2, 1), top var(--movement-duration, 1.5s) cubic-bezier(0.4, 0.0, 0.2, 1), transform 0.3s ease-out`,
           willChange: 'left, top, transform',
-          ['--movement-duration' as any]: '1.5s'
+          ['--movement-duration' as string]: '1.5s'
         } as React.CSSProperties}
         onClick={handleClick}
         onMouseEnter={() => setIsHovered(true)}

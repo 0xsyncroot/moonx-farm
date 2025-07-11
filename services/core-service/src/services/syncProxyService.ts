@@ -1,6 +1,8 @@
 import { RedisManager, createRedisConfig } from '@moonx-farm/infrastructure';
 import { createLoggerForAnyService } from '@moonx-farm/common';
 import { MessageQueueService, SyncJobRequest, SyncJobResponse, SyncStatusRequest, SyncStatusResponse } from './messageQueueService';
+import { DatabaseService } from './databaseService';
+import { MongoSyncService } from './mongoSyncService';
 import { randomUUID } from 'crypto';
 
 const logger = createLoggerForAnyService('sync-proxy');
@@ -8,6 +10,8 @@ const logger = createLoggerForAnyService('sync-proxy');
 export class SyncProxyService {
   private messageQueue: MessageQueueService;
   private redis: RedisManager;
+  private databaseService: DatabaseService | null = null;
+  private mongoSyncService: MongoSyncService;
   private isInitialized = false;
 
   // Rate limiting for user sync requests
@@ -15,7 +19,7 @@ export class SyncProxyService {
   private readonly RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
   private readonly RATE_LIMIT_MAX_REQUESTS = 5; // Max 5 sync requests per 15 minutes per user
 
-  constructor() {
+  constructor(databaseService?: DatabaseService) {
     // Initialize Redis connection
     const redisConfig = createRedisConfig();
     this.redis = new RedisManager({
@@ -25,8 +29,14 @@ export class SyncProxyService {
 
     // Initialize message queue
     this.messageQueue = new MessageQueueService(this.redis);
+    
+    // Store database service for sync operations (still needed for other operations)
+    this.databaseService = databaseService || null;
 
-    logger.info('SyncProxyService initialized');
+    // Initialize MongoDB sync service for high-performance user sync status operations
+    this.mongoSyncService = new MongoSyncService();
+
+    logger.info('SyncProxyService initialized with MongoDB sync service');
   }
 
   async initialize(): Promise<void> {
@@ -34,8 +44,9 @@ export class SyncProxyService {
 
     try {
       await this.messageQueue.connect();
+      await this.mongoSyncService.initialize();
       this.isInitialized = true;
-      logger.info('SyncProxyService connected to message queue');
+      logger.info('SyncProxyService connected to message queue and MongoDB');
     } catch (error) {
       logger.error('Failed to initialize SyncProxyService', { error });
       throw error;
@@ -47,8 +58,9 @@ export class SyncProxyService {
 
     try {
       await this.messageQueue.disconnect();
+      await this.mongoSyncService.shutdown();
       this.isInitialized = false;
-      logger.info('SyncProxyService disconnected');
+      logger.info('SyncProxyService disconnected from message queue and MongoDB');
     } catch (error) {
       logger.error('Failed to shutdown SyncProxyService', { error });
     }
@@ -56,7 +68,9 @@ export class SyncProxyService {
 
   async isHealthy(): Promise<boolean> {
     try {
-      return this.isInitialized && await this.messageQueue.isHealthy();
+      return this.isInitialized && 
+             await this.messageQueue.isHealthy() && 
+             await this.mongoSyncService.isHealthy();
     } catch (error) {
       logger.error('Health check failed', { error });
       return false;
@@ -69,10 +83,17 @@ export class SyncProxyService {
   async triggerUserSync(
     userId: string, 
     walletAddress: string, 
-    priority: 'high' | 'medium' | 'low' = 'medium'
+    priority: 'high' | 'medium' | 'low' = 'medium',
+    options: {
+      source?: string;
+      bypassRateLimit?: boolean;
+      forceRefresh?: boolean;
+      metadata?: any;
+    } = {}
   ): Promise<{
     success: boolean;
     message: string;
+    syncOperationId?: string;
     rateLimitInfo?: { remainingRequests: number; resetTime?: Date };
   }> {
     try {
@@ -80,55 +101,106 @@ export class SyncProxyService {
         throw new Error('SyncProxyService not initialized');
       }
 
-      // Check rate limit
-      const rateLimitCheck = this.checkRateLimit(userId);
-      if (!rateLimitCheck.allowed) {
-        return {
-          success: false,
-          message: 'Rate limit exceeded. Please wait before triggering another sync.',
-          rateLimitInfo: {
-            remainingRequests: rateLimitCheck.remainingRequests || 0,
-            resetTime: rateLimitCheck.resetTime
-          }
-        };
+      const { source = 'manual_trigger', bypassRateLimit = false, forceRefresh = false, metadata = {} } = options;
+
+      // ✅ DEDUPLICATION: Check for active sync operations first (unless force refresh)
+      if (!forceRefresh) {
+        const activeOperations = await this.mongoSyncService.getActiveSyncOperations(userId);
+        const userActiveOps = activeOperations.filter(op => 
+          op.userId === userId && op.walletAddress === walletAddress
+        );
+
+        if (userActiveOps.length > 0) {
+          const activeOp = userActiveOps[0];
+          logger.info('🔄 Manual sync blocked - active operation found', {
+            userId,
+            walletAddress,
+            activeOpId: (activeOp as any)._id?.toString() || 'unknown',
+            activeOpStatus: activeOp.status,
+            source
+          });
+          
+          return {
+            success: false,
+            message: `Sync already in progress for user ${userId}. Please wait for current sync to complete.`,
+            syncOperationId: (activeOp as any)._id?.toString() || 'unknown',
+            rateLimitInfo: {
+              remainingRequests: 0,
+              resetTime: new Date(Date.now() + 60000) // 1 minute
+            }
+          };
+        }
       }
 
-      // Create sync job request
+      // Check rate limit only if not bypassed (for internal calls) and not force refresh
+      if (!bypassRateLimit && !forceRefresh) {
+        const rateLimitCheck = this.checkRateLimit(userId);
+        if (!rateLimitCheck.allowed) {
+          return {
+            success: false,
+            message: 'Rate limit exceeded. Please wait before triggering another sync.',
+            rateLimitInfo: {
+              remainingRequests: rateLimitCheck.remainingRequests || 0,
+              resetTime: rateLimitCheck.resetTime
+            }
+          };
+        }
+      }
+
+      // CRITICAL: Ensure user_sync_status record exists for periodic scheduler tracking
+      await this.ensureUserSyncStatus(userId, walletAddress, source);
+
+      // Generate job ID for tracking (but don't create sync_operations record)
+      const jobId = randomUUID();
+
+      // Create sync job request (Sync Worker will create sync_operations record)
       const syncRequest: SyncJobRequest = {
-        jobId: randomUUID(),
+        jobId,
         userId,
         walletAddress,
         priority,
         syncType: 'portfolio',
+        forceRefresh,
         triggeredAt: new Date(),
         metadata: {
-          source: 'manual_trigger',
-          ip: 'core-service'
+          source,
+          forceRefresh,
+          deduplication_check: 'passed',
+          trigger_type: 'manual',
+          ...metadata
         }
       };
 
-      // Send to sync worker
+      // Send to sync worker via Redis (not Kafka)
       const response = await this.messageQueue.sendSyncRequest(syncRequest);
 
-      // Update rate limit tracking
-      this.updateRateLimit(userId);
+      // Update rate limit tracking only if not bypassed and not force refresh
+      if (!bypassRateLimit && !forceRefresh) {
+        this.updateRateLimit(userId);
+      }
 
       if (response.status === 'failed') {
         return {
           success: false,
           message: response.error || 'Sync request failed',
-          rateLimitInfo: {
-            remainingRequests: rateLimitCheck.remainingRequests || 0
-          }
+          syncOperationId: jobId,
+          rateLimitInfo: (!bypassRateLimit && !forceRefresh) ? {
+            remainingRequests: 0
+          } : undefined
         };
       }
 
+      const successMessage = forceRefresh 
+        ? 'Force sync triggered successfully (bypassing rate limits and deduplication)'
+        : 'Sync triggered successfully (passed deduplication check)';
+
       return {
         success: true,
-        message: 'Sync triggered successfully',
-        rateLimitInfo: {
-          remainingRequests: rateLimitCheck.remainingRequests || 0
-        }
+        message: successMessage,
+        syncOperationId: jobId,
+        rateLimitInfo: (!bypassRateLimit && !forceRefresh) ? {
+          remainingRequests: 0
+        } : undefined
       };
 
     } catch (error) {
@@ -466,6 +538,40 @@ export class SyncProxyService {
         // Increment count
         userLimit.requestCount++;
       }
+    }
+  }
+
+  /**
+   * Ensure user_sync_status record exists for periodic scheduler tracking
+   * Now using MongoDB for high performance instead of PostgreSQL
+   */
+  private async ensureUserSyncStatus(
+    userId: string, 
+    walletAddress: string, 
+    source: string
+  ): Promise<void> {
+    try {
+      if (!this.mongoSyncService) {
+        logger.warn('MongoDB sync service not available, skipping user sync status creation');
+        return;
+      }
+
+      // Use MongoDB upsert operation for high performance
+      await this.mongoSyncService.ensureUserSyncStatus(userId, walletAddress, source);
+
+      logger.debug('User sync status ensured in MongoDB', {
+        userId,
+        walletAddress,
+        source
+      });
+    } catch (error) {
+      logger.error('Failed to ensure user sync status in MongoDB', {
+        userId,
+        walletAddress,
+        source,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Don't throw - this is not critical for sync operation
     }
   }
 }

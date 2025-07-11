@@ -1,10 +1,10 @@
 'use client'
 
-import { usePortfolioData } from '@/hooks/usePortfolioData'
+import { usePortfolioOverview } from '@/hooks/usePortfolioOverview'
 import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Target, PieChart, BarChart3, Activity, Wallet, Award, Shield } from 'lucide-react'
 
 export function PortfolioOverview() {
-  const { overview, isLoading, error, refresh, refreshing, cacheAge, computedData } = usePortfolioData()
+  const { overview, isLoading, error, refresh, refreshing, cacheAge, computedData } = usePortfolioOverview()
 
   // Default to zero values if no data
   const data = overview || {

@@ -228,7 +228,7 @@ export function formatTokenAmount(amount: string | number | bigint, decimals: nu
   
   try {
     // Convert to string first, then handle different formats
-    let amountStr = amount.toString()
+    const amountStr = amount.toString()
     
     // If it's already a decimal number (like 10887315.12), return as is
     if (typeof amount === 'number' && !Number.isInteger(amount)) {

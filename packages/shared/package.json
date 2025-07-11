@@ -1,0 +1,50 @@
+{
+  "name": "@moonx-farm/shared",
+  "version": "1.0.0",
+  "description": "Shared utilities and types for MoonX Farm ecosystem",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix"
+  },
+  "keywords": [
+    "websocket",
+    "jsonrpc",
+    "protocol",
+    "types",
+    "moonx-farm",
+    "shared"
+  ],
+  "author": "MoonX Farm Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/jest": "^29.5.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {},
+  "peerDependencies": {},
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonx-farm/moonx-farm.git",
+    "directory": "packages/shared"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+} 

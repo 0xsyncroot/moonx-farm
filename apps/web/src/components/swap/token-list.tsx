@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Star, TrendingUp, TrendingDown, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { aggregatorApi, Token, TokenListResponse } from '@/lib/api-client'
+import { aggregatorApi, Token } from '@/lib/api-client'
 import { useTestnetMode } from '@/components/ui/testnet-toggle'
 
 export function TokenList() {

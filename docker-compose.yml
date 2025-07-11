@@ -51,6 +51,72 @@ services:
       - moonx-network
 
   # ================================
+  # WebSocket Service
+  # ================================
+  websocket-service:
+    build:
+      context: .
+      dockerfile: services/websocket-service/Dockerfile
+    container_name: moonx-websocket
+    ports:
+      - "3008:3008"
+    environment:
+      - NODE_ENV=production
+      - PORT=3008
+      - HOST=0.0.0.0
+      # Auth Service Integration
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - AUTH_SERVICE_VERIFY_ENDPOINT=/api/v1/auth/verify
+      - AUTH_SERVICE_TIMEOUT=5000
+      # Redis Configuration
+      - REDIS_URL=redis://redis:6379
+      - REDIS_KEY_PREFIX=moonx:ws:
+      # Kafka Configuration
+      - KAFKA_BROKERS=localhost:9092
+      - KAFKA_CLIENT_ID=websocket-service
+      - KAFKA_CONSUMER_GROUP_ID=websocket-consumers
+      - KAFKA_TOPIC_PRICES=price.updates
+      - KAFKA_TOPIC_ORDERS=order.updates
+      - KAFKA_TOPIC_PORTFOLIO=portfolio.updates
+      - KAFKA_TOPIC_TRADES=trade.updates
+      # Rate Limiting
+      - RATE_LIMIT_ENABLED=true
+      - RATE_LIMIT_MAX_CONNECTIONS_PER_IP=100
+      - RATE_LIMIT_WINDOW_SIZE=60000
+      - RATE_LIMIT_MAX_MESSAGES_PER_MINUTE=120
+      # WebSocket Configuration
+      - WS_PING_INTERVAL=30000
+      - WS_PONG_TIMEOUT=5000
+      - WS_MAX_CONNECTIONS=10000
+      - WS_HEARTBEAT_INTERVAL=60000
+      # CORS Configuration
+      - CORS_ORIGIN=http://localhost:3000
+      - CORS_CREDENTIALS=true
+      # Health Check
+      - HEALTH_CHECK_ENABLED=true
+      - HEALTH_CHECK_INTERVAL=30000
+      # Swagger Documentation
+      - SWAGGER_ENABLED=true
+      - SWAGGER_PATH=/docs
+      # Clustering
+      - CLUSTER_ENABLED=false
+      - CLUSTER_WORKERS=2
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - auth-service
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3008/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - moonx-network
+
+  # ================================
   # Redis (for development/testing)
   # ================================
   redis:

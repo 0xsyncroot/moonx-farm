@@ -169,7 +169,7 @@ export class AlchemyService {
     const networkName = this.getNetworkName(chainId);
     
     try {
-      logger.debug(`🔍 Fetching token balances for ${walletAddress} on chain ${chainId}`);
+      logger.info(`🔍 Fetching token balances for ${walletAddress} on chain ${chainId} (network: ${networkName})`);
 
       // Get token balances with retry logic
       const balancesResponse = await this.makeRequest<{
@@ -181,10 +181,31 @@ export class AlchemyService {
         network: networkName,
       });
 
+      logger.info(`📡 Alchemy raw response for ${walletAddress} on chain ${chainId}`, {
+        walletAddress,
+        chainId,
+        networkName,
+        hasResponse: !!balancesResponse,
+        tokenBalancesCount: balancesResponse?.tokenBalances?.length || 0,
+        responseStructure: balancesResponse ? Object.keys(balancesResponse) : []
+      });
+
       if (!balancesResponse?.tokenBalances || balancesResponse.tokenBalances.length === 0) {
-        logger.debug(`No token balances found for ${walletAddress} on chain ${chainId}`);
+        logger.info(`❌ No token balances found for ${walletAddress} on chain ${chainId}`);
         return [];
       }
+
+      // Log sample of raw balances for debugging
+      logger.info(`📊 Raw token balances sample`, {
+        walletAddress,
+        chainId,
+        totalBalances: balancesResponse.tokenBalances.length,
+        sampleBalances: balancesResponse.tokenBalances.slice(0, 3).map(b => ({
+          contractAddress: b.contractAddress,
+          tokenBalance: b.tokenBalance,
+          hasError: !!b.error
+        }))
+      });
 
       // Filter out zero balances and errors
       const validBalances = balancesResponse.tokenBalances.filter(
@@ -196,29 +217,78 @@ export class AlchemyService {
                   balance.contractAddress
       );
 
+      logger.info(`🔢 Balance filtering results`, {
+        walletAddress,
+        chainId,
+        totalRawBalances: balancesResponse.tokenBalances.length,
+        validBalances: validBalances.length,
+        filteredOutCount: balancesResponse.tokenBalances.length - validBalances.length
+      });
+
       if (validBalances.length === 0) {
-        logger.debug(`No valid token balances found for ${walletAddress} on chain ${chainId}`);
+        logger.info(`❌ No valid token balances found for ${walletAddress} on chain ${chainId}`);
         return [];
       }
 
-      logger.debug(`Found ${validBalances.length} valid token balances for ${walletAddress}`);
+      logger.info(`✅ Found ${validBalances.length} valid token balances for ${walletAddress} on chain ${chainId}`);
 
       // Get token metadata for all tokens
       const tokenAddresses = validBalances.map(b => b.contractAddress);
+      logger.info(`🏷️ Getting metadata for ${tokenAddresses.length} tokens`, {
+        walletAddress,
+        chainId,
+        tokenAddresses: tokenAddresses.slice(0, 5)
+      });
+      
       const metadataResults = await this.getTokenMetadata(tokenAddresses, networkName);
+      
+      logger.info(`🏷️ Metadata fetch completed`, {
+        walletAddress,
+        chainId,
+        requestedCount: tokenAddresses.length,
+        receivedCount: metadataResults.length
+      });
 
       // Get current prices from multiple sources
+      logger.info(`💰 Getting prices for ${tokenAddresses.length} tokens`, {
+        walletAddress,
+        chainId
+      });
+      
       const prices = await this.getTokenPrices(tokenAddresses, chainId);
+      
+      logger.info(`💰 Price fetch completed`, {
+        walletAddress,
+        chainId,
+        requestedCount: tokenAddresses.length,
+        pricesReceived: prices.size,
+        pricesSample: Array.from(prices.entries()).slice(0, 3)
+      });
 
       // Combine data into TokenBalance objects
       const holdings: TokenBalance[] = [];
+      logger.info(`🔄 Starting data combination process`, {
+        walletAddress,
+        chainId,
+        validBalancesCount: validBalances.length,
+        metadataCount: metadataResults.length,
+        pricesCount: prices.size
+      });
 
       for (let i = 0; i < validBalances.length; i++) {
         const balance = validBalances[i];
         const metadata = metadataResults[i];
         
         if (!balance || !metadata || !metadata.symbol) {
-          logger.warn(`Skipping invalid token at index ${i}: missing data`);
+          logger.warn(`❌ Skipping invalid token at index ${i}: missing data`, {
+            walletAddress,
+            chainId,
+            index: i,
+            hasBalance: !!balance,
+            hasMetadata: !!metadata,
+            hasSymbol: !!metadata?.symbol,
+            contractAddress: balance?.contractAddress
+          });
           continue;
         }
 
@@ -228,7 +298,12 @@ export class AlchemyService {
           // Convert balance from hex to decimal with safety checks
           const rawBalance = this.parseHexToBigInt(balance.tokenBalance);
           if (rawBalance === null) {
-            logger.warn(`Invalid balance format for token ${balance.contractAddress}: ${balance.tokenBalance}`);
+            logger.warn(`❌ Invalid balance format for token ${balance.contractAddress}: ${balance.tokenBalance}`, {
+              walletAddress,
+              chainId,
+              contractAddress: balance.contractAddress,
+              tokenBalance: balance.tokenBalance
+            });
             continue;
           }
 
@@ -236,8 +311,32 @@ export class AlchemyService {
           const balanceFormatted = Number(rawBalance) / Math.pow(10, decimals);
           const valueUSD = balanceFormatted * price;
 
+          // Log processing details for first few tokens
+          if (i < 3) {
+            logger.info(`🔄 Processing token ${i + 1}/${validBalances.length}`, {
+              walletAddress,
+              chainId,
+              symbol: metadata.symbol,
+              contractAddress: balance.contractAddress,
+              rawBalance: balance.tokenBalance,
+              decimals,
+              balanceFormatted: balanceFormatted.toFixed(6),
+              price: price.toFixed(6),
+              valueUSD: valueUSD.toFixed(6)
+            });
+          }
+
           // Skip tokens with very small USD value (< $0.01) or invalid data
           if (valueUSD < 0.01 || !isFinite(balanceFormatted) || !isFinite(valueUSD)) {
+            if (i < 5) { // Log first few skips for debugging
+              logger.info(`⏭️ Skipping token with low value`, {
+                walletAddress,
+                chainId,
+                symbol: metadata.symbol,
+                valueUSD: valueUSD.toFixed(6),
+                reason: valueUSD < 0.01 ? 'low value' : 'invalid data'
+              });
+            }
             continue;
           }
 
@@ -259,10 +358,17 @@ export class AlchemyService {
               rawBalance: balance.tokenBalance,
               isSpam: false,
               possibleSpam: false,
+              logoSource: metadata.logo ? 'alchemy' : 'fallback',
+              hasLogo: !!metadata.logo,
             },
           });
         } catch (error) {
-          logger.warn(`Error processing token ${balance.contractAddress}:`, error);
+          logger.warn(`❌ Error processing token ${balance.contractAddress}`, {
+            walletAddress,
+            chainId,
+            contractAddress: balance.contractAddress,
+            error: error instanceof Error ? error.message : String(error)
+          });
           continue;
         }
       }
@@ -270,7 +376,18 @@ export class AlchemyService {
       // Sort by USD value descending
       const sortedHoldings = holdings.sort((a, b) => b.valueUSD - a.valueUSD);
       
-      logger.debug(`Processed ${sortedHoldings.length} token holdings for ${walletAddress} on chain ${chainId}`);
+      logger.info(`✅ Token processing completed for chain ${chainId}`, {
+        walletAddress,
+        chainId,
+        processedTokens: sortedHoldings.length,
+        totalValue: sortedHoldings.length > 0 ? 
+          Number(sortedHoldings.reduce((sum, h) => sum + (Number(h.valueUSD) || 0), 0)).toFixed(2) : 
+          '0.00',
+        topTokens: sortedHoldings.slice(0, 3).map(h => ({
+          symbol: h.tokenSymbol,
+          value: (Number(h.valueUSD) || 0).toFixed(2)
+        }))
+      });
       
       return sortedHoldings;
 
@@ -318,9 +435,25 @@ export class AlchemyService {
                 network,
               });
 
-              if (metadataResponse) {
-                batchResults.push(metadataResponse);
+              if (metadataResponse && metadataResponse.symbol) {
+                // If successful but no logo, try to get logo from alternative sources
+                if (!metadataResponse.logo && !metadataResponse.thumbnail) {
+                  logger.debug(`🔄 Enhancing metadata with logo for ${metadataResponse.symbol} (${tokenAddress})`);
+                  const enhancedMetadata = await this.enhanceMetadataWithLogo(metadataResponse, tokenAddress, network);
+                  
+                  if (enhancedMetadata.logo) {
+                    logger.debug(`✅ Logo found for ${metadataResponse.symbol}: ${enhancedMetadata.logo}`);
+                  } else {
+                    logger.debug(`❌ No logo found for ${metadataResponse.symbol}`);
+                  }
+                  
+                  batchResults.push(enhancedMetadata);
+                } else {
+                  logger.debug(`✅ Alchemy provided logo for ${metadataResponse.symbol}`);
+                  batchResults.push(metadataResponse);
+                }
               } else {
+                logger.warn(`Empty metadata response for token ${tokenAddress}`);
                 batchResults.push(this.createFallbackMetadata(tokenAddress));
               }
             } catch (tokenError) {
@@ -346,7 +479,19 @@ export class AlchemyService {
         }
       }
 
-      logger.debug(`✅ Metadata fetching complete: ${results.length}/${tokenAddresses.length} tokens processed`);
+      // Log logo statistics
+      const logoStats = {
+        total: results.length,
+        withLogo: results.filter(r => r.logo).length,
+        withoutLogo: results.filter(r => !r.logo).length,
+        logoPercentage: results.length > 0 ? ((results.filter(r => r.logo).length / results.length) * 100).toFixed(1) : '0'
+      };
+      
+      logger.debug(`✅ Metadata fetching complete: ${results.length}/${tokenAddresses.length} tokens processed`, {
+        logoStats,
+        sampleWithLogo: results.filter(r => r.logo).slice(0, 3).map(r => ({ symbol: r.symbol, hasLogo: !!r.logo }))
+      });
+      
       return results;
       
     } catch (error) {
@@ -785,14 +930,69 @@ export class AlchemyService {
   }
 
   private createFallbackMetadata(tokenAddress: string): AlchemyTokenMetadata {
-    const knownTokens: Record<string, { symbol: string; name: string; decimals: number }> = {
+    const knownTokens: Record<string, { symbol: string; name: string; decimals: number; logo?: string; thumbnail?: string }> = {
       // Base tokens
-      '0x4200000000000000000000000000000000000006': { symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-      '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+      '0x4200000000000000000000000000000000000006': { 
+        symbol: 'WETH', 
+        name: 'Wrapped Ether', 
+        decimals: 18,
+        logo: 'https://static.alchemyapi.io/images/assets/2396.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/2396.png'
+      },
+      '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': { 
+        symbol: 'USDC', 
+        name: 'USD Coin', 
+        decimals: 6,
+        logo: 'https://static.alchemyapi.io/images/assets/3408.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/3408.png'
+      },
       
       // BSC tokens
-      '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c': { symbol: 'WBNB', name: 'Wrapped BNB', decimals: 18 },
-      '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': { symbol: 'USDC', name: 'USD Coin', decimals: 18 },
+      '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c': { 
+        symbol: 'WBNB', 
+        name: 'Wrapped BNB', 
+        decimals: 18,
+        logo: 'https://static.alchemyapi.io/images/assets/7192.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/7192.png'
+      },
+      '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': { 
+        symbol: 'USDC', 
+        name: 'USD Coin', 
+        decimals: 18,
+        logo: 'https://static.alchemyapi.io/images/assets/3408.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/3408.png'
+      },
+      
+      // Ethereum tokens
+      '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': { 
+        symbol: 'WETH', 
+        name: 'Wrapped Ether', 
+        decimals: 18,
+        logo: 'https://static.alchemyapi.io/images/assets/2396.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/2396.png'
+      },
+      '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { 
+        symbol: 'USDC', 
+        name: 'USD Coin', 
+        decimals: 6,
+        logo: 'https://static.alchemyapi.io/images/assets/3408.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/3408.png'
+      },
+      // USDT tokens
+      '0xdac17f958d2ee523a2206206994597c13d831ec7': { 
+        symbol: 'USDT', 
+        name: 'Tether USD', 
+        decimals: 6,
+        logo: 'https://static.alchemyapi.io/images/assets/825.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/825.png'
+      },
+      '0x55d398326f99059ff775485246999027b3197955': { 
+        symbol: 'USDT', 
+        name: 'Tether USD', 
+        decimals: 18,
+        logo: 'https://static.alchemyapi.io/images/assets/825.png',
+        thumbnail: 'https://static.alchemyapi.io/images/assets/825.png'
+      },
     };
 
     const known = knownTokens[tokenAddress.toLowerCase()];
@@ -800,7 +1000,9 @@ export class AlchemyService {
       return {
         decimals: known.decimals,
         name: known.name,
-        symbol: known.symbol
+        symbol: known.symbol,
+        ...(known.logo && { logo: known.logo }),
+        ...(known.thumbnail && { thumbnail: known.thumbnail }),
       };
     }
 
@@ -808,7 +1010,10 @@ export class AlchemyService {
     return {
       decimals: 18,
       name: `Token ${addressSuffix}`,
-      symbol: `TK${addressSuffix}`
+      symbol: `TK${addressSuffix}`,
+      // Use generic token logo for unknown tokens
+      logo: `https://assets.coingecko.com/coins/images/generic-token.png`,
+      thumbnail: `https://assets.coingecko.com/coins/images/generic-token.png`
     };
   }
 
@@ -924,5 +1129,120 @@ export class AlchemyService {
       });
       return false;
     }
+  }
+
+  /**
+   * Enhance metadata with logo from alternative sources
+   */
+  private async enhanceMetadataWithLogo(metadata: AlchemyTokenMetadata, tokenAddress: string, network: string): Promise<AlchemyTokenMetadata> {
+    try {
+      // Try to get logo from CoinGecko or other sources
+      const logoUrl = await this.getTokenLogoFromAlternativeSource(tokenAddress, metadata.symbol, network);
+      
+      if (logoUrl) {
+        return {
+          ...metadata,
+          logo: logoUrl,
+          thumbnail: logoUrl,
+        };
+      }
+      
+      return metadata;
+    } catch (error) {
+      logger.warn(`Failed to enhance metadata with logo for ${tokenAddress}:`, error);
+      return metadata;
+    }
+  }
+
+  /**
+   * Get token logo from alternative sources
+   */
+  private async getTokenLogoFromAlternativeSource(tokenAddress: string, symbol: string, network: string): Promise<string | undefined> {
+    try {
+      logger.debug(`🔍 Searching alternative logo sources for ${symbol} (${tokenAddress})`);
+      
+      // Try CoinGecko first
+      const coingeckoLogo = await this.getLogoFromCoinGecko(symbol.toLowerCase());
+      if (coingeckoLogo) {
+        logger.debug(`🦎 Found logo on CoinGecko for ${symbol}: ${coingeckoLogo}`);
+        return coingeckoLogo;
+      }
+
+      // Try TrustWallet assets
+      const trustWalletLogo = await this.getLogoFromTrustWallet(tokenAddress, network);
+      if (trustWalletLogo) {
+        logger.debug(`💎 Found logo on TrustWallet for ${symbol}: ${trustWalletLogo}`);
+        return trustWalletLogo;
+      }
+
+      // Fallback to generic token logo
+      logger.debug(`🔄 Using generic logo for ${symbol}`);
+      return `https://assets.coingecko.com/coins/images/generic-token.png`;
+    } catch (error) {
+      logger.warn(`Failed to get logo from alternative sources for ${tokenAddress}:`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Get logo from CoinGecko
+   */
+  private async getLogoFromCoinGecko(symbol: string): Promise<string | undefined> {
+    try {
+      const response = await fetch(`https://api.coingecko.com/api/v3/coins/list`, {
+        headers: {
+          'User-Agent': 'MoonX-Farm-Sync-Worker/1.0'
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.ok) {
+        const coins = await response.json() as { id: string; symbol: string; name: string }[];
+        const coin = coins.find(c => c.symbol.toLowerCase() === symbol.toLowerCase());
+        
+        if (coin) {
+          return `https://assets.coingecko.com/coins/images/${coin.id}/small/logo.png`;
+        }
+      }
+    } catch (error) {
+      logger.warn(`CoinGecko logo fetch failed for ${symbol}:`, error);
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Get logo from TrustWallet assets
+   */
+  private async getLogoFromTrustWallet(tokenAddress: string, network: string): Promise<string | undefined> {
+    try {
+      // Map network to TrustWallet chain identifier
+      const chainMap: Record<string, string> = {
+        'base-mainnet': 'base',
+        'bnb-mainnet': 'smartchain',
+        'eth-mainnet': 'ethereum',
+      };
+
+      const chain = chainMap[network];
+      if (!chain) {
+        return undefined;
+      }
+
+      const logoUrl = `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chain}/assets/${tokenAddress}/logo.png`;
+      
+      // Test if logo exists
+      const response = await fetch(logoUrl, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (response.ok) {
+        return logoUrl;
+      }
+    } catch (error) {
+      logger.warn(`TrustWallet logo fetch failed for ${tokenAddress}:`, error);
+    }
+    
+    return undefined;
   }
 } 
