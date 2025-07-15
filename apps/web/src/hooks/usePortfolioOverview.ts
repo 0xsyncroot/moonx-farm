@@ -176,12 +176,19 @@ export function usePortfolioOverview() {
     try {
       console.log('🚀 Loading portfolio overview data...', { force })
       
-      // Check cache first
+      // Check cache first (only if not forced)
       if (!force && isCacheValid() && overviewCache.data) {
         console.log('📦 Using cached overview data')
         setOverviewData(overviewCache.data)
         setIsLoading(false)
         return
+      }
+
+      // Clear cache if forced refresh
+      if (force) {
+        console.log('🔄 Force refresh - clearing cache')
+        overviewCache.data = null
+        overviewCache.timestamp = 0
       }
 
       setIsLoading(true)
@@ -282,6 +289,16 @@ export function usePortfolioOverview() {
       // Reset error count for manual refresh
       errorCountRef.current = 0
       lastErrorTimeRef.current = 0
+
+      // Clear cache and force refresh
+      console.log('🔄 Manual refresh initiated - clearing cache...')
+      overviewCache.data = null
+      overviewCache.timestamp = 0
+      
+      // Clear all pending promises to prevent stale data
+      Object.keys(overviewCache.promises).forEach(key => {
+        delete overviewCache.promises[key]
+      })
 
       if (loadOverviewDataRef.current) {
         await loadOverviewDataRef.current(true)

@@ -1,7 +1,6 @@
 'use client'
 
 import { Suspense, useState } from 'react'
-import { Header } from '@/components/layout/header'
 import { LimitOrderInterface } from '@/components/orders/limit-order-interface'
 import { DCAInterface } from '@/components/orders/dca-interface'
 import { OrderHistory } from '@/components/orders/order-history'
@@ -38,8 +37,6 @@ export default function OrdersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      <Header />
-      
       <main className="container mx-auto mobile-padding py-8">
         <div className="space-y-8">
           {/* Enhanced Page Header */}

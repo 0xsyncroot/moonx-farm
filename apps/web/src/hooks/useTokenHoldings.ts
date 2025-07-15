@@ -129,12 +129,19 @@ export function useTokenHoldings() {
     try {
       console.log('🚀 Loading token holdings data...', { force })
       
-      // Check cache first
+      // Check cache first (only if not forced)
       if (!force && isCacheValid() && holdingsCache.data) {
         console.log('📦 Using cached holdings data')
         setHoldings(holdingsCache.data)
         setIsLoading(false)
         return
+      }
+
+      // Clear cache if forced refresh
+      if (force) {
+        console.log('🔄 Force refresh holdings - clearing cache')
+        holdingsCache.data = null
+        holdingsCache.timestamp = 0
       }
 
       setIsLoading(true)
@@ -188,6 +195,16 @@ export function useTokenHoldings() {
       // Reset error count for manual refresh
       errorCountRef.current = 0
       lastErrorTimeRef.current = 0
+
+      // Clear cache and force refresh
+      console.log('🔄 Manual holdings refresh initiated - clearing cache...')
+      holdingsCache.data = null
+      holdingsCache.timestamp = 0
+      
+      // Clear all pending promises to prevent stale data
+      Object.keys(holdingsCache.promises).forEach(key => {
+        delete holdingsCache.promises[key]
+      })
 
       if (loadHoldingsDataRef.current) {
         await loadHoldingsDataRef.current(true)

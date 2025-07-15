@@ -104,7 +104,7 @@ export function useTradeHistory() {
         
         const response = await coreApi.getRecentTrades({ 
           limit: 50, 
-          days: 30 
+          days: 180 
         })
         
         console.log('📈 Trade history response:', response)

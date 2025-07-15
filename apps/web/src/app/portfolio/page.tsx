@@ -1,6 +1,5 @@
 'use client'
 
-import { Header } from '@/components/layout/header'
 import { PortfolioOverview } from '@/components/portfolio/portfolio-overview'
 import { TradeHistory } from '@/components/portfolio/trade-history'
 import { PnLChart } from '@/components/portfolio/pnl-chart'
@@ -22,8 +21,6 @@ export default function PortfolioPage() {
 
   return (
     <div key={pageKey} className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      <Header />
-      
       <main className="container mx-auto mobile-padding py-8">
         <div className="space-y-6">
           {/* Page Header - Clean */}

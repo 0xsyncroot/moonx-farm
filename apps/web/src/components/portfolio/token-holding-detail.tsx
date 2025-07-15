@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import { X, ExternalLink, Copy, Check, TrendingUp, TrendingDown, BarChart3, DollarSign, Percent, Clock } from 'lucide-react'
 import { getChainConfig } from '@/config/chains'
 import { toast } from 'react-hot-toast'
+import { formatCurrency, formatBalance, copyToClipboard, getTokenTypeDisplay } from '@/utils/formatting'
 
 interface TokenHoldingDetailProps {
   token: any
@@ -21,28 +23,16 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
   const chainConfig = getChainConfig(token?.chainId)
   const allocation = totalPortfolioValue > 0 && token ? (token.valueUSD / totalPortfolioValue) * 100 : 0
 
-  // Format functions
-  const formatCurrency = (value: number) => {
-    if (value < 0.01) return '<$0.01'
-    if (value < 1000) return `$${value.toFixed(2)}`
-    if (value < 1000000) return `$${(value / 1000).toFixed(1)}K`
-    return `$${(value / 1000000).toFixed(1)}M`
-  }
-
-  const formatBalance = (balanceFormatted: number) => {
-    if (isNaN(balanceFormatted) || balanceFormatted === 0) return '0'
-    if (balanceFormatted < 0.0001) return balanceFormatted.toExponential(2)
-    if (balanceFormatted < 1) return balanceFormatted.toFixed(6)
-    if (balanceFormatted < 1000) return balanceFormatted.toFixed(4)
-    if (balanceFormatted < 1000000) return `${(balanceFormatted / 1000).toFixed(1)}K`
-    return `${(balanceFormatted / 1000000).toFixed(1)}M`
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedAddress(true)
-    toast.success('Address copied to clipboard')
-    setTimeout(() => setCopiedAddress(false), 2000)
+  // Handle copy to clipboard
+  const handleCopyToClipboard = async (text: string) => {
+    const success = await copyToClipboard(text)
+    if (success) {
+      setCopiedAddress(true)
+      toast.success('Address copied to clipboard')
+      setTimeout(() => setCopiedAddress(false), 2000)
+    } else {
+      toast.error('Failed to copy to clipboard')
+    }
   }
 
   const openExplorer = (address: string) => {
@@ -72,9 +62,6 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
     allocation,
     priceHistory
   })
-
-  // Early return after hooks
-  if (!isOpen || !token) return null
 
   // Real-time price display (placeholder for chart)
   const PriceDisplay = ({ data }: { data: any[] }) => {
@@ -119,10 +106,24 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
     )
   }
 
-  return (
-    <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-sm">
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="bg-card border border-border/50 rounded-xl w-full max-w-6xl h-full max-h-[95vh] flex flex-col shadow-2xl">
+  // Early return after hooks - prevent rendering if not open
+  if (!isOpen || !token) return null
+
+  const modalContent = (
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 z-[48] bg-black/50 backdrop-blur-sm transition-opacity duration-300"
+        onClick={onClose}
+      />
+      
+      {/* Modal Container */}
+      <div className="fixed inset-0 z-[49] flex items-center justify-center p-4 pointer-events-none overflow-y-auto">
+        <div className="w-full max-w-6xl bg-card border border-border/50 rounded-xl shadow-2xl 
+                       pointer-events-auto transform transition-all duration-300 
+                       animate-in slide-in-from-bottom-8 fade-in-0 my-8 
+                       flex flex-col max-h-[calc(100vh-4rem)]">
+          
           {/* Header */}
           <div className="bg-card/95 backdrop-blur-sm border-b border-border/50 p-6 flex-shrink-0">
             <div className="flex items-center justify-between">
@@ -152,13 +153,7 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
                       {chainConfig?.name || `Chain ${token.chainId}`}
                     </span>
                     <span className="text-xs bg-muted/30 px-2 py-1 rounded">
-                      {token.tokenAddress === '0x0000000000000000000000000000000000000000' ||
-                       token.tokenSymbol === 'ETH' ||
-                       token.tokenSymbol === 'BNB' ||
-                       token.tokenSymbol === 'MATIC'
-                        ? 'Native Token' 
-                        : 'ERC20'
-                      }
+                      {getTokenTypeDisplay(token)}
                     </span>
                   </div>
                 </div>
@@ -173,7 +168,7 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
           </div>
 
           {/* Content */}
-          <div className="overflow-y-auto flex-1 p-6 space-y-6">
+          <div className="flex-1 p-6 space-y-6 overflow-y-auto">
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-muted/20 border border-border/30 rounded-lg p-4">
@@ -247,7 +242,7 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
                           {token.tokenAddress}
                         </code>
                         <button
-                          onClick={() => copyToClipboard(token.tokenAddress)}
+                          onClick={() => handleCopyToClipboard(token.tokenAddress)}
                           className="p-1 hover:bg-muted/20 rounded"
                         >
                           {copiedAddress ? (
@@ -270,13 +265,7 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
                     <label className="text-sm font-medium text-muted-foreground">Token Type</label>
                     <div className="mt-1">
                       <span className="text-sm bg-muted/30 px-2 py-1 rounded">
-                        {token.tokenAddress === '0x0000000000000000000000000000000000000000' ||
-                         token.tokenSymbol === 'ETH' ||
-                         token.tokenSymbol === 'BNB' ||
-                         token.tokenSymbol === 'MATIC'
-                          ? 'Native Token' 
-                          : 'ERC20 Token'
-                        }
+                        {getTokenTypeDisplay(token)}
                       </span>
                     </div>
                   </div>
@@ -337,6 +326,8 @@ export function TokenHoldingDetail({ token, totalPortfolioValue, isOpen, onClose
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
+
+  return createPortal(modalContent, document.body)
 } 

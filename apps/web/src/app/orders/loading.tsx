@@ -1,4 +1,3 @@
-import { Header } from '@/components/layout/header'
 import { 
   Skeleton, 
   SkeletonText, 
@@ -8,7 +7,6 @@ import {
 export default function OrdersLoading() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      <Header />
       <main className="relative z-10">
         <div className="container mx-auto px-4 py-8">
           {/* Page Header */}

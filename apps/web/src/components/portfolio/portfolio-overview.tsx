@@ -12,6 +12,7 @@ import { parseEther, parseUnits, isAddress } from 'viem'
 import { toast } from 'react-hot-toast'
 import { coreApi } from '@/lib/api-client'
 import { TokenHoldings } from './token-holdings'
+import { formatCurrency, formatBalance, formatPercentage, generateQRCodeUrl, truncateAddress, isNativeToken, copyToClipboard as copyToClipboardUtil } from '@/utils/formatting'
 
 // ERC20 ABI for transfer function
 const ERC20_ABI = [
@@ -29,7 +30,7 @@ const ERC20_ABI = [
 
 export function PortfolioOverview() {
   const { overview, isLoading, refresh, refreshing } = usePortfolioOverview()
-  const { holdings } = useTokenHoldings()
+  const { holdings, refresh: refreshHoldings, refreshing: holdingsRefreshing } = useTokenHoldings()
   const { pnlData } = usePnLChart()
   const { client: smartWalletClient, getClientForChain } = useSmartWallets()
   const { address: wagmiAddress } = useAccount()
@@ -37,7 +38,6 @@ export function PortfolioOverview() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [showDepositModal, setShowDepositModal] = useState(false)
   const [showWithdrawModal, setShowWithdrawModal] = useState(false)
-  const [showTokenHoldingsModal, setShowTokenHoldingsModal] = useState(false)
   const [selectedWithdrawToken, setSelectedWithdrawToken] = useState<any>(null)
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [recipientAddress, setRecipientAddress] = useState('')
@@ -85,49 +85,41 @@ export function PortfolioOverview() {
     currentPage * tokensPerPage
   )
 
+  // Combined refresh function
+  const refreshAllData = async () => {
+    try {
+      console.log('🔄 Refreshing all portfolio data...')
+      await Promise.all([
+        refresh(),
+        refreshHoldings()
+      ])
+      console.log('✅ All portfolio data refreshed successfully')
+    } catch (error) {
+      console.error('❌ Failed to refresh portfolio data:', error)
+    }
+  }
+
   // Debug log (only when data changes)
   useEffect(() => {
     console.log('🔍 Portfolio Overview Debug:', {
       holdingsData,
       holdingsCount: holdingsData.length,
       isLoading,
-      refreshing
+      refreshing,
+      holdingsRefreshing
     })
-  }, [holdingsData, isLoading, refreshing])
+  }, [holdingsData, isLoading, refreshing, holdingsRefreshing])
 
   // Helper functions
-  const formatCurrency = (value: number) => {
-    if (value === 0) return '$0.00'
-    if (Math.abs(value) < 0.01) return value >= 0 ? '<$0.01' : '>-$0.01'
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value)
-  }
-
-  const formatBalance = (balanceFormatted: number) => {
-    if (isNaN(balanceFormatted) || balanceFormatted === 0) return '0'
-    if (balanceFormatted < 0.0001) return balanceFormatted.toExponential(2)
-    if (balanceFormatted < 1) return balanceFormatted.toFixed(6)
-    if (balanceFormatted < 1000) return balanceFormatted.toFixed(4)
-    if (balanceFormatted < 1000000) return `${(balanceFormatted / 1000).toFixed(1)}K`
-    return `${(balanceFormatted / 1000000).toFixed(1)}M`
-  }
-
-  const formatPercentage = (value: number) => {
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedAddress(true)
-    setTimeout(() => setCopiedAddress(false), 2000)
-  }
-
-  const generateQRCode = (address: string) => {
-    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(address)}`
+  const handleCopyToClipboard = async (text: string) => {
+    const success = await copyToClipboardUtil(text)
+    if (success) {
+      setCopiedAddress(true)
+      toast.success('Address copied to clipboard')
+      setTimeout(() => setCopiedAddress(false), 2000)
+    } else {
+      toast.error('Failed to copy to clipboard')
+    }
   }
 
   // Helper function to refresh portfolio after transactions
@@ -144,13 +136,13 @@ export function PortfolioOverview() {
       
       // Refresh local data after blockchain sync
       setTimeout(() => {
-        refresh()
+        refreshAllData()
       }, 3000) // Wait 3s for core service to sync from blockchain
     } catch (refreshError) {
       console.error(`❌ Failed to trigger portfolio refresh after ${action}:`, refreshError)
       // Still refresh local data as fallback
       setTimeout(() => {
-        refresh()
+        refreshAllData()
       }, 2000)
     }
   }
@@ -204,10 +196,7 @@ export function PortfolioOverview() {
     })
 
     // Determine if token is native by checking if tokenAddress is zero address or specific native tokens
-    const isNative = selectedWithdrawToken.tokenAddress === '0x0000000000000000000000000000000000000000' || 
-                     selectedWithdrawToken.tokenSymbol === 'ETH' ||
-                     selectedWithdrawToken.tokenSymbol === 'BNB' ||
-                     selectedWithdrawToken.tokenSymbol === 'MATIC'
+    const isNative = isNativeToken(selectedWithdrawToken)
 
     // Validation
     if (!isAddress(recipientAddress)) {
@@ -362,10 +351,13 @@ export function PortfolioOverview() {
     }
   }
 
+  // Check if any data is refreshing
+  const isRefreshing = refreshing || holdingsRefreshing
+
   // Shimmer loading overlay component (memoized)
   const ShimmerOverlay = useMemo(() => {
     return () => (
-      <div className="absolute inset-0 bg-card/50 backdrop-blur-sm rounded-xl overflow-hidden">
+      <div className="absolute inset-0 bg-card/50 backdrop-blur-sm rounded-xl overflow-hidden z-10">
         <div className="h-full w-full bg-gradient-to-r from-transparent via-primary/20 to-transparent animate-shimmer bg-[length:200%_100%]" />
       </div>
     )
@@ -373,7 +365,7 @@ export function PortfolioOverview() {
 
   return (
     <div className="bg-card/30 backdrop-blur-xl border border-border/30 rounded-xl p-6 space-y-6 relative">
-      {(isLoading || refreshing) && <ShimmerOverlay />}
+      {(isLoading || isRefreshing) && <ShimmerOverlay />}
       
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -395,21 +387,21 @@ export function PortfolioOverview() {
             Details
           </button>
           <button
-            onClick={() => refresh()}
-            disabled={refreshing || isLoading}
+            onClick={() => refreshAllData()}
+            disabled={isRefreshing || isLoading}
             className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded-lg transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing || isLoading ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            <RefreshCw className={`h-4 w-4 ${isRefreshing || isLoading ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
 
-      {/* Main Content Grid */}
+      {/* Main Content Grid - Giữ nguyên layout 2 cột */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Portfolio Stats */}
+        {/* Left: Portfolio Stats - Tập trung vào performance & actions */}
         <div className="space-y-4">
-          {/* Total Value */}
+          {/* Total Value - Bỏ thông tin trùng lặp, chỉ hiển thị total value */}
           <div className="bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg p-4 shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -473,7 +465,7 @@ export function PortfolioOverview() {
             </div>
           </div>
 
-          {/* Trading Statistics */}
+          {/* Trading Statistics - Compact hơn */}
           <div className="bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg p-3 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1 h-4 bg-primary rounded-full"></div>
@@ -521,31 +513,8 @@ export function PortfolioOverview() {
           </div>
         </div>
 
-        {/* Right: Token Holdings Component */}
-        <div className="space-y-4">
-          {/* Token Holdings Header with Action */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <PieChart className="h-5 w-5 text-primary" />
-              <span className="text-sm font-medium text-foreground">Token Holdings</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground bg-card/60 backdrop-blur-sm border border-border/30 px-2 py-1 rounded">
-                {holdingsData.length} tokens
-              </span>
-              {holdingsData.length > 0 && (
-                <button
-                  onClick={() => setShowTokenHoldingsModal(true)}
-                  className="text-xs text-primary hover:text-primary/80 hover:bg-primary/10 px-2 py-1 rounded transition-colors flex items-center gap-1"
-                >
-                  <Eye className="h-3 w-3" />
-                  View All
-                </button>
-              )}
-            </div>
-          </div>
-          
-          {/* Token Holdings Component */}
+        {/* Right: Token Holdings Component - Loại bỏ thông tin trùng lặp */}
+        <div>
           <TokenHoldings />
         </div>
       </div>
@@ -597,7 +566,7 @@ export function PortfolioOverview() {
                 </code>
                 {walletAddress && (
                   <button
-                    onClick={() => copyToClipboard(walletAddress)}
+                    onClick={() => handleCopyToClipboard(walletAddress)}
                     className="p-1 hover:bg-muted/20 rounded"
                   >
                     {copiedAddress ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
@@ -645,7 +614,7 @@ export function PortfolioOverview() {
                     </div>
                     <div className="bg-white p-3 rounded-lg mb-3">
                       <img 
-                        src={generateQRCode(walletAddress)} 
+                        src={generateQRCodeUrl(walletAddress)} 
                         alt="Wallet QR Code" 
                         className="w-40 h-40 mx-auto"
                       />
@@ -657,7 +626,7 @@ export function PortfolioOverview() {
                       <div className="flex items-center gap-2 p-2 bg-muted/20 rounded border">
                         <div className="text-xs font-mono flex-1 truncate">{walletAddress}</div>
                         <button
-                          onClick={() => copyToClipboard(walletAddress)}
+                          onClick={() => handleCopyToClipboard(walletAddress)}
                           className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/20 hover:bg-primary/30 text-primary rounded transition-colors"
                         >
                           {copiedAddress ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
@@ -672,7 +641,7 @@ export function PortfolioOverview() {
                     <p>• Funds will appear in your portfolio after confirmation</p>
                     <p>• Only send tokens on supported networks</p>
                     <p className="text-xs text-primary/70 mt-2">
-                      💡 Note: After successful deposit, call refreshPortfolioAfterTransaction('deposit') to update balances
+                      💡 Note: Only BNB and Base networks are supported for now. More networks will be supported in the future. Please deposit on the correct network.
                     </p>
                   </div>
                 </>
@@ -753,13 +722,7 @@ export function PortfolioOverview() {
                                       {chainConfig?.name || `Chain ${holding.chainId}`}
                                     </span>
                                     <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                                      {holding.tokenAddress === '0x0000000000000000000000000000000000000000' ||
-                                       holding.tokenSymbol === 'ETH' ||
-                                       holding.tokenSymbol === 'BNB' ||
-                                       holding.tokenSymbol === 'MATIC'
-                                        ? 'Native' 
-                                        : 'ERC20'
-                                      }
+                                      {isNativeToken(holding) ? 'Native' : 'ERC20'}
                                     </span>
                                   </div>
                                   <div className="text-xs text-muted-foreground">
@@ -823,12 +786,9 @@ export function PortfolioOverview() {
                                 {getChainConfig(selectedWithdrawToken.chainId)?.name || `Chain ${selectedWithdrawToken.chainId}`}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {selectedWithdrawToken.tokenAddress === '0x0000000000000000000000000000000000000000' ||
-                                 selectedWithdrawToken.tokenSymbol === 'ETH' ||
-                                 selectedWithdrawToken.tokenSymbol === 'BNB' ||
-                                 selectedWithdrawToken.tokenSymbol === 'MATIC'
+                                {isNativeToken(selectedWithdrawToken) 
                                   ? 'Native Token' 
-                                  : `ERC20 • ${selectedWithdrawToken.tokenAddress?.slice(0, 6)}...${selectedWithdrawToken.tokenAddress?.slice(-4)}`
+                                  : `ERC20 • ${truncateAddress(selectedWithdrawToken.tokenAddress)}`
                                 }
                               </div>
                             </div>
@@ -900,39 +860,6 @@ export function PortfolioOverview() {
                   <p className="text-sm text-muted-foreground">No tokens available for withdrawal</p>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Token Holdings Modal - Full Screen */}
-      {showTokenHoldingsModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-card border border-border/50 rounded-xl w-full max-w-6xl max-h-[90vh] overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border/30">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-r from-primary to-primary/60 rounded-full flex items-center justify-center">
-                  <PieChart className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold">Token Holdings</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {holdingsData.length} tokens • Total value: {formatCurrency(holdingsData.reduce((sum, holding) => sum + holding.valueUSD, 0))}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowTokenHoldingsModal(false)}
-                className="text-muted-foreground hover:text-foreground p-2 rounded-lg hover:bg-muted/20 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-              <TokenHoldings />
             </div>
           </div>
         </div>

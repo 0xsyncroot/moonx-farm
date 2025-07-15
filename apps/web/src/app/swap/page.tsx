@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useEffect } from 'react'
-import { Header } from '@/components/layout/header'
 import { SwapInterfaceWrapper } from '@/components/swap/swap-interface-wrapper'
 import { SwapPageHeader } from '@/components/swap/swap-page-header'
 import { SmartRoutingPanel } from '@/components/swap/smart-routing-panel'
@@ -27,8 +26,6 @@ export default function SwapPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <Header />
-
       {/* WebSocket Connection Status Indicator (development only) */}
       {process.env.NODE_ENV === 'development' && (
         <div className="fixed top-4 right-4 z-50">
@@ -79,51 +76,16 @@ export default function SwapPage() {
 
       {/* Styles */}
       <style jsx>{`
-        /* Hover-only scrollbar */
-        .hover-scrollbar {
-          scrollbar-width: none; /* Firefox */
-          -ms-overflow-style: none; /* IE and Edge */
+        .glass {
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
-        .hover-scrollbar::-webkit-scrollbar {
-          width: 0px;
-          background: transparent;
-        }
-        
-        .hover-scrollbar:hover {
-          scrollbar-width: thin; /* Firefox */
-        }
-        
-        .hover-scrollbar:hover::-webkit-scrollbar {
-          width: 4px;
-        }
-        
-        .hover-scrollbar:hover::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        
-        .hover-scrollbar:hover::-webkit-scrollbar-thumb {
-          background: rgba(156, 163, 175, 0.5);
-          border-radius: 2px;
-        }
-        
-        .hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
-          background: rgba(156, 163, 175, 0.7);
-        }
-        
-        /* Keep custom-scrollbar for other uses */
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(156, 163, 175, 0.5);
-          border-radius: 2px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(156, 163, 175, 0.7);
+        .glass-dark {
+          background: rgba(0, 0, 0, 0.2);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
         }
       `}</style>
     </div>

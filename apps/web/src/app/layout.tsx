@@ -8,6 +8,7 @@ import { ChatProvider } from '@/components/ai/chat-provider'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { LiliScreenWalker } from '@/components/ai/lili-screen-walker'
 import { WebSocketProviderWrapper } from '@/components/providers/websocket-provider'
+import { Header } from '@/components/layout/header'
 // import { PrivyWalletDebug } from '@/components/debug/privy-wallet-debug'
 import { Toaster } from 'react-hot-toast'
 import { cn } from '@/lib/utils'
@@ -91,6 +92,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
               <WebSocketProviderWrapper>
                 <ChatProvider>
                   <div className="relative flex min-h-screen flex-col">
+                    <Header />
                     <div className="flex-1">{children}</div>
                   </div>
                   <Toaster

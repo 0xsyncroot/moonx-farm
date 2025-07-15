@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, useSelectedLayoutSegment } from 'next/navigation'
 import { Moon, Sun, Menu, X, Copy, ExternalLink, ChevronDown, Wallet, LogOut, Settings, User2, Zap } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
@@ -23,15 +23,16 @@ import { ChainIcon } from '@/components/ui/chain-icon'
 import { useTestnet } from '@/hooks/use-testnet'
 
 const navigation = [
-  { name: 'Swap', href: '/swap' },
-  { name: 'Orders', href: '/orders' },
-  { name: 'Portfolio', href: '/portfolio' },
-  { name: 'Alerts', href: '/alerts' },
+  { name: 'Swap', href: '/swap', segment: 'swap' },
+  { name: 'Orders', href: '/orders', segment: 'orders' },
+  { name: 'Portfolio', href: '/portfolio', segment: 'portfolio' },
+  { name: 'Alerts', href: '/alerts', segment: 'alerts' },
 ]
 
 export function Header() {
   const router = useRouter()
-  const pathname = usePathname()
+  const activeSegment = useSelectedLayoutSegment()
+  
   const { theme, setTheme } = useTheme()
   const { user, login } = usePrivy()
   const { wallets } = useWallets()
@@ -277,6 +278,30 @@ export function Header() {
     }
   }, [user])
 
+  // Helper function to determine if navigation item is active
+  const isNavigationActive = (item: { name: string; href: string; segment: string }) => {
+    // Handle root path case - when activeSegment is null, we're at root "/"
+    // Since root redirects to /swap, both null and 'swap' should activate Swap
+    if (item.segment === 'swap') {
+      return activeSegment === null || activeSegment === 'swap'
+    }
+    
+    // For other segments, direct match with the segment name
+    return activeSegment === item.segment
+  }
+
+  /**
+   * Navigation active state logic using useSelectedLayoutSegment:
+   * - Root path "/" → activeSegment = null → 'Swap' button is active
+   * - "/swap" → activeSegment = 'swap' → 'Swap' button is active
+   * - "/orders" → activeSegment = 'orders' → 'Orders' button is active  
+   * - "/portfolio" → activeSegment = 'portfolio' → 'Portfolio' button is active
+   * - "/alerts" → activeSegment = 'alerts' → 'Alerts' button is active
+   * 
+   * This approach handles query parameters, hash fragments, and complex URLs correctly
+   * as useSelectedLayoutSegment only returns the route segment name, ignoring URL search params.
+   */
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-white/5 bg-gray-900/80 backdrop-blur-xl">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
@@ -311,7 +336,7 @@ export function Header() {
                   onClick={() => handleNavigation(item.href)}
                   className={cn(
                     "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
-                    (pathname === item.href || (item.href === '/swap' && (pathname === '/' || pathname === '/swap')))
+                    isNavigationActive(item)
                       ? 'text-white bg-white/10 border border-white/20' 
                       : 'text-gray-300 hover:text-white hover:bg-white/5'
                   )}
@@ -613,7 +638,7 @@ export function Header() {
                     onClick={() => handleNavigation(item.href)}
                     className={cn(
                       "text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                      pathname === item.href 
+                      isNavigationActive(item)
                         ? 'text-white bg-white/10 border border-white/20' 
                         : 'text-gray-300 hover:text-white hover:bg-white/5'
                     )}
