@@ -3,73 +3,181 @@
 import { useState, useMemo } from 'react'
 import Image from 'next/image'
 import { useTokenHoldings } from '@/hooks/useTokenHoldings'
-import { RefreshCw, Search, Eye, EyeOff, PieChart, ArrowUp, ArrowDown } from 'lucide-react'
+import { getChainConfig } from '@/config/chains'
+import { RefreshCw, PieChart, Eye, X, Search, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from 'lucide-react'
+import { TokenHoldingDetail } from './token-holding-detail'
 
-export function TokenHoldings() {
-  const { holdings, isLoading, error, refresh, refreshing, cacheAge } = useTokenHoldings()
+// Enhanced Pie Chart Component with Tooltips
+const TokenPieChart = ({ tokens, totalValue }: { tokens: any[], totalValue: number }) => {
+  const [hoveredSegment, setHoveredSegment] = useState<number | null>(null)
   
-  const [searchTerm, setSearchTerm] = useState('')
-  const [sortBy, setSortBy] = useState<'value' | 'allocation' | 'symbol' | 'balance'>('value')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-  const [hideSmallHoldings, setHideSmallHoldings] = useState(false)
-
-  // Memoize the data to prevent useMemo dependency issues
-  const data = useMemo(() => holdings || [], [holdings])
-
-  // Filter and sort holdings
-  const filteredHoldings = useMemo(() => {
-    const filtered = data.filter(holding => {
-      const matchesSearch = holding.tokenSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           holding.tokenName?.toLowerCase().includes(searchTerm.toLowerCase())
-      const meetsMinimum = !hideSmallHoldings || holding.valueUSD >= 5 // $5 minimum
-      return matchesSearch && meetsMinimum
-    })
-
-    // Sort holdings
-    filtered.sort((a, b) => {
-      let aValue: number | string, bValue: number | string
-      switch (sortBy) {
-        case 'value':
-          aValue = a.valueUSD
-          bValue = b.valueUSD
-          break
-        case 'allocation':
-          aValue = a.allocation || 0
-          bValue = b.allocation || 0
-          break
-        case 'symbol':
-          aValue = a.tokenSymbol
-          bValue = b.tokenSymbol
-          break
-        case 'balance':
-          // Use balanceFormatted for numeric comparison
-          aValue = a.balanceFormatted || 0
-          bValue = b.balanceFormatted || 0
-          break
-        default:
-          aValue = a.valueUSD
-          bValue = b.valueUSD
-      }
-
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue)
-      }
-      return sortOrder === 'asc' ? (aValue as number) - (bValue as number) : (bValue as number) - (aValue as number)
-    })
-
-    return filtered
-  }, [data, searchTerm, sortBy, sortOrder, hideSmallHoldings])
-
-  // Format currency
   const formatCurrency = (value: number) => {
     if (value < 0.01) return '$0.00'
-    if (value < 1) return `$${value.toFixed(4)}`
     if (value < 1000) return `$${value.toFixed(2)}`
     if (value < 1000000) return `$${(value / 1000).toFixed(1)}K`
     return `$${(value / 1000000).toFixed(1)}M`
   }
 
-  // Format balance - expects number from API
+  // Debug log
+  console.log('🔍 TokenPieChart - Debug:', {
+    tokens: tokens.length,
+    totalValue,
+    firstToken: tokens[0],
+    allTokens: tokens,
+    hoveredSegment
+  })
+
+  // Show fallback if no data
+  if (!tokens.length || totalValue === 0) {
+    return (
+      <div className="flex items-center justify-center">
+        <div className="relative w-32 h-32">
+          <div className="w-32 h-32 border-8 border-muted/20 rounded-full" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-sm font-bold text-muted-foreground">$0.00</div>
+              <div className="text-xs text-muted-foreground">No Data</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Calculate percentages for each token
+  const chartData = tokens.map((token, index) => ({
+    ...token,
+    percentage: (token.valueUSD / totalValue) * 100,
+    color: `hsl(${(index * 360) / tokens.length}, 70%, 50%)`
+  }))
+
+  // Create a simple donut chart using CSS
+  let cumulativePercentage = 0
+  const circumference = 2 * Math.PI * 35 // radius = 35
+
+  return (
+    <div className="flex items-center justify-center relative">
+      <div className="relative w-24 h-24">
+        <svg className="w-24 h-24 transform -rotate-90 cursor-pointer" viewBox="0 0 100 100">
+          {/* Background circle */}
+          <circle
+            cx="50"
+            cy="50"
+            r="35"
+            fill="transparent"
+            stroke="rgb(148 163 184 / 0.2)"
+            strokeWidth="6"
+          />
+          
+          {/* Pie segments */}
+          {chartData.map((segment, index) => {
+            const strokeDasharray = `${(segment.percentage / 100) * circumference} ${circumference}`
+            const strokeDashoffset = -cumulativePercentage * circumference / 100
+            
+            const result = (
+              <circle
+                key={index}
+                cx="50"
+                cy="50"
+                r="35"
+                fill="transparent"
+                stroke={segment.color}
+                strokeWidth="6"
+                strokeDasharray={strokeDasharray}
+                strokeDashoffset={strokeDashoffset}
+                className="transition-all duration-300 hover:opacity-100 cursor-pointer"
+                opacity={hoveredSegment === index ? "1" : "0.8"}
+                onMouseEnter={() => setHoveredSegment(index)}
+                onMouseLeave={() => setHoveredSegment(null)}
+              />
+            )
+            
+            cumulativePercentage += segment.percentage
+            return result
+          })}
+        </svg>
+        
+        {/* Center content */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center">
+            {hoveredSegment !== null ? (
+              <>
+                <div className="text-xs font-semibold text-foreground">
+                  {chartData[hoveredSegment].tokenSymbol}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {formatCurrency(chartData[hoveredSegment].valueUSD)}
+                </div>
+                <div className="text-xs text-primary">
+                  {chartData[hoveredSegment].percentage.toFixed(1)}%
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs font-bold text-foreground">{formatCurrency(totalValue)}</div>
+                <div className="text-xs text-muted-foreground">Total</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* Hover tooltip */}
+      {hoveredSegment !== null && (
+        <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black/90 text-white px-2 py-1 rounded text-xs z-20 whitespace-nowrap shadow-lg">
+          <div className="font-medium">{chartData[hoveredSegment].tokenSymbol}</div>
+          <div className="text-xs opacity-90">
+            {formatCurrency(chartData[hoveredSegment].valueUSD)} ({chartData[hoveredSegment].percentage.toFixed(1)}%)
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function TokenHoldings() {
+  const { holdings, isLoading, error } = useTokenHoldings()
+  const [selectedToken, setSelectedToken] = useState<any>(null)
+  const [showDetailModal, setShowDetailModal] = useState(false)
+
+  // Memoize the data to prevent useMemo dependency issues
+  const data = useMemo(() => {
+    console.log('🔍 Holdings Data:', holdings)
+    return holdings || []
+  }, [holdings])
+
+  // Calculate total value first
+  const totalValue = useMemo(() => {
+    const total = data.reduce((sum, holding) => sum + (holding.valueUSD || 0), 0)
+    console.log('🔍 Total Value Calculated:', { total, dataLength: data.length, data })
+    return total
+  }, [data])
+
+  // Get top 5 tokens by value for display
+  const topTokens = useMemo(() => {
+    const filtered = data.filter(holding => holding.valueUSD > 0) // Only tokens with value
+    const sorted = filtered.sort((a, b) => b.valueUSD - a.valueUSD) // Sort by value desc
+    const top5 = sorted.slice(0, 5) // Take top 5
+    
+    console.log('🔍 Top Tokens Processing:', {
+      originalData: data.length,
+      filtered: filtered.length,
+      top5: top5.length,
+      top5Tokens: top5
+    })
+    
+    return top5
+  }, [data])
+
+  // Format currency
+  const formatCurrency = (value: number) => {
+    if (value < 0.01) return '$0.00'
+    if (value < 1000) return `$${value.toFixed(2)}`
+    if (value < 1000000) return `$${(value / 1000).toFixed(1)}K`
+    return `$${(value / 1000000).toFixed(1)}M`
+  }
+
+  // Format balance
   const formatBalance = (balanceFormatted: number) => {
     if (isNaN(balanceFormatted) || balanceFormatted === 0) return '0'
     
@@ -80,321 +188,213 @@ export function TokenHoldings() {
     return `${(balanceFormatted / 1000000).toFixed(1)}M`
   }
 
-  // Calculate total value
-  const totalValue = data.reduce((sum, holding) => sum + holding.valueUSD, 0)
-
-  // Categorize holdings
-  const largeHoldings = filteredHoldings.filter(h => h.valueUSD >= 1000)
-  const mediumHoldings = filteredHoldings.filter(h => h.valueUSD >= 100 && h.valueUSD < 1000)
-  const smallHoldings = filteredHoldings.filter(h => h.valueUSD < 100)
-
-  // Calculate cache freshness
-  const isDataFresh = cacheAge < 2 * 60 * 1000 // 2 minutes
-  const cacheMinutes = Math.floor(cacheAge / 60000)
-
-  // Toggle sort order
-  const toggleSort = (field: typeof sortBy) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortBy(field)
-      setSortOrder('desc')
-    }
+  const openTokenDetail = (token: any) => {
+    console.log('🔍 Opening token detail for:', token)
+    setSelectedToken(token)
+    setShowDetailModal(true)
   }
 
-  // Shimmer loading overlay component
-  const ShimmerOverlay = () => (
-    <div className="absolute inset-0 bg-card/50 backdrop-blur-sm rounded-xl overflow-hidden">
-      <div className="h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer bg-[length:200%_100%]" />
+  // Loading skeleton component
+  const LoadingSkeleton = () => (
+    <div className="space-y-4">
+      {/* Chart skeleton */}
+      <div className="bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg p-4 shadow-sm">
+        <div className="w-32 h-32 bg-muted/30 rounded-full mx-auto animate-pulse" />
+      </div>
+      
+      {/* List skeleton */}
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between p-2 bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg shadow-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-muted/30 rounded-full animate-pulse" />
+              <div className="w-12 h-4 bg-muted/30 rounded animate-pulse" />
+            </div>
+            <div className="text-right">
+              <div className="w-16 h-4 bg-muted/30 rounded animate-pulse mb-1" />
+              <div className="w-8 h-3 bg-muted/30 rounded animate-pulse" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 
+  // Empty state component
+  const EmptyState = () => (
+    <div className="text-center">
+      <div className="w-16 h-16 bg-card/60 backdrop-blur-sm border border-border/40 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+        <PieChart className="h-8 w-8 text-muted-foreground/50" />
+      </div>
+      <h3 className="text-lg font-semibold mb-2">No Holdings Found</h3>
+      <p className="text-sm text-muted-foreground">
+        Start trading to see your token holdings here!
+      </p>
+    </div>
+  )
+
+  // Show loading skeleton when loading
+  if (isLoading && !data.length) {
+    return <LoadingSkeleton />
+  }
+
+  // Show empty state when no data
+  if (!isLoading && !data.length) {
+    return <EmptyState />
+  }
+
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <PieChart className="h-5 w-5 text-primary/70" />
-          <div>
-            <h2 className="text-lg font-semibold">Token Holdings</h2>
-            <p className="text-xs text-muted-foreground">Portfolio positions</p>
-          </div>
-          {!isDataFresh && !refreshing && !isLoading && (
-            <span className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded">
-              {cacheMinutes}m ago
-            </span>
-          )}
-          {(refreshing || isLoading) && (
-            <span className="text-xs text-primary bg-primary/20 px-2 py-1 rounded flex items-center gap-1">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              {isLoading ? 'Loading...' : 'Updating...'}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => refresh()}
-          disabled={refreshing || isLoading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border/50 rounded-lg hover:bg-muted/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px] justify-center"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing || isLoading ? 'animate-spin' : ''}`} />
-          <span className="font-medium">
-            {refreshing ? 'Refreshing...' : isLoading ? 'Loading...' : 'Refresh'}
-          </span>
-        </button>
-      </div>
+      {/* Horizontal Layout: Chart Left + Token List Right */}
+      {topTokens.length > 0 ? (
+        <div className="bg-card/60 backdrop-blur-sm border-0 rounded-xl overflow-hidden h-[352px] shadow-lg ring-1 ring-border/20">
+          <div className="grid grid-cols-12 gap-0 h-full">
+            {/* Left: Compact Pie Chart */}
+            <div className="col-span-4 bg-gradient-to-br from-card/50 to-card/30 backdrop-blur-sm border-r border-border/20 p-4 flex items-center justify-center">
+              <div className="relative">
+                <TokenPieChart tokens={topTokens} totalValue={totalValue} />
+              </div>
+            </div>
 
-      {/* Show error state */}
-      {error && !refreshing && !isLoading && (
-        <div className="bg-error/10 border border-error/20 rounded-xl p-4 text-center">
-          <div className="text-error font-medium mb-2">Failed to load holdings data</div>
-          <div className="text-sm text-muted-foreground">
-            {holdings ? 'Showing cached data' : 'Please try refreshing'}
+            {/* Right: Token List */}
+            <div className="col-span-8 flex flex-col h-full bg-gradient-to-b from-card/20 to-card/10">
+              {/* Header */}
+              <div className="px-4 py-3 bg-gradient-to-r from-card/60 to-card/40 backdrop-blur-sm border-b border-border/20 flex-shrink-0">
+                <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <div className="col-span-4 flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
+                    Holdings
+                  </div>
+                  <div className="col-span-3 text-right">Price</div>
+                  <div className="col-span-2 text-right">Balance</div>
+                  <div className="col-span-3 text-right">Value</div>
+                </div>
+              </div>
+
+              {/* Token Rows - Fill remaining space */}
+              <div className="flex-1 overflow-y-auto">
+                {topTokens.map((holding, index) => {
+                  const chainConfig = getChainConfig(holding.chainId)
+                  const allocation = ((holding.valueUSD / totalValue) * 100).toFixed(1)
+                  const tokenPrice = holding.priceUSD || (holding.balanceFormatted > 0 ? holding.valueUSD / holding.balanceFormatted : 0)
+                  
+                  return (
+                    <div 
+                      key={`${holding.tokenSymbol}-${index}`}
+                      onClick={() => openTokenDetail(holding)}
+                      className={`px-4 py-3 hover:bg-gradient-to-r hover:from-card/60 hover:to-card/40 cursor-pointer transition-all duration-300 group relative ${
+                        index < topTokens.length - 1 ? 'border-b border-border/10' : ''
+                      }`}
+                    >
+                      {/* Hover indicator */}
+                      <div className="absolute left-0 top-0 h-full w-0.5 bg-primary opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-r-full"></div>
+                      
+                      <div className="grid grid-cols-12 gap-2 items-center">
+                        {/* Holdings Column */}
+                        <div className="col-span-4 flex items-center gap-3 min-w-0">
+                          <div 
+                            className="w-2.5 h-2.5 rounded-full flex-shrink-0 ring-1 ring-white/10"
+                            style={{ backgroundColor: `hsl(${(index * 360) / topTokens.length}, 70%, 55%)` }}
+                          />
+                          
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/40 to-primary/20 ring-1 ring-border/20 flex items-center justify-center flex-shrink-0 shadow-sm">
+                            {holding.logoUrl ? (
+                              <img 
+                                src={holding.logoUrl} 
+                                alt={holding.tokenSymbol}
+                                className="w-5 h-5 rounded-full"
+                              />
+                            ) : (
+                              <span className="text-xs font-bold text-primary">
+                                {holding.tokenSymbol.charAt(0)}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">
+                                {holding.tokenSymbol}
+                              </span>
+                              <span className="text-xs bg-gradient-to-r from-card/80 to-card/60 backdrop-blur-sm ring-1 ring-border/20 text-muted-foreground px-1.5 py-0.5 rounded-full">
+                                {chainConfig?.name?.slice(0, 4) || 'Chain'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Price Column */}
+                        <div className="col-span-3 text-right">
+                          <div className="text-sm font-medium text-foreground">
+                            {formatCurrency(tokenPrice)}
+                          </div>
+                        </div>
+
+                        {/* Balance Column */}
+                        <div className="col-span-2 text-right">
+                          <div className="text-sm font-medium text-foreground">
+                            {formatBalance(holding.balanceFormatted)}
+                          </div>
+                        </div>
+
+                        {/* Value Column */}
+                        <div className="col-span-3 text-right">
+                          <div className="text-sm font-semibold text-foreground">
+                            {formatCurrency(holding.valueUSD)}
+                          </div>
+                          <div className="text-xs text-primary font-medium bg-primary/10 ring-1 ring-primary/20 px-1.5 py-0.5 rounded-full inline-block">
+                            {allocation}%
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                
+                {/* Fill remaining space if less than 5 tokens */}
+                {topTokens.length < 5 && (
+                  <div className="flex-1 flex items-center justify-center py-8">
+                    <div className="text-center text-muted-foreground">
+                      <div className="w-12 h-12 bg-gradient-to-br from-muted/20 to-muted/10 ring-1 ring-border/10 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <PieChart className="h-6 w-6 text-muted-foreground/50" />
+                      </div>
+                      <div className="text-sm opacity-70">
+                        {data.length > 5 ? `+${data.length - 5} more tokens available` : 'Ready for more tokens'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer - Fixed at bottom */}
+              {data.length > 5 && (
+                <div className="px-4 py-3 bg-gradient-to-r from-card/60 to-card/40 backdrop-blur-sm border-t border-border/20 flex-shrink-0">
+                  <div className="text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
+                    <span className="font-medium">+{data.length - 5} more tokens available</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+        </div>
+      ) : (
+        <div className="bg-card/60 backdrop-blur-sm border-0 rounded-xl h-[352px] flex items-center justify-center shadow-lg ring-1 ring-border/20">
+          <EmptyState />
         </div>
       )}
 
-      {/* Summary Statistics with shimmer loading */}
-      <div className={`bg-card/50 backdrop-blur-xl border border-border/50 rounded-xl p-4 transition-opacity relative`}>
-        {(isLoading || refreshing) && <ShimmerOverlay />}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-lg font-bold text-foreground">{filteredHoldings.length}</div>
-            <div className="text-xs text-muted-foreground">Total Holdings</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-success">{largeHoldings.length}</div>
-            <div className="text-xs text-muted-foreground">Large ($1K+)</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-warning">{mediumHoldings.length}</div>
-            <div className="text-xs text-muted-foreground">Medium ($100+)</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-muted-foreground">{smallHoldings.length}</div>
-            <div className="text-xs text-muted-foreground">Small (&lt;$100)</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search tokens..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-card/50 border border-border/50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
-          />
-        </div>
-
-        {/* Hide Small Holdings Toggle */}
-        <button
-          onClick={() => setHideSmallHoldings(!hideSmallHoldings)}
-          className={`flex items-center gap-2 px-3 py-2 text-sm border border-border/50 rounded-lg transition-colors ${
-            hideSmallHoldings
-              ? 'bg-primary/10 border-primary/30 text-primary'
-              : 'bg-card/50 text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {hideSmallHoldings ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          Hide Small
-        </button>
-      </div>
-
-      {/* Sort Headers */}
-      <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-muted/20 border border-border/30 rounded-lg text-xs font-medium text-muted-foreground">
-        <div className="col-span-4">
-          <button
-            onClick={() => toggleSort('symbol')}
-            className="flex items-center gap-1 hover:text-foreground transition-colors"
-          >
-            Token
-            {sortBy === 'symbol' && (
-              sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-            )}
-          </button>
-        </div>
-        <div className="col-span-2">
-          <button
-            onClick={() => toggleSort('balance')}
-            className="flex items-center gap-1 hover:text-foreground transition-colors"
-          >
-            Balance
-            {sortBy === 'balance' && (
-              sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-            )}
-          </button>
-        </div>
-        <div className="col-span-3">
-          <button
-            onClick={() => toggleSort('value')}
-            className="flex items-center gap-1 hover:text-foreground transition-colors"
-          >
-            Value
-            {sortBy === 'value' && (
-              sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-            )}
-          </button>
-        </div>
-        <div className="col-span-3">
-          <button
-            onClick={() => toggleSort('allocation')}
-            className="flex items-center gap-1 hover:text-foreground transition-colors"
-          >
-            Allocation
-            {sortBy === 'allocation' && (
-              sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Holdings List with shimmer loading */}
-      <div className={`space-y-2 relative`}>
-        {(isLoading || refreshing) && filteredHoldings.length > 0 && (
-          <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm rounded-xl">
-            <div className="h-full w-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer bg-[length:200%_100%]" />
-          </div>
-        )}
-        
-        {filteredHoldings.length === 0 && !isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">
-            {searchTerm || hideSmallHoldings ? 'No holdings match your filters' : 'No holdings found'}
-          </div>
-        ) : filteredHoldings.length === 0 && isLoading ? (
-          // Show skeleton items for initial loading
-          <div className="space-y-2">
-            {[...Array(5)].map((_, index) => (
-              <div key={index} className="grid grid-cols-12 gap-2 items-center p-3 bg-card/30 border border-border/30 rounded-lg relative overflow-hidden">
-                <div className="h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer bg-[length:200%_100%] absolute inset-0" />
-                <div className="col-span-4 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-muted/50"></div>
-                  <div className="space-y-1">
-                    <div className="h-4 w-16 bg-muted/50 rounded"></div>
-                    <div className="h-3 w-20 bg-muted/30 rounded"></div>
-                  </div>
-                </div>
-                <div className="col-span-2 text-right">
-                  <div className="h-4 w-12 bg-muted/50 rounded ml-auto"></div>
-                </div>
-                <div className="col-span-3 text-right">
-                  <div className="h-4 w-16 bg-muted/50 rounded ml-auto"></div>
-                </div>
-                <div className="col-span-3 text-right">
-                  <div className="h-4 w-12 bg-muted/50 rounded ml-auto"></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          filteredHoldings.map((holding, index) => (
-            <div
-              key={`${holding.tokenSymbol}-${index}`}
-              className="grid grid-cols-12 gap-2 items-center p-3 bg-card/30 border border-border/30 rounded-lg hover:bg-card/50 transition-colors group"
-            >
-              {/* Token Info */}
-              <div className="col-span-4 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary/30 to-primary/20 flex items-center justify-center flex-shrink-0">
-                  {holding.logoUrl ? (
-                    <Image 
-                      src={holding.logoUrl} 
-                      alt={holding.tokenSymbol}
-                      width={24}
-                      height={24}
-                      className="rounded-full"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none'
-                        const nextElement = e.currentTarget.nextElementSibling as HTMLElement
-                        if (nextElement) {
-                          nextElement.style.display = 'flex'
-                        }
-                      }}
-                    />
-                  ) : null}
-                  <div className={`text-xs font-bold text-primary ${holding.logoUrl ? 'hidden' : 'flex'}`}>
-                    {holding.tokenSymbol.charAt(0)}
-                  </div>
-                </div>
-                <div className="min-w-0">
-                  <div className="font-medium text-sm truncate">{holding.tokenSymbol}</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {holding.tokenName || 'Unknown Token'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Balance */}
-              <div className="col-span-2 text-right">
-                <div className="text-sm font-medium">{formatBalance(holding.balanceFormatted)}</div>
-                <div className="text-xs text-muted-foreground">
-                  {holding.tokenSymbol}
-                </div>
-              </div>
-
-              {/* Value */}
-              <div className="col-span-3 text-right">
-                <div className="text-sm font-medium">{formatCurrency(holding.valueUSD)}</div>
-                <div className="text-xs text-muted-foreground">
-                  {holding.priceUSD ? `$${holding.priceUSD.toFixed(6)}` : 'N/A'}
-                </div>
-              </div>
-
-              {/* Allocation */}
-              <div className="col-span-3 text-right">
-                <div className="text-sm font-medium">{(holding.allocation || 0).toFixed(2)}%</div>
-                <div className="w-full bg-muted/20 rounded-full h-1.5 mt-1">
-                  <div
-                    className="bg-gradient-to-r from-primary to-primary/70 h-1.5 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(holding.allocation || 0, 100)}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Holdings Summary */}
-      {filteredHoldings.length > 0 && (
-        <div className={`bg-gradient-to-r from-card/50 to-card/30 backdrop-blur-xl border border-border/30 rounded-xl p-4 transition-opacity relative`}>
-          {(isLoading || refreshing) && <ShimmerOverlay />}
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="font-semibold text-foreground">Portfolio Summary</h4>
-              <p className="text-sm text-muted-foreground">
-                {filteredHoldings.length} holdings • {formatCurrency(totalValue)} total value
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-lg font-bold text-foreground">{formatCurrency(totalValue)}</div>
-              <div className="text-xs text-muted-foreground">Total Value</div>
-            </div>
-          </div>
-          
-          {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-border/30">
-            <div className="text-center">
-              <div className="text-sm font-bold text-success">{largeHoldings.length}</div>
-              <div className="text-xs text-muted-foreground">Large Holdings</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm font-bold text-primary">
-                {filteredHoldings.length > 0 ? (filteredHoldings[0].allocation || 0).toFixed(1) : 0}%
-              </div>
-              <div className="text-xs text-muted-foreground">Top Allocation</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm font-bold text-foreground">
-                {filteredHoldings.length > 5 ? 'High' : filteredHoldings.length > 2 ? 'Medium' : 'Low'}
-              </div>
-              <div className="text-xs text-muted-foreground">Diversification</div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Token Detail Modal */}
+      <TokenHoldingDetail 
+        token={selectedToken}
+        totalPortfolioValue={totalValue}
+        isOpen={showDetailModal}
+        onClose={() => {
+          console.log('🔍 Closing token detail modal')
+          setShowDetailModal(false)
+          setSelectedToken(null)
+        }}
+      />
     </div>
   )
 } 

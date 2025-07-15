@@ -3,9 +3,9 @@
 import { Header } from '@/components/layout/header'
 import { PortfolioOverview } from '@/components/portfolio/portfolio-overview'
 import { TradeHistory } from '@/components/portfolio/trade-history'
-import { TokenHoldings } from '@/components/portfolio/token-holdings'
 import { PnLChart } from '@/components/portfolio/pnl-chart'
 import { useEffect, useState } from 'react'
+import { Users } from 'lucide-react'
 
 export default function PortfolioPage() {
   const [pageKey, setPageKey] = useState('')
@@ -25,35 +25,43 @@ export default function PortfolioPage() {
       <Header />
       
       <main className="container mx-auto mobile-padding py-8">
-        <div className="space-y-8">
-          {/* Page Header */}
-          <div className="text-center space-y-4">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+        <div className="space-y-6">
+          {/* Page Header - Clean */}
+          <div className="text-center space-y-2">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
               Portfolio Dashboard
             </h1>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Track your trading performance, analyze P&L, and manage your DeFi positions
+            <p className="text-muted-foreground">
+              Track your trades and share your success
             </p>
           </div>
 
           {/* Portfolio Overview */}
           <PortfolioOverview />
 
-          {/* Main Content Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-            {/* Token Holdings */}
-            <div className="xl:col-span-1">
-              <TokenHoldings />
-            </div>
-
-            {/* P&L Chart - takes remaining 3 columns */}
-            <div className="xl:col-span-3">
+          {/* Main Content - 2 Column Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column - Charts */}
+            <div className="space-y-6">
               <PnLChart />
             </div>
-          </div>
 
-          {/* Trade History */}
-          <TradeHistory />
+            {/* Right Column - Trades */}
+            <div className="space-y-6">
+              <TradeHistory />
+              
+              {/* Community Section */}
+              <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-sm">Share Your Wins</h3>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Share your successful trades and inspire the community!
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>

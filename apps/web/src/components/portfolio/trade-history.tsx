@@ -2,85 +2,52 @@
 
 import { useState, useMemo } from 'react'
 import { useTradeHistory } from '@/hooks/useTradeHistory'
-import { RefreshCw, History, Filter, Search, ChevronDown, ChevronUp, ArrowRightLeft, TrendingUp, TrendingDown, Calendar, Clock } from 'lucide-react'
+import { RefreshCw, TrendingUp, TrendingDown, ArrowRightLeft, Share2, Copy, Download, Camera, Twitter, Send, Trophy, ExternalLink } from 'lucide-react'
 import { formatUnits } from 'ethers'
+import { toPng } from 'html-to-image'
 
 export function TradeHistory() {
   const { trades, isLoading, error, refresh, refreshing, cacheAge } = useTradeHistory()
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterType, setFilterType] = useState<'all' | 'swap' | 'buy' | 'sell'>('all')
-  const [showFilters, setShowFilters] = useState(false)
+  const [selectedTrade, setSelectedTrade] = useState<any>(null)
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [shareCardRef, setShareCardRef] = useState<HTMLDivElement | null>(null)
 
   // Default to empty array if no data
   const data = useMemo(() => trades || [], [trades])
 
-  // Filter trades with safe property access
-  const filteredTrades = useMemo(() => {
-    const filtered = data.filter(trade => {
-      const tradeData = trade as unknown as Record<string, unknown>
-      const fromSymbol = ((tradeData.fromToken as Record<string, unknown>)?.symbol || (tradeData.tokenIn as Record<string, unknown>)?.symbol || '') as string
-      const toSymbol = ((tradeData.toToken as Record<string, unknown>)?.symbol || (tradeData.tokenOut as Record<string, unknown>)?.symbol || '') as string
-      const txHash = (tradeData.txHash || '') as string
-      
-      const matchesSearch = fromSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           toSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           txHash.toLowerCase().includes(searchTerm.toLowerCase())
-      
-      const matchesType = filterType === 'all' || 
-                         (filterType === 'swap' && tradeData.type === 'swap') ||
-                         (filterType === 'buy' && tradeData.type === 'buy') ||
-                         (filterType === 'sell' && tradeData.type === 'sell')
-      
-      return matchesSearch && matchesType
-    })
-
-    // Sort by timestamp (newest first)
-    return filtered.sort((a, b) => new Date((b as unknown as Record<string, unknown>).timestamp as string).getTime() - new Date((a as unknown as Record<string, unknown>).timestamp as string).getTime())
-  }, [data, searchTerm, filterType])
-
-  // Calculate summary statistics with safe property access
-  const summary = useMemo(() => {
-    const totalTrades = filteredTrades.length
-    const totalVolume = filteredTrades.reduce((sum, trade) => {
-      const tradeData = trade as unknown as Record<string, unknown>
-      return sum + (Number(tradeData.valueUSD) || Number((tradeData.fromToken as Record<string, unknown>)?.valueUSD) || 0)
-    }, 0)
-    const profitableTrades = filteredTrades.filter(trade => {
-      const tradeData = trade as unknown as Record<string, unknown>
-      const pnl = Number(tradeData.profitLoss) || Number((tradeData.pnl as Record<string, unknown>)?.netPnlUSD) || 0
-      return pnl > 0
-    }).length
-    const totalPnL = filteredTrades.reduce((sum, trade) => {
-      const tradeData = trade as unknown as Record<string, unknown>
-      return sum + (Number(tradeData.profitLoss) || Number((tradeData.pnl as Record<string, unknown>)?.netPnlUSD) || 0)
-    }, 0)
-    
-    return {
-      totalTrades,
-      totalVolume,
-      profitableTrades,
-      totalPnL,
-      winRate: totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0
-    }
-  }, [filteredTrades])
+  // Sort trades by timestamp (newest first)
+  const sortedTrades = useMemo(() => {
+    return data.sort((a, b) => new Date((b as any).timestamp).getTime() - new Date((a as any).timestamp).getTime())
+  }, [data])
 
   // Format currency
   const formatCurrency = (value: number) => {
-    if (value < 0.01) return '$0.00'
-    if (value < 1000) return `$${value.toFixed(2)}`
-    if (value < 1000000) return `$${(value / 1000).toFixed(1)}K`
-    return `$${(value / 1000000).toFixed(1)}M`
+    if (Math.abs(value) >= 1000000) {
+      return `$${(value / 1000000).toFixed(1)}M`
+    }
+    if (Math.abs(value) >= 1000) {
+      return `$${(value / 1000).toFixed(1)}K`
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
   }
 
-  // Format token amounts properly using ethers.js
+  const formatPercentage = (value: number) => {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+  }
+
+  // Format token amounts
   const formatTokenAmount = (amount: string | number, decimals: number = 18) => {
     try {
       if (!amount) return '0'
       
-      // Convert to string for ethers
       const amountStr = amount.toString()
       
-      // Check if it's already formatted (contains decimal point)
       if (amountStr.includes('.') && parseFloat(amountStr) < 1000000) {
         const num = parseFloat(amountStr)
         if (num < 0.0001) return '< 0.0001'
@@ -89,7 +56,6 @@ export function TradeHistory() {
         return num.toFixed(2)
       }
       
-      // Format from raw amount using ethers
       const formatted = formatUnits(amountStr, decimals)
       const num = parseFloat(formatted)
       
@@ -98,47 +64,84 @@ export function TradeHistory() {
       if (num < 1000) return num.toFixed(4).replace(/\.?0+$/, '')
       if (num < 1000000) return `${(num / 1000).toFixed(2)}K`
       return `${(num / 1000000).toFixed(2)}M`
-    } catch (error) {
-      console.warn('Error formatting token amount:', error)
+    } catch {
       return amount?.toString() || '0'
     }
   }
 
-  // Format date
-  const formatDate = (timestamp: string) => {
-    return new Date(timestamp).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })
+  // Share functions
+  const shareTransaction = (trade: any) => {
+    setSelectedTrade(trade)
+    setShowShareModal(true)
   }
 
-  // Format time
-  const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+  const generateShareImage = async () => {
+    if (!shareCardRef || !selectedTrade) return
 
-  // Get trade type color
-  const getTradeTypeColor = (type: string) => {
-    switch (type) {
-      case 'buy': return 'text-success'
-      case 'sell': return 'text-error'
-      case 'swap': return 'text-primary'
-      default: return 'text-muted-foreground'
+    setIsGenerating(true)
+    try {
+      const dataUrl = await toPng(shareCardRef, {
+        quality: 0.95,
+        width: 600,
+        height: 400,
+        backgroundColor: '#0a0a0a',
+        pixelRatio: 2,
+      })
+
+      const link = document.createElement('a')
+      link.download = `moonx-farm-trade-${Date.now()}.png`
+      link.href = dataUrl
+      link.click()
+    } catch (error) {
+      console.error('Error generating share image:', error)
+    } finally {
+      setIsGenerating(false)
     }
   }
 
-  // Get trade type icon
-  const getTradeTypeIcon = (type: string) => {
-    switch (type) {
-      case 'buy': return <TrendingUp className="h-4 w-4" />
-      case 'sell': return <TrendingDown className="h-4 w-4" />
-      case 'swap': return <ArrowRightLeft className="h-4 w-4" />
-      default: return <ArrowRightLeft className="h-4 w-4" />
+  const getShareText = (trade: any) => {
+    const pnl = trade.pnl?.netPnlUSD || trade.profitLoss || 0
+    const pnlPercent = trade.pnl?.pnlPercent || 0
+    const isProfit = pnl >= 0
+    const emoji = isProfit ? '🚀' : '😅'
+    
+    return `${emoji} Just ${isProfit ? 'made' : 'lost'} ${formatCurrency(Math.abs(pnl))} ${pnlPercent !== 0 ? `(${formatPercentage(pnlPercent)})` : ''} swapping ${trade.fromToken?.symbol} → ${trade.toToken?.symbol} on MoonX Farm!
+
+💎 Trade Value: ${formatCurrency(trade.valueUSD || 0)}
+🌙 Join MoonX Farm and start farming profits!
+#MoonXFarm #DeFi #CryptoTrading #WAGMI`
+  }
+
+  const shareToTwitter = () => {
+    if (!selectedTrade) return
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(getShareText(selectedTrade))}`
+    window.open(twitterUrl, '_blank')
+  }
+
+  const shareToTelegram = () => {
+    if (!selectedTrade) return
+    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(getShareText(selectedTrade))}`
+    window.open(telegramUrl, '_blank')
+  }
+
+  const copyToClipboard = () => {
+    if (!selectedTrade) return
+    navigator.clipboard.writeText(getShareText(selectedTrade))
+  }
+
+  // Get block explorer URL
+  const getBlockExplorerUrl = (chainId: number, txHash: string) => {
+    const explorerMap: { [key: number]: string } = {
+      1: 'https://etherscan.io',
+      56: 'https://bscscan.com',
+      8453: 'https://basescan.org',
+      137: 'https://polygonscan.com',
+      42161: 'https://arbiscan.io',
+      10: 'https://optimistic.etherscan.io',
     }
+    
+    const baseUrl = explorerMap[chainId] || explorerMap[1]
+    return `${baseUrl}/tx/${txHash}`
   }
 
   // Calculate cache freshness
@@ -148,303 +151,270 @@ export function TradeHistory() {
   // Shimmer loading overlay component
   const ShimmerOverlay = () => (
     <div className="absolute inset-0 bg-card/50 backdrop-blur-sm rounded-xl overflow-hidden">
-      <div className="h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer bg-[length:200%_100%]" />
+      <div className="h-full w-full bg-gradient-to-r from-transparent via-primary/20 to-transparent animate-shimmer bg-[length:200%_100%]" />
     </div>
   )
 
-  // Get block explorer URL for chain
-  const getBlockExplorerUrl = (chainId: number, txHash: string) => {
-    const explorerMap: { [key: number]: { url: string; name: string } } = {
-      1: { url: 'https://etherscan.io', name: 'Etherscan' },
-      56: { url: 'https://bscscan.com', name: 'BscScan' },
-      8453: { url: 'https://basescan.org', name: 'BaseScan' },
-      137: { url: 'https://polygonscan.com', name: 'PolygonScan' },
-      42161: { url: 'https://arbiscan.io', name: 'Arbiscan' },
-      10: { url: 'https://optimistic.etherscan.io', name: 'Optimism Explorer' },
-      43114: { url: 'https://snowtrace.io', name: 'SnowTrace' },
-      250: { url: 'https://ftmscan.com', name: 'FTMScan' },
-      25: { url: 'https://cronoscan.com', name: 'CronoScan' },
-      100: { url: 'https://gnosisscan.io', name: 'GnosisScan' },
-    }
-    
-    const explorer = explorerMap[chainId] || explorerMap[1] // Default to Etherscan
-    return {
-      url: `${explorer.url}/tx/${txHash}`,
-      name: explorer.name
-    }
-  }
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <History className="h-5 w-5 text-primary/70" />
-          <div>
-            <h2 className="text-lg font-semibold">Trade History</h2>
-            <p className="text-xs text-muted-foreground">Recent transactions</p>
-          </div>
+          <Trophy className="h-5 w-5 text-primary/70" />
+          <h2 className="text-lg font-semibold">Recent Trades</h2>
           {!isDataFresh && !refreshing && !isLoading && (
             <span className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded">
               {cacheMinutes}m ago
             </span>
           )}
-          {(refreshing || isLoading) && (
-            <span className="text-xs text-primary bg-primary/20 px-2 py-1 rounded flex items-center gap-1">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              {isLoading ? 'Loading...' : 'Updating...'}
-            </span>
-          )}
         </div>
-        <button
-          onClick={() => refresh()}
-          disabled={refreshing || isLoading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border/50 rounded-lg hover:bg-muted/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px] justify-center"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing || isLoading ? 'animate-spin' : ''}`} />
-          <span className="font-medium">
-            {refreshing ? 'Refreshing...' : isLoading ? 'Loading...' : 'Refresh'}
-          </span>
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-muted-foreground">
+            {data.length} total trades
+          </div>
+          <button
+            onClick={() => refresh()}
+            disabled={refreshing || isLoading}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border/50 rounded-lg hover:bg-muted/20 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing || isLoading ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
-      {/* Show error state */}
+      {/* Error State */}
       {error && !refreshing && !isLoading && (
         <div className="bg-error/10 border border-error/20 rounded-xl p-4 text-center">
-          <div className="text-error font-medium mb-2">Failed to load trade history</div>
-          <div className="text-sm text-muted-foreground">
-            {trades ? 'Showing cached data' : 'Please try refreshing'}
-          </div>
+          <div className="text-error font-medium mb-2">Failed to load trades</div>
+          <div className="text-sm text-muted-foreground">Please try refreshing</div>
         </div>
       )}
 
-      {/* Summary Statistics with shimmer loading */}
-      <div className={`bg-card/50 backdrop-blur-xl border border-border/50 rounded-xl p-4 transition-opacity relative`}>
+      {/* Main Trades Container */}
+      <div className="bg-card/50 backdrop-blur-xl border border-border/50 rounded-xl p-6 space-y-4 relative">
         {(isLoading || refreshing) && <ShimmerOverlay />}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-foreground">{summary.totalTrades}</div>
-            <div className="text-sm text-muted-foreground">Total Trades</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-primary">{formatCurrency(summary.totalVolume)}</div>
-            <div className="text-sm text-muted-foreground">Total Volume</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-success">{summary.profitableTrades}</div>
-            <div className="text-sm text-muted-foreground">Profitable</div>
-          </div>
-          <div className="text-center">
-            <div className={`text-2xl font-bold ${summary.totalPnL >= 0 ? 'text-success' : 'text-error'}`}>
-              {formatCurrency(summary.totalPnL)}
-            </div>
-            <div className="text-sm text-muted-foreground">Total P&L</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 min-w-64">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search trades..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-card/50 border border-border/50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
-              />
-            </div>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground border border-border/50 rounded-lg hover:bg-card/50 transition-colors"
-            >
-              <Filter className="h-4 w-4" />
-              Filters
-              {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {filteredTrades.length} of {data.length} trades
-          </div>
-        </div>
-
-        {/* Filter Options */}
-        {showFilters && (
-          <div className="bg-card/30 border border-border/30 rounded-lg p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Trade Type</label>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value as 'all' | 'swap' | 'buy' | 'sell')}
-                  className="w-full px-3 py-2 bg-card/50 border border-border/50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                >
-                  <option value="all">All Types</option>
-                  <option value="swap">Swaps</option>
-                  <option value="buy">Buys</option>
-                  <option value="sell">Sells</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Trade List with shimmer loading */}
-      <div className={`space-y-3 relative`}>
-        {(isLoading || refreshing) && filteredTrades.length > 0 && (
-          <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm rounded-xl">
-            <div className="h-full w-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer bg-[length:200%_100%]" />
-          </div>
-        )}
         
-        {filteredTrades.length === 0 && !isLoading ? (
-          <div className="text-center py-12">
-            <History className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-            <div className="text-lg font-medium text-muted-foreground mb-2">
-              {searchTerm || filterType !== 'all' ? 'No trades match your filters' : 'No trades found'}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {searchTerm || filterType !== 'all' ? 'Try adjusting your search or filters' : 'Your trading history will appear here'}
-            </div>
-          </div>
-        ) : filteredTrades.length === 0 && isLoading ? (
-          // Show skeleton items for initial loading
+        {/* Loading State */}
+        {isLoading && !data.length && (
           <div className="space-y-3">
-            {[...Array(3)].map((_, index) => (
-              <div key={index} className="bg-card/30 border border-border/30 rounded-lg p-4 relative overflow-hidden">
-                <div className="h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer bg-[length:200%_100%] absolute inset-0" />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-muted/50"></div>
-                    <div className="space-y-2">
-                      <div className="h-4 w-20 bg-muted/50 rounded"></div>
-                      <div className="h-3 w-32 bg-muted/30 rounded"></div>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="bg-muted/20 border border-border/30 rounded-lg p-4">
+                <div className="animate-pulse space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 bg-muted/30 rounded-lg"></div>
+                      <div className="space-y-1">
+                        <div className="h-4 bg-muted/30 rounded w-24"></div>
+                        <div className="h-3 bg-muted/30 rounded w-32"></div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right space-y-2">
-                    <div className="h-4 w-16 bg-muted/50 rounded ml-auto"></div>
-                    <div className="h-3 w-12 bg-muted/30 rounded ml-auto"></div>
+                    <div className="space-y-1">
+                      <div className="h-4 bg-muted/30 rounded w-16"></div>
+                      <div className="h-3 bg-muted/30 rounded w-12"></div>
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          filteredTrades.map((trade, index) => {
-            const tradeData = trade as unknown as {
-              type?: string
-              txHash?: string
-              timestamp?: string
-              platform?: string
-              dexName?: string
-              fromToken?: {
-                amount?: string
-                decimals?: number
-                symbol?: string
-                valueUSD?: number
-              }
-              toToken?: {
-                amount?: string
-                decimals?: number
-                symbol?: string
-                valueUSD?: number
-              }
-              valueUSD?: number
-              profitLoss?: number
-              pnl?: {
-                netPnlUSD?: number
-              }
-              gasFeeUSD?: number
-              chainId?: number
-            }
-            return (
-              <div
-                key={`${tradeData.txHash || index}-${index}`}
-                className="bg-card/30 border border-border/30 rounded-lg p-4 hover:bg-card/50 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    {/* Trade Type Icon */}
-                    <div className={`p-2 rounded-lg ${getTradeTypeColor(tradeData.type || 'swap')} bg-current/10`}>
-                      {getTradeTypeIcon(tradeData.type || 'swap')}
-                    </div>
-                    
-                    {/* Trade Details */}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-foreground capitalize">{tradeData.type || 'swap'}</span>
-                        <span className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded">
-                          {tradeData.platform || tradeData.dexName || 'Unknown'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <span>{formatTokenAmount(tradeData.fromToken?.amount || '0', tradeData.fromToken?.decimals || 18)} {tradeData.fromToken?.symbol || 'Unknown'}</span>
-                        <ArrowRightLeft className="h-3 w-3" />
-                        <span>{formatTokenAmount(tradeData.toToken?.amount || '0', tradeData.toToken?.decimals || 18)} {tradeData.toToken?.symbol || 'Unknown'}</span>
-                      </div>
-                    </div>
-                  </div>
+        )}
 
-                  {/* Trade Value & P&L */}
-                  <div className="text-right">
-                    <div className="font-medium text-foreground">
-                      {formatCurrency(tradeData.valueUSD || tradeData.fromToken?.valueUSD || 0)}
-                    </div>
-                    {(tradeData.profitLoss !== undefined || tradeData.pnl?.netPnlUSD !== undefined) && (
-                      <div className={`text-sm ${(tradeData.profitLoss || tradeData.pnl?.netPnlUSD || 0) >= 0 ? 'text-success' : 'text-error'}`}>
-                        {(tradeData.profitLoss || tradeData.pnl?.netPnlUSD || 0) >= 0 ? '+' : ''}
-                        {formatCurrency(tradeData.profitLoss || tradeData.pnl?.netPnlUSD || 0)}
+        {/* Trades List */}
+        {sortedTrades.length > 0 ? (
+          <div className="space-y-3">
+                          {sortedTrades.slice(0, 10).map((trade, index) => {
+                const pnl = trade.pnl?.netPnlUSD || trade.profitLoss || 0
+                const pnlPercent = trade.pnl ? ((pnl / (trade.pnl.realizedPnlUSD || 1)) * 100) : 0
+                const isProfit = pnl >= 0
+                const txHash = trade.txHash
+                
+                return (
+                  <div
+                    key={`${txHash}-${index}`}
+                    className="bg-muted/20 border border-border/30 rounded-lg p-4 hover:bg-muted/30 transition-colors group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                          isProfit ? 'bg-success/20 text-success' : 'bg-error/20 text-error'
+                        }`}>
+                          <ArrowRightLeft className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">
+                              {trade.fromToken?.symbol || 'Unknown'} → {trade.toToken?.symbol || 'Unknown'}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatTokenAmount(trade.fromToken?.amount || 0, trade.fromToken?.decimals)} → {formatTokenAmount(trade.toToken?.amount || 0, trade.toToken?.decimals)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>
+                              {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'Unknown time'}
+                            </span>
+                            {trade.chainId && txHash && (
+                              <a
+                                href={getBlockExplorerUrl(trade.chainId, txHash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 hover:text-primary transition-colors"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                View
+                              </a>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Additional Details */}
-                <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/30">
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      <span>{formatDate(tradeData.timestamp || new Date().toISOString())}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <div className={`font-bold text-sm ${isProfit ? 'text-success' : 'text-error'}`}>
+                            {isProfit ? '+' : ''}{formatCurrency(pnl)}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {Math.abs(pnlPercent) > 0.01 ? formatPercentage(pnlPercent) : 'N/A'}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => shareTransaction(trade)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted/20 rounded"
+                        >
+                          <Share2 className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      <span>{formatTime(tradeData.timestamp || new Date().toISOString())}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span>Gas: {formatCurrency(tradeData.gasFeeUSD || 0)}</span>
-                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {tradeData.txHash && (
-                      <a
-                        href={getBlockExplorerUrl(tradeData.chainId || 1, tradeData.txHash).url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:text-primary/80 underline"
-                      >
-                        View on {getBlockExplorerUrl(tradeData.chainId || 1, tradeData.txHash).name}
-                      </a>
-                    )}
-                  </div>
-                </div>
+                )
+              })}
+            
+            {sortedTrades.length > 10 && (
+              <div className="text-center py-3 text-sm text-muted-foreground">
+                Showing 10 of {sortedTrades.length} trades
               </div>
-            )
-          })
+            )}
+          </div>
+        ) : !isLoading && (
+          <div className="text-center py-8">
+            <Trophy className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Trades Yet</h3>
+            <p className="text-sm text-muted-foreground">
+              Your trading history will appear here once you start trading
+            </p>
+          </div>
         )}
       </div>
 
-      {/* Load More Button */}
-      {filteredTrades.length > 0 && filteredTrades.length >= 20 && (
-        <div className="text-center pt-6">
-          <button className="px-6 py-3 text-sm font-medium text-muted-foreground hover:text-foreground border border-border/50 rounded-lg hover:bg-card/50 transition-colors">
-            Load More Trades
-          </button>
+      {/* Share Modal */}
+      {showShareModal && selectedTrade && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border/50 rounded-xl p-6 max-w-md w-full space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Share Trade</h3>
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Trade Preview */}
+            <div className="bg-muted/20 border border-border/30 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-medium">{selectedTrade.fromToken?.symbol}</span>
+                  <ArrowRightLeft className="h-3 w-3 text-muted-foreground" />
+                  <span className="font-medium">{selectedTrade.toToken?.symbol}</span>
+                </div>
+                <div className={`font-bold ${(selectedTrade.pnl?.netPnlUSD || selectedTrade.profitLoss || 0) >= 0 ? 'text-success' : 'text-error'}`}>
+                  {formatCurrency(selectedTrade.pnl?.netPnlUSD || selectedTrade.profitLoss || 0)}
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Value: {formatCurrency(selectedTrade.valueUSD || 0)}
+              </div>
+            </div>
+
+            {/* Share Options */}
+            <div className="space-y-3">
+              <button
+                onClick={shareToTwitter}
+                className="w-full flex items-center gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition-colors"
+              >
+                <Twitter className="h-5 w-5 text-blue-500" />
+                <span>Share on Twitter</span>
+              </button>
+
+              <button
+                onClick={shareToTelegram}
+                className="w-full flex items-center gap-3 p-3 bg-blue-400/10 border border-blue-400/20 rounded-lg hover:bg-blue-400/20 transition-colors"
+              >
+                <Send className="h-5 w-5 text-blue-400" />
+                <span>Share on Telegram</span>
+              </button>
+
+              <button
+                onClick={copyToClipboard}
+                className="w-full flex items-center gap-3 p-3 bg-muted/20 border border-border/50 rounded-lg hover:bg-muted/30 transition-colors"
+              >
+                <Copy className="h-5 w-5" />
+                <span>Copy Text</span>
+              </button>
+
+              <button
+                onClick={generateShareImage}
+                disabled={isGenerating}
+                className="w-full flex items-center gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
+              >
+                {isGenerating ? (
+                  <>
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-5 w-5 text-primary" />
+                    <span>Download Image</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
+
+      {/* Hidden Share Card */}
+      <div ref={setShareCardRef} className="absolute -left-[9999px] top-0 opacity-0 pointer-events-none">
+        {selectedTrade && (
+          <div className="w-[600px] h-[400px] bg-gradient-to-br from-black via-gray-900 to-black p-6 text-white">
+            <div className="text-center mb-6">
+              <div className="text-xl font-bold mb-1">🌙 MoonX Farm</div>
+              <div className="text-gray-400 text-sm">Trade Result</div>
+            </div>
+            
+            <div className="text-center mb-6">
+              <div className="text-3xl mb-2">
+                {(selectedTrade.pnl?.netPnlUSD || selectedTrade.profitLoss || 0) >= 0 ? '🚀' : '😅'}
+              </div>
+              <div className="text-2xl font-bold mb-1">
+                {selectedTrade.fromToken?.symbol} → {selectedTrade.toToken?.symbol}
+              </div>
+              <div className={`text-xl font-bold ${(selectedTrade.pnl?.netPnlUSD || selectedTrade.profitLoss || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatCurrency(selectedTrade.pnl?.netPnlUSD || selectedTrade.profitLoss || 0)}
+              </div>
+              <div className="text-gray-400 text-sm mt-1">
+                Trade Value: {formatCurrency(selectedTrade.valueUSD || 0)}
+              </div>
+            </div>
+
+            <div className="text-center text-sm text-gray-500">
+              Join MoonX Farm and start farming profits! 🚀
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 } 
