@@ -85,7 +85,7 @@ function ThemedPrivyProvider({ children }: PrivyProviderProps) {
           priceDisplay: {
             primary: 'fiat-currency',
             secondary: 'native-token',
-          }
+          },
         },
         mfa: {
           noPromptOnMfaRequired: false,
@@ -98,9 +98,9 @@ function ThemedPrivyProvider({ children }: PrivyProviderProps) {
       <SmartWalletsProvider
         config={{
           // Optional: Configure paymaster context for gasless transactions
-          // paymasterContext: {
-          //   token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
-          // },
+          paymasterContext: {
+            type: 'SPONSOR'
+          },
         }}
       >
         <WagmiProvider config={config}>

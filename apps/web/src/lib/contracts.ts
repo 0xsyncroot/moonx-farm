@@ -1,5 +1,6 @@
-import { Address, encodeFunctionData, parseAbi } from 'viem'
+import { Address, encodeFunctionData, parseAbi, createPublicClient, http, formatGwei } from 'viem'
 import { ethers } from 'ethers'
+import { getChainConfig } from '@/config/chains'
 
 // Diamond Contract ABIs for each facet
 export const DIAMOND_ABIS = {
@@ -52,6 +53,14 @@ export interface SwapParams {
   fromChainId: number
   toChainId: number
   userAddress: Address
+}
+
+// Gas estimation interface for swap operations
+export interface SwapGasEstimate {
+  gasLimit: bigint
+  maxFeePerGas: bigint
+  maxPriorityFeePerGas: bigint
+  estimatedCost: bigint
 }
 
 export class PrivyContractSwapExecutor {
@@ -162,6 +171,113 @@ export class PrivyContractSwapExecutor {
     return {
       tokenWithFee,
       feeAmount
+    }
+  }
+
+  // ENHANCED: Auto gas estimation for swap transactions
+  private async estimateSwapGas(
+    chainId: number,
+    diamondAddress: Address,
+    callData: `0x${string}`,
+    value: bigint,
+    userAddress: Address
+  ): Promise<SwapGasEstimate> {
+    try {
+      // Get chain config and RPC URL
+      const chainConfig = getChainConfig(chainId)
+      const rpcUrl = chainConfig?.rpcUrls?.[0] || this.getRpcUrl(chainId)
+      
+      // Create public client for gas estimation
+      const publicClient = createPublicClient({
+        chain: { id: chainId } as any,
+        transport: http(rpcUrl)
+      })
+      
+      console.log('⛽ Starting gas estimation for swap:', {
+        chainId,
+        diamondAddress,
+        userAddress,
+        valueWei: value.toString(),
+        callDataLength: callData.length
+      })
+
+      // Estimate gas fees (base fee + priority fee)
+      const feeData = await publicClient.estimateFeesPerGas()
+      
+      // FIXED: Prevent division by zero with safety checks
+      const safeMaxFeePerGas = feeData.maxFeePerGas && feeData.maxFeePerGas > BigInt(0) 
+        ? feeData.maxFeePerGas 
+        : BigInt(20_000_000_000) // Fallback: 20 gwei
+        
+      const safeMaxPriorityFeePerGas = feeData.maxPriorityFeePerGas && feeData.maxPriorityFeePerGas > BigInt(0)
+        ? feeData.maxPriorityFeePerGas 
+        : BigInt(1_000_000_000) // Fallback: 1 gwei
+
+      // Estimate gas limit for the swap transaction
+      let estimatedGasLimit: bigint
+      try {
+        estimatedGasLimit = await publicClient.estimateGas({
+          to: diamondAddress,
+          data: callData,
+          value: value,
+          account: userAddress
+        })
+        
+        // Add buffer for complex swaps (30% for swaps vs 20% for simple transfers)
+        estimatedGasLimit = (estimatedGasLimit * BigInt(130)) / BigInt(100)
+        
+      } catch (gasEstimationError) {
+        console.warn('⚠️ Gas estimation failed, using fallbacks:', gasEstimationError)
+        
+        // Intelligent fallbacks based on swap complexity
+        const isCrossChain = callData.includes('crossChain') || callData.includes('CrossChain')
+        const hasComplexCallData = callData.length > 1000
+        
+        if (isCrossChain) {
+          estimatedGasLimit = BigInt(800_000) // Cross-chain swaps need more gas
+        } else if (hasComplexCallData) {
+          estimatedGasLimit = BigInt(600_000) // Complex swaps
+        } else {
+          estimatedGasLimit = BigInt(400_000) // Simple swaps
+        }
+        
+        console.log('📊 Using fallback gas based on swap type:', {
+          isCrossChain,
+          hasComplexCallData,
+          fallbackGas: estimatedGasLimit.toString()
+        })
+      }
+
+      // Calculate estimated total cost
+      const estimatedCost = estimatedGasLimit * safeMaxFeePerGas
+
+      const gasEstimate: SwapGasEstimate = {
+        gasLimit: estimatedGasLimit,
+        maxFeePerGas: safeMaxFeePerGas,
+        maxPriorityFeePerGas: safeMaxPriorityFeePerGas,
+        estimatedCost
+      }
+
+      console.log('✅ Gas estimation completed:', {
+        gasLimit: gasEstimate.gasLimit.toString(),
+        maxFeePerGas: formatGwei(gasEstimate.maxFeePerGas) + ' gwei',
+        maxPriorityFeePerGas: formatGwei(gasEstimate.maxPriorityFeePerGas) + ' gwei',
+        estimatedCostETH: formatGwei(gasEstimate.estimatedCost) + ' ETH',
+        chainId
+      })
+
+      return gasEstimate
+      
+    } catch (error) {
+      console.error('❌ Gas estimation failed completely:', error)
+      
+      // Ultimate fallback values - safe but higher than needed
+      return {
+        gasLimit: BigInt(1_000_000), // 1M gas limit
+        maxFeePerGas: BigInt(50_000_000_000), // 50 gwei
+        maxPriorityFeePerGas: BigInt(2_000_000_000), // 2 gwei
+        estimatedCost: BigInt(50_000_000_000_000_000) // ~0.05 ETH
+      }
     }
   }
 
@@ -395,14 +511,26 @@ export class PrivyContractSwapExecutor {
         fullData: swapCallData.slice(0, 200) + '...'
       })
 
-      // Send swap transaction - FIXED: Smart fallback to prevent double modals
+      // ENHANCED: Auto gas estimation instead of hardcoded values
+      console.log('⛽ Estimating gas for swap transaction...')
+      const gasEstimate = await this.estimateSwapGas(
+        params.chainId,
+        diamondAddress,
+        swapCallData,
+        BigInt(params.value),
+        params.userAddress
+      )
+
+      // Send swap transaction with accurate gas estimation
       let hash: string
       try {
         hash = await smartWalletClient.sendTransaction({
           to: diamondAddress,
           data: swapCallData,
           value: BigInt(params.value),
-          gas: BigInt(500000),
+          gas: gasEstimate.gasLimit,
+          maxFeePerGas: gasEstimate.maxFeePerGas,
+          maxPriorityFeePerGas: gasEstimate.maxPriorityFeePerGas,
         })
       } catch (swapError) {
         // Check if user cancelled the swap transaction
@@ -515,4 +643,4 @@ export function prepareSwapFromQuote(
   })
   
   return swapParams
-} 
+}
