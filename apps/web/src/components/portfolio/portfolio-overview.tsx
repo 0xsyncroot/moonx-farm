@@ -22,7 +22,25 @@ export function PortfolioOverview() {
   const { overview, isLoading, refresh, refreshing } = usePortfolioOverview()
   const { holdings, refresh: refreshHoldings, refreshing: holdingsRefreshing } = useTokenHoldings()
   const { pnlData } = usePnLChart()
-  const { executeTransaction, state: txState, isReady: isTxReady } = usePrivyTransaction()
+  const { executeTransaction, state: txState, isReady: isTxReady } = usePrivyTransaction({
+    showToasts: false, // Disable automatic toasts to prevent duplicates
+    onSuccess: (result) => {
+      // Custom success handling
+      const chainConfig = getChainConfig(result.chainId)
+      if (chainConfig?.explorer) {
+        toast.success(
+          `Withdrawal successful! View transaction: ${chainConfig.explorer}/tx/${result.hash}`,
+          { duration: 5000 }
+        )
+      } else {
+        toast.success('Withdrawal successful!')
+      }
+    },
+    onError: (error) => {
+      // Custom error handling - more specific to withdrawal context
+      toast.error(`Withdrawal failed: ${error.message}`)
+    }
+  })
   const { client: smartWalletClient, getClientForChain } = useSmartWallets()
   const { address: wagmiAddress } = useAccount()
   
@@ -301,8 +319,8 @@ export function PortfolioOverview() {
       
       console.log('✅ Transaction completed:', result)
 
-      // Success feedback
-      toast.success('Withdrawal successful!', { id: 'withdraw' })
+      // Success feedback handled by hook's onSuccess callback
+      toast.success('Processing completed!', { id: 'withdraw' })
       
       // Close modal on success
       setShowWithdrawModal(false)
@@ -316,7 +334,7 @@ export function PortfolioOverview() {
     } catch (error) {
       console.error('❌ Withdrawal failed:', error)
       
-      // Error already handled by the hook, just dismiss loading toast
+      // Error already handled by hook's onError callback, just dismiss loading toast
       toast.dismiss('withdraw')
       
     }

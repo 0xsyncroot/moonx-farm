@@ -64,6 +64,13 @@ interface TransactionState {
   error?: string
 }
 
+// Hook options
+export interface UsePrivyTransactionOptions {
+  showToasts?: boolean // Default: true - set false để disable automatic toasts
+  onSuccess?: (result: TransactionResult) => void // Custom success callback
+  onError?: (error: Error) => void // Custom error callback
+}
+
 // Hook return type
 export interface UsePrivyTransactionReturn {
   executeTransaction: (params: TransactionParams) => Promise<TransactionResult>
@@ -81,8 +88,19 @@ export interface UsePrivyTransactionReturn {
  * - Error handling với user-friendly messages
  * 
  * Sử dụng Privy Smart Wallet API mới nhất (2025)
+ * 
+ * @param options - Configuration options
+ * @param options.showToasts - Show automatic success/error toasts (default: true)
+ * @param options.onSuccess - Custom success callback
+ * @param options.onError - Custom error callback
  */
-export function usePrivyTransaction(): UsePrivyTransactionReturn {
+export function usePrivyTransaction(options: UsePrivyTransactionOptions = {}): UsePrivyTransactionReturn {
+  const { 
+    showToasts = true, 
+    onSuccess, 
+    onError 
+  } = options
+  
   const { client: smartWalletClient, getClientForChain } = useSmartWallets()
   const [state, setState] = useState<TransactionState>({
     isLoading: false,
@@ -321,31 +339,50 @@ export function usePrivyTransaction(): UsePrivyTransactionReturn {
 
       console.log('✅ Transaction submitted:', hash)
 
-      // Show success feedback with explorer link
-      const chainConfig = getChainConfig(params.chainId)
-      if (chainConfig?.explorer) {
-        toast.success(
-          `Transaction submitted! View: ${chainConfig.explorer}/tx/${hash}`,
-          { duration: 5000 }
-        )
-      } else {
-        toast.success('Transaction submitted successfully!')
-      }
-
-      return {
+      const result: TransactionResult = {
         hash,
         chainId: params.chainId,
         success: true
       }
+
+      // Show success feedback with explorer link (only if showToasts enabled)
+      if (showToasts) {
+        const chainConfig = getChainConfig(params.chainId)
+        if (chainConfig?.explorer) {
+          toast.success(
+            `Transaction submitted! View: ${chainConfig.explorer}/tx/${hash}`,
+            { duration: 5000 }
+          )
+        } else {
+          toast.success('Transaction submitted successfully!')
+        }
+      }
+
+      // Call custom success callback if provided
+      if (onSuccess) {
+        onSuccess(result)
+      }
+
+      return result
 
     } catch (error) {
       const friendlyError = parseError(error)
       console.error('❌ Transaction failed:', error)
       
       setState(prev => ({ ...prev, error: friendlyError }))
-      toast.error(friendlyError)
       
-      throw new Error(friendlyError)
+      // Show error toast only if showToasts enabled
+      if (showToasts) {
+        toast.error(friendlyError)
+      }
+      
+      // Call custom error callback if provided
+      const errorObj = new Error(friendlyError)
+      if (onError) {
+        onError(errorObj)
+      }
+      
+      throw errorObj
     } finally {
       isExecutingRef.current = false
       setState(prev => ({ 
