@@ -4,35 +4,25 @@ import { useState, useMemo, useEffect } from 'react'
 import { usePortfolioOverview } from '@/hooks/usePortfolioOverview'
 import { useTokenHoldings } from '@/hooks/useTokenHoldings'
 import { usePnLChart } from '@/hooks/usePnLChart'
+import { usePrivyTransaction } from '@/hooks/usePrivyTransaction'
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets'
 import { useAccount } from 'wagmi'
 import { RefreshCw, TrendingUp, TrendingDown, Wallet, Eye, X, ArrowUpCircle, ArrowDownCircle, PieChart, DollarSign, Activity, Award, Copy, Check, QrCode, Search, ExternalLink } from 'lucide-react'
 import { getChainConfig } from '@/config/chains'
-import { parseEther, parseUnits, isAddress } from 'viem'
+import { isAddress } from 'viem'
 import { toast } from 'react-hot-toast'
 import { coreApi } from '@/lib/api-client'
 import { TokenHoldings } from './token-holdings'
 import { formatCurrency, formatBalance, formatPercentage, generateQRCodeUrl, truncateAddress, isNativeToken, copyToClipboard as copyToClipboardUtil } from '@/utils/formatting'
 import { NumericFormat } from 'react-number-format'
 
-// ERC20 ABI for transfer function
-const ERC20_ABI = [
-  {
-    inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'amount', type: 'uint256' }
-    ],
-    name: 'transfer',
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'nonpayable',
-    type: 'function'
-  }
-] as const
+// ERC20 ABI now handled by usePrivyTransaction hook
 
 export function PortfolioOverview() {
   const { overview, isLoading, refresh, refreshing } = usePortfolioOverview()
   const { holdings, refresh: refreshHoldings, refreshing: holdingsRefreshing } = useTokenHoldings()
   const { pnlData } = usePnLChart()
+  const { executeTransaction, state: txState, isReady: isTxReady } = usePrivyTransaction()
   const { client: smartWalletClient, getClientForChain } = useSmartWallets()
   const { address: wagmiAddress } = useAccount()
   
@@ -44,7 +34,8 @@ export function PortfolioOverview() {
   const [recipientAddress, setRecipientAddress] = useState('')
   const [copiedAddress, setCopiedAddress] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [isNetworkSwitching, setIsNetworkSwitching] = useState(false)
+  // Remove this - now handled by usePrivyTransaction hook
+  // const [isNetworkSwitching, setIsNetworkSwitching] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [isLoadingMoreTokens, setIsLoadingMoreTokens] = useState(false)
 
@@ -200,35 +191,7 @@ export function PortfolioOverview() {
     }
   }
 
-  // Network switching for withdraw - following AUTO_CHAIN_SWITCH pattern
-  const switchToTokenNetwork = async (token: any) => {
-    if (!token.chainId || !getClientForChain) return null
-
-    try {
-      setIsNetworkSwitching(true)
-      
-      // Use getClientForChain to get smart wallet client for token's chain
-      // This automatically handles chain switching without UI changes
-      const newSmartWalletClient = await getClientForChain({ id: token.chainId })
-      
-      if (!newSmartWalletClient) {
-        throw new Error('Failed to create smart wallet client for target chain')
-      }
-
-      console.log('✅ Smart wallet client created for chain:', {
-        chainId: token.chainId,
-        address: newSmartWalletClient.account?.address,
-        actualChain: newSmartWalletClient.chain?.id
-      })
-
-      return newSmartWalletClient
-    } catch (error) {
-      console.error('❌ Network switch failed:', error)
-      return null
-    } finally {
-      setIsNetworkSwitching(false)
-    }
-  }
+  // REMOVED: Network switching logic now handled by usePrivyTransaction hook
 
   const handleTokenSelect = async (token: any) => {
     setSelectedWithdrawToken(token)
@@ -283,112 +246,63 @@ export function PortfolioOverview() {
     }
 
     try {
-      setIsNetworkSwitching(true)
       toast.loading('Processing withdrawal...', { id: 'withdraw' })
 
-      // Get smart wallet client for token's chain
-      const targetSmartWalletClient = await switchToTokenNetwork(selectedWithdrawToken)
+      // Prepare transaction parameters for the hook
+      let txParams;
       
-      if (!targetSmartWalletClient) {
-        throw new Error('Failed to switch to token network')
-      }
-
-      // Real transaction implementation
-      const tokenAddress = selectedWithdrawToken.tokenAddress
-      const chainId = selectedWithdrawToken.chainId
-      const isNativeToken = isNative
-      
-          console.log('🚀 Executing withdraw transaction:', {
-      token: selectedWithdrawToken.tokenSymbol,
-      amount: cleanWithdrawAmount,
-      originalAmount: withdrawAmount,
-      parsedAmount: amount,
-      recipient: recipientAddress,
-      chainId,
-      tokenAddress,
-      isNativeToken,
-      walletAddress: targetSmartWalletClient.account?.address,
-      // FIXED: Platform debugging info
-      platform: {
-        userAgent: navigator.userAgent,
-        language: navigator.language,
-        languages: navigator.languages,
-        platform: navigator.platform
-      }
-    })
-
-      let txHash: string
-
-      if (isNativeToken) {
+      if (isNative) {
         // Native token transfer (ETH, BNB, etc.)
-        console.log('🔄 Executing native token transfer...')
-        
-        const tx = await targetSmartWalletClient.sendTransaction({
+        txParams = {
+          type: 'native' as const,
           to: recipientAddress as `0x${string}`,
-          value: parseEther(cleanWithdrawAmount),
-        })
-        
-        txHash = tx
-        console.log('✅ Native transfer transaction:', txHash)
-        
+          amount: cleanWithdrawAmount,
+          chainId: selectedWithdrawToken.chainId
+        }
       } else {
         // ERC20 token transfer (USDC, USDT, etc.)
+        const tokenAddress = selectedWithdrawToken.tokenAddress
         const tokenDecimals = selectedWithdrawToken.tokenDecimals ?? 18
-        
-        console.log('🔄 Executing ERC20 token transfer...', {
-          tokenAddress,
-          amount: cleanWithdrawAmount,
-          decimals: tokenDecimals
-        })
         
         if (!tokenAddress) {
           throw new Error('Token address is required for ERC20 transfer')
         }
         
-        // FIXED: Handle edge case where decimals might be 0
-        const transferAmount = tokenDecimals === 0 
-          ? BigInt(Math.floor(amount))
-          : parseUnits(cleanWithdrawAmount, tokenDecimals)
-        
-        console.log('📊 Transfer details:', {
-          rawAmount: cleanWithdrawAmount,
-          originalFormattedAmount: withdrawAmount,
-          parsedAmount: transferAmount.toString(),
-          decimals: tokenDecimals
-        })
-        
-        const tx = await targetSmartWalletClient.writeContract({
-          address: tokenAddress as `0x${string}`,
-          abi: ERC20_ABI,
-          functionName: 'transfer',
-          args: [recipientAddress as `0x${string}`, transferAmount]
-        })
-        
-        txHash = tx
-        console.log('✅ ERC20 transfer transaction:', txHash)
+        txParams = {
+          type: 'erc20' as const,
+          to: recipientAddress as `0x${string}`,
+          amount: cleanWithdrawAmount,
+          tokenAddress: tokenAddress as `0x${string}`,
+          tokenDecimals,
+          chainId: selectedWithdrawToken.chainId
+        }
       }
+
+      console.log('🚀 Executing withdraw transaction:', {
+        token: selectedWithdrawToken.tokenSymbol,
+        amount: cleanWithdrawAmount,
+        originalAmount: withdrawAmount,
+        parsedAmount: amount,
+        recipient: recipientAddress,
+        chainId: selectedWithdrawToken.chainId,
+        tokenAddress: selectedWithdrawToken.tokenAddress,
+        isNativeToken: isNative,
+        // FIXED: Platform debugging info
+        platform: {
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          languages: navigator.languages,
+          platform: navigator.platform
+        }
+      })
+
+      // Execute transaction using the new hook
+      const result = await executeTransaction(txParams)
+      
+      console.log('✅ Transaction completed:', result)
 
       // Success feedback
       toast.success('Withdrawal successful!', { id: 'withdraw' })
-      
-      // Show transaction hash
-      const chainConfig = getChainConfig(chainId)
-      if (chainConfig?.explorer && txHash) {
-        toast.success(
-          <div className="flex items-center gap-2">
-            <span>Transaction completed!</span>
-            <a 
-              href={`${chainConfig.explorer}/tx/${txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline"
-            >
-              View
-            </a>
-          </div>,
-          { duration: 5000 }
-        )
-      }
       
       // Close modal on success
       setShowWithdrawModal(false)
@@ -402,25 +316,9 @@ export function PortfolioOverview() {
     } catch (error) {
       console.error('❌ Withdrawal failed:', error)
       
-      // User-friendly error messages
-      let errorMessage = 'Unknown error occurred'
+      // Error already handled by the hook, just dismiss loading toast
+      toast.dismiss('withdraw')
       
-      if (error instanceof Error) {
-        if (error.message.includes('User rejected')) {
-          errorMessage = 'Transaction was cancelled'
-        } else if (error.message.includes('insufficient funds')) {
-          errorMessage = 'Insufficient funds for transaction'
-        } else if (error.message.includes('gas')) {
-          errorMessage = 'Gas estimation failed. Please try again.'
-        } else {
-          errorMessage = error.message
-        }
-      }
-      
-      toast.error(`Withdrawal failed: ${errorMessage}`, { id: 'withdraw' })
-      
-    } finally {
-      setIsNetworkSwitching(false)
     }
   }
 
@@ -949,13 +847,13 @@ export function PortfolioOverview() {
                       
                         <button 
                           onClick={handleWithdraw}
-                          disabled={!selectedWithdrawToken || !withdrawAmount || !recipientAddress || isNetworkSwitching}
+                          disabled={!selectedWithdrawToken || !withdrawAmount || !recipientAddress || txState.isLoading || txState.isNetworkSwitching || !isTxReady}
                           className="w-full px-4 py-2 bg-error hover:bg-error/90 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                          {isNetworkSwitching ? (
+                          {(txState.isLoading || txState.isNetworkSwitching) ? (
                             <>
                               <RefreshCw className="h-4 w-4 animate-spin" />
-                              Processing...
+                              {txState.isNetworkSwitching ? 'Switching Network...' : 'Processing...'}
                             </>
                           ) : (
                             `Withdraw ${selectedWithdrawToken.tokenSymbol}`

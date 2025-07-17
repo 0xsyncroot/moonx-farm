@@ -158,13 +158,13 @@ export function useSwap(customSmartWalletClient?: any) {
       
              // 2. Jupiter-style input reset after user has time to see success
        setTimeout(() => {
-         if (onInputResetRef.current) {
+         if (onInputResetRef.current && !isUserInteractingRef.current) {
            console.log('🔄 Resetting input after successful swap (Jupiter-style)')
            onInputResetRef.current()
          }
-       }, 3000) // 3 second delay to let user see success and copy tx hash
+       }, 4000) // Increased to 4 seconds for better UX
        
-       // 3. Smart auto-reset with hover protection (Jupiter-style UX)
+       // 3. Smart auto-reset with enhanced hover protection (Jupiter-style UX)
        const scheduleAutoReset = () => {
          // Clear any existing timeout
          if (autoResetTimeoutRef.current) {
@@ -178,14 +178,17 @@ export function useSwap(customSmartWalletClient?: any) {
              setSwapState(prev => ({
                ...prev,
                step: 'idle',
-               isSwapping: false
+               isSwapping: false,
+               swapHash: undefined,
+               explorerUrl: undefined,
+               completedQuote: undefined
              }))
            } else {
-             // User is still interacting, reschedule
-             console.log('🎯 User still interacting, delaying auto-reset')
-             scheduleAutoReset()
+             // User is still interacting, reschedule with shorter interval
+             console.log('🎯 User still interacting, rescheduling auto-reset')
+             setTimeout(() => scheduleAutoReset(), 3000) // Check again in 3 seconds
            }
-         }, 8000) // 8 second delay, but can be extended if user is interacting
+         }, 12000) // Increased to 12 seconds for better user experience
        }
        
        scheduleAutoReset()

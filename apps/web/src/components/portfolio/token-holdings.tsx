@@ -33,7 +33,7 @@ const TokenDonutChart = ({ tokens, totalValue }: { tokens: any[], totalValue: nu
   // Calculate chart data with professional colors
   const chartData = tokens.map((token, index) => ({
     ...token,
-    percentage: (token.valueUSD / totalValue) * 100,
+    percentage: ((token.balanceUSD || 0) / totalValue) * 100,
     color: getChartColor(index)
   }))
 
@@ -100,7 +100,7 @@ const TokenDonutChart = ({ tokens, totalValue }: { tokens: any[], totalValue: nu
                   {chartData[activeSegment].tokenSymbol}
                 </div>
                 <div className="text-lg font-bold text-foreground">
-                  {formatCurrency(chartData[activeSegment].valueUSD)}
+                  {formatCurrency(chartData[activeSegment].balanceUSD || 0)}
                 </div>
                 <div className="text-xs text-primary font-medium">
                   {chartData[activeSegment].percentage.toFixed(1)}%
@@ -121,7 +121,7 @@ const TokenDonutChart = ({ tokens, totalValue }: { tokens: any[], totalValue: nu
         <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-black/90 text-white px-3 py-2 rounded-lg text-sm z-20 whitespace-nowrap shadow-lg animate-in fade-in duration-200">
           <div className="font-medium">{chartData[hoveredSegment].tokenSymbol}</div>
           <div className="text-xs opacity-90">
-            {formatCurrency(chartData[hoveredSegment].valueUSD)} ({chartData[hoveredSegment].percentage.toFixed(1)}%)
+            {formatCurrency(chartData[hoveredSegment].balanceUSD || 0)} ({chartData[hoveredSegment].percentage.toFixed(1)}%)
           </div>
         </div>
       )}
@@ -144,15 +144,15 @@ export function TokenHoldings() {
 
   // Calculate total value first
   const totalValue = useMemo(() => {
-    const total = data.reduce((sum, holding) => sum + (holding.valueUSD || 0), 0)
+    const total = data.reduce((sum, holding) => sum + (holding.balanceUSD || 0), 0)
     console.log('🔍 Total Value Calculated:', { total, dataLength: data.length, data })
     return total
   }, [data])
 
   // Get tokens sorted by value for display
   const sortedTokens = useMemo(() => {
-    const filtered = data.filter(holding => holding.valueUSD > 0) // Only tokens with value
-    const sorted = filtered.sort((a, b) => b.valueUSD - a.valueUSD) // Sort by value desc
+    const filtered = data.filter(holding => (holding.balanceUSD || 0) > 0) // Only tokens with value
+    const sorted = filtered.sort((a, b) => (b.balanceUSD || 0) - (a.balanceUSD || 0)) // Sort by value desc
     
     console.log('🔍 Sorted Tokens Processing:', {
       originalData: data.length,
@@ -289,7 +289,7 @@ export function TokenHoldings() {
               <div className="mt-4 w-full max-w-xs">
                 <div className="space-y-2">
                   {displayTokens.map((token, index) => {
-                    const percentage = ((token.valueUSD / totalValue) * 100).toFixed(1)
+                    const percentage = (((token.balanceUSD || 0) / totalValue) * 100).toFixed(1)
                     
                     return (
                       <div 
@@ -307,7 +307,7 @@ export function TokenHoldings() {
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{percentage}%</span>
                           <span>•</span>
-                          <span>{formatCurrency(token.valueUSD)}</span>
+                          <span>{formatCurrency(token.balanceUSD || 0)}</span>
                         </div>
                       </div>
                     )
@@ -338,7 +338,7 @@ export function TokenHoldings() {
                 </div>
                 {displayTokens.slice(0, 3).map((token, index) => {
                   const chainConfig = getChainConfig(token.chainId)
-                  const allocation = ((token.valueUSD / totalValue) * 100).toFixed(1)
+                  const allocation = (((token.balanceUSD || 0) / totalValue) * 100).toFixed(1)
                   
                   return (
                     <div
@@ -372,7 +372,7 @@ export function TokenHoldings() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-sm font-semibold">{formatCurrency(token.valueUSD)}</div>
+                        <div className="text-sm font-semibold">{formatCurrency(token.balanceUSD || 0)}</div>
                         <div className="text-xs text-primary">{allocation}%</div>
                       </div>
                     </div>
@@ -393,7 +393,7 @@ export function TokenHoldings() {
                     <div className="text-muted-foreground">Top 3 Holdings</div>
                     <div className="font-medium">
                       {displayTokens.slice(0, 3).reduce((acc, token) => 
-                        acc + (token.valueUSD / totalValue) * 100, 0
+                        acc + ((token.balanceUSD || 0) / totalValue) * 100, 0
                       ).toFixed(1)}%
                     </div>
                   </div>
@@ -420,8 +420,8 @@ export function TokenHoldings() {
           <div className={`divide-y divide-border/20 ${showAllTokens && sortedTokens.length > 10 ? 'max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent' : ''}`}>
             {displayTokens.map((token, index) => {
               const chainConfig = getChainConfig(token.chainId)
-              const allocation = ((token.valueUSD / totalValue) * 100).toFixed(1)
-              const tokenPrice = token.priceUSD || (token.balanceFormatted > 0 ? token.valueUSD / token.balanceFormatted : 0)
+              const allocation = (((token.balanceUSD || 0) / totalValue) * 100).toFixed(1)
+              const tokenPrice = token.priceUSD || (token.balanceFormatted > 0 ? (token.balanceUSD || 0) / token.balanceFormatted : 0)
               
               return (
                 <div
@@ -466,7 +466,7 @@ export function TokenHoldings() {
                   </div>
                   
                   <div className="col-span-2 text-right">
-                    <div className="text-sm font-semibold">{formatCurrency(token.valueUSD)}</div>
+                    <div className="text-sm font-semibold">{formatCurrency(token.balanceUSD || 0)}</div>
                   </div>
                   
                   <div className="col-span-1 text-right">

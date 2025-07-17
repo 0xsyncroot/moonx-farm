@@ -131,6 +131,139 @@ interface SwapButtonProps {
   onSwapSuccess?: (hash: string, quote: Quote) => void
 }
 
+// 🚀 ENHANCED: Async trade recording service
+const recordTradeAsync = async (hash: string, quote: Quote, userContext: {
+  userId?: string
+  walletAddress?: string
+  eoaAddress?: string | null
+}, onBalanceReloadCallback?: () => void) => {
+  // Run in background - don't block UI
+  setTimeout(async () => {
+    try {
+      console.log('📊 Recording trade asynchronously:', {
+        hash,
+        fromToken: quote.fromToken?.symbol,
+        toToken: quote.toToken?.symbol,
+        user: userContext.userId,
+        wallet: userContext.walletAddress
+      })
+      
+      // 🚀 ENHANCED: Comprehensive trade data matching modern schema
+      const tradeData = {
+        // Basic trade information
+        txHash: hash,
+        chainId: quote.fromToken?.chainId || 1,
+        type: 'swap' as const,
+        status: 'completed' as const,
+        timestamp: new Date().toISOString(),
+        
+        // User context
+        userId: userContext.userId || 'unknown',
+        walletAddress: userContext.walletAddress || '',
+        eoaAddress: userContext.eoaAddress || null,
+        
+        // Enhanced token information with registry integration
+        fromToken: {
+          address: quote.fromToken?.address || '',
+          symbol: quote.fromToken?.symbol || '',
+          name: quote.fromToken?.name || quote.fromToken?.symbol || '',
+          decimals: quote.fromToken?.decimals || 18,
+          amount: quote.fromAmount || '0',
+          amountFormatted: parseFloat(quote.fromAmount || '0') / Math.pow(10, quote.fromToken?.decimals || 18),
+          priceUSD: quote.fromToken?.priceUSD || 0,
+          valueUSD: (quote.fromToken?.priceUSD || 0) * (parseFloat(quote.fromAmount || '0') / Math.pow(10, quote.fromToken?.decimals || 18)),
+          logoUrl: quote.fromToken?.logoURI || null
+        },
+        toToken: {
+          address: quote.toToken?.address || '',
+          symbol: quote.toToken?.symbol || '',
+          name: quote.toToken?.name || quote.toToken?.symbol || '',
+          decimals: quote.toToken?.decimals || 18,
+          amount: quote.toAmount || '0',
+          amountFormatted: parseFloat(quote.toAmount || '0') / Math.pow(10, quote.toToken?.decimals || 18),
+          priceUSD: quote.toToken?.priceUSD || 0,
+          valueUSD: (quote.toToken?.priceUSD || 0) * (parseFloat(quote.toAmount || '0') / Math.pow(10, quote.toToken?.decimals || 18)),
+          logoUrl: quote.toToken?.logoURI || null
+        },
+        
+        // Enhanced P&L and financial details
+        gasFeeUSD: 0, // Will be calculated by backend from tx receipt
+        protocolFeeUSD: 0, // Will be calculated from transaction details
+        slippage: quote.slippageTolerance || 0.5,
+        priceImpact: parseFloat(quote.priceImpact || '0'),
+        
+        // DEX/Protocol information
+        dexName: quote.metadata?.tool || quote.provider || 'Unknown',
+        routerAddress: quote.to || null,
+        aggregator: (['lifi', '1inch', 'relay', 'jupiter', 'paraswap', 'kyberswap'].includes(quote.provider) 
+          ? quote.provider as 'lifi' | '1inch' | 'relay' | 'jupiter' | 'paraswap' | 'kyberswap'
+          : null),
+        protocolVersion: quote.metadata?.version || null,
+        
+        // Routing & execution details
+        routingPath: {
+          aggregator: quote.provider,
+          route: quote.route || [],
+          venues: quote.metadata?.venues || [],
+          optimization: 'best_price' // Default optimization strategy
+        },
+        executionVenue: quote.metadata?.tool || quote.provider,
+        
+        // MEV protection info (if available)
+        mevProtectionEnabled: quote.metadata?.mevProtection || false,
+        mevProtectionMethod: quote.metadata?.mevMethod || null,
+        
+        // Trade metadata
+        tradeSource: 'web_ui',
+        marketConditions: {
+          volatility: quote.metadata?.volatility || null,
+          volume24h: quote.metadata?.volume24h || null,
+          sentiment: quote.metadata?.sentiment || null
+        },
+        executionTimeMs: Date.now() - (quote.createdAt ? new Date(quote.createdAt).getTime() : Date.now()),
+        quoteToExecutionDelayMs: quote.expiresAt ? Math.max(0, new Date(quote.expiresAt).getTime() - Date.now()) : null,
+        
+        // Enhanced position tracking
+        fromPositionType: 'SPOT', // Default to SPOT for swaps
+        toPositionType: 'SPOT',
+        
+        // Portfolio integration
+        portfolioSyncTriggered: true, // Will trigger portfolio refresh
+        tradeTags: [
+          quote.provider,
+          parseFloat(quote.priceImpact || '0') > 5 ? 'high_impact' : 'normal_impact',
+          parseFloat(quote.fromAmount || '0') > 1000 ? 'large_trade' : 'normal_trade'
+        ].filter(Boolean).join(','),
+        riskScore: Math.min(100, Math.max(0, Math.floor(parseFloat(quote.priceImpact || '0') * 10))),
+        
+        // Schema version
+        schemaVersion: '2.0'
+      }
+      
+      // Call core-service to record trade
+      const result = await coreApi.recordTrade(tradeData)
+      
+      console.log('✅ Trade recorded successfully (async):', {
+        tradeId: result.data?.trade?.id,
+        txHash: hash,
+        pnl: result.data?.trade?.pnl,
+        portfolioImpact: result.data?.trade?.portfolioImpact
+      })
+      
+                    // 🚀 ENHANCED: Trigger portfolio sync if needed
+       if (result.data?.trade?.portfolioImpact && onBalanceReloadCallback) {
+         console.log('🔄 Triggering portfolio sync due to significant trade impact')
+         onBalanceReloadCallback()
+       }
+      
+    } catch (error) {
+      console.error('❌ Failed to record trade (async):', error)
+      // Don't fail the swap success, just log the error
+      // User's swap was successful, we just couldn't record it
+    }
+  }, 100) // Small delay to ensure UI updates first
+}
+
 export function SwapButton({
   fromToken,
   toToken,
@@ -229,10 +362,10 @@ export function SwapButton({
       setOnInputReset(onInputReset)
     }
     
-    // Success callback with trade recording
+    // Success callback with enhanced async trade recording
     if (onSwapSuccess) {
       setOnSwapSuccess(async (hash: string, quote: Quote) => {
-        console.log('🎉 Swap successful, recording trade:', {
+        console.log('🎉 Swap successful, triggering async trade recording:', {
           hash,
           fromToken: quote.fromToken?.symbol,
           toToken: quote.toToken?.symbol,
@@ -240,78 +373,18 @@ export function SwapButton({
           toAmount: quote.toAmount
         })
         
-                  // 🆕 Record trade in database for P&L tracking
-          try {
-            // Validate required data before sending
-            if (!hash || !quote.fromToken?.address || !quote.toToken?.address || 
-                !quote.fromToken?.symbol || !quote.toToken?.symbol ||
-                !quote.fromAmount || !quote.toAmount) {
-              console.error('❌ Missing required trade data:', {
-                hash: !!hash,
-                fromToken: !!quote.fromToken?.address,
-                toToken: !!quote.toToken?.address,
-                fromSymbol: !!quote.fromToken?.symbol,
-                toSymbol: !!quote.toToken?.symbol,
-                fromAmount: !!quote.fromAmount,
-                toAmount: !!quote.toAmount
-              })
-              throw new Error('Missing required trade data for recording')
-            }
-
-            const tradeData = {
-              txHash: hash,
-              chainId: quote.fromToken?.chainId || 1,
-              type: 'swap' as const,
-              status: 'completed' as const,
-              timestamp: new Date().toISOString(),
-              fromToken: {
-                address: quote.fromToken.address,
-                symbol: quote.fromToken.symbol,
-                name: quote.fromToken.name || quote.fromToken.symbol,
-                decimals: quote.fromToken.decimals || 18,
-                amount: quote.fromAmount,
-                amountFormatted: parseFloat(quote.fromAmount) / Math.pow(10, quote.fromToken.decimals || 18),
-                priceUSD: quote.fromToken.priceUSD || 0,
-                valueUSD: (quote.fromToken.priceUSD || 0) * (parseFloat(quote.fromAmount) / Math.pow(10, quote.fromToken.decimals || 18))
-              },
-              toToken: {
-                address: quote.toToken.address,
-                symbol: quote.toToken.symbol,
-                name: quote.toToken.name || quote.toToken.symbol,
-                decimals: quote.toToken.decimals || 18,
-                amount: quote.toAmount,
-                amountFormatted: parseFloat(quote.toAmount) / Math.pow(10, quote.toToken.decimals || 18),
-                priceUSD: quote.toToken.priceUSD || 0,
-                valueUSD: (quote.toToken.priceUSD || 0) * (parseFloat(quote.toAmount) / Math.pow(10, quote.toToken.decimals || 18))
-              },
-              gasFeeUSD: 0, // Will be calculated by backend from tx receipt
-              dexName: quote.metadata?.tool || quote.provider || 'Unknown',
-              slippage: quote.slippageTolerance || 0.5,
-              aggregator: (['lifi', '1inch', 'relay', 'jupiter'].includes(quote.provider) 
-                ? quote.provider as 'lifi' | '1inch' | 'relay' | 'jupiter' 
-                : undefined)
-            }
-          
-          // Call core-service to record trade using api-client
-          const result = await coreApi.recordTrade(tradeData)
-          
-          console.log('✅ Trade recorded successfully:', {
-            tradeId: result.data?.trade?.id,
-            txHash: hash,
-            pnl: result.data?.trade?.pnl
-          })
-          
-          // Call original success callback
-          onSwapSuccess(hash, quote)
-          
-        } catch (error) {
-          console.error('❌ Failed to record trade:', error)
-          // Don't fail the swap success, just log the error
-          // User's swap was successful, we just couldn't record it
-          
-          // Still call original success callback
-          onSwapSuccess(hash, quote)
+        // 🚀 ENHANCED: Get comprehensive user context
+        const userContext = {
+          userId: user?.id || smartWalletClient?.account?.address || 'unknown',
+          walletAddress: smartWalletClient?.account?.address || '',
+          eoaAddress: user?.wallet?.address || null
         }
+        
+                 // 🚀 ASYNC: Record trade in background without blocking UI
+         recordTradeAsync(hash, quote, userContext, onBalanceReload)
+        
+        // Call original success callback immediately
+        onSwapSuccess(hash, quote)
       })
     }
     
@@ -326,7 +399,7 @@ export function SwapButton({
         clearTimeout(successInteractionTimeoutRef.current)
       }
     }
-  }, [setOnSwapComplete, setOnBalanceReload, setOnInputReset, setOnSwapSuccess, onBalanceReload, onInputReset, onSwapSuccess, smartWalletClient?.account?.address])
+  }, [setOnSwapComplete, setOnBalanceReload, setOnInputReset, setOnSwapSuccess, onBalanceReload, onInputReset, onSwapSuccess, smartWalletClient?.account?.address, user?.id, user?.wallet?.address])
 
   // 🚀 KEY IMPROVEMENT: Jupiter-style state tracking for countdown control
   useEffect(() => {
@@ -709,87 +782,133 @@ export function SwapButton({
         </div>
       )}
 
-      {/* Success State - Jupiter-style with hover protection */}
+      {/* Success State - Enhanced Jupiter-style with celebration animation */}
       {swapState.step === 'success' && swapState.swapHash && (
         <div 
           className="relative overflow-hidden rounded-xl border border-green-200 dark:border-green-500/30 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-500/10 dark:to-emerald-500/10 backdrop-blur-sm transition-all duration-300 hover:border-green-300 dark:hover:border-green-500/50 hover:shadow-lg hover:shadow-green-500/20"
           onMouseEnter={() => {
             console.log('🎯 User interacting with success state')
             setIsSuccessInteracting(true)
-            setUserInteracting(true) // 🚀 Notify hook about user interaction
+            setUserInteracting(true)
             if (successInteractionTimeoutRef.current) {
               clearTimeout(successInteractionTimeoutRef.current)
             }
           }}
           onMouseLeave={() => {
             console.log('👋 User stopped interacting with success state')
-            // Delay before setting to false to prevent rapid toggling
             successInteractionTimeoutRef.current = setTimeout(() => {
               setIsSuccessInteracting(false)
-              setUserInteracting(false) // 🚀 Notify hook when interaction ends
-            }, 1000)
+              setUserInteracting(false)
+            }, 2000) // Longer delay for better UX
           }}
         >
-          {/* Success sparkle effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-green-100/50 via-emerald-100/50 to-green-100/50 dark:from-green-500/5 dark:via-emerald-500/5 dark:to-green-500/5" />
+          {/* 🚀 NEW: Celebration animation overlay */}
+          <div className="absolute inset-0 bg-gradient-to-r from-green-100/50 via-emerald-100/50 to-green-100/50 dark:from-green-500/5 dark:via-emerald-500/5 dark:to-green-500/5">
+            <div className="absolute top-2 left-4 w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+            <div className="absolute top-4 right-8 w-1 h-1 bg-emerald-300 rounded-full animate-ping" />
+            <div className="absolute bottom-3 left-8 w-1.5 h-1.5 bg-green-300 rounded-full animate-bounce" />
+          </div>
           
           <div className="relative flex items-center gap-4 p-4">
             <div className="relative">
-              <div className="w-6 h-6 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center">
+              <div className="w-6 h-6 bg-green-500 dark:bg-green-600 rounded-full flex items-center justify-center animate-pulse">
                 <Check className="h-4 w-4 text-white" />
               </div>
               <div className="absolute inset-0 rounded-full bg-green-400/30 dark:bg-green-500/30 animate-ping" />
             </div>
             
-                          <div className="flex-1">
-                <div className="font-semibold text-green-700 dark:text-green-400">🎉 Swap Completed Successfully!</div>
-                <div className="text-sm text-green-600 dark:text-green-300/80 mt-1">
+            <div className="flex-1">
+              <div className="font-semibold text-green-700 dark:text-green-400 flex items-center gap-2">
+                🎉 Swap Completed Successfully!
+                {/* 🚀 NEW: Success badge */}
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300">
+                  Confirmed
+                </span>
+              </div>
+              <div className="text-sm text-green-600 dark:text-green-300/80 mt-1">
                 {swapState.completedQuote ? (
                   <>
                     Swapped {swapState.completedQuote.fromToken?.symbol} → {swapState.completedQuote.toToken?.symbol}
+                    {/* 🚀 NEW: Trade value display */}
+                    {swapState.completedQuote.fromToken?.priceUSD && (
+                      <span className="ml-2 text-xs opacity-75">
+                        (~${((swapState.completedQuote.fromToken.priceUSD * parseFloat(swapState.completedQuote.fromAmount || '0')) / Math.pow(10, swapState.completedQuote.fromToken.decimals || 18)).toFixed(2)})
+                      </span>
+                    )}
                   </>
                 ) : (
                   'Your tokens have been swapped and are now in your wallet'
                 )}
               </div>
+              
+              {/* 🚀 ENHANCED: Transaction details with better styling */}
               {swapState.swapHash && (
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-2 mt-3">
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(swapState.swapHash!)
                       console.log('📋 Transaction hash copied')
+                      // Show temporary feedback
+                      const btn = event?.target as HTMLElement
+                      if (btn) {
+                        const originalText = btn.textContent
+                        btn.textContent = 'Copied!'
+                        setTimeout(() => {
+                          btn.textContent = originalText
+                        }, 1000)
+                      }
                     }}
-                    className="text-xs text-green-600 dark:text-green-300/60 font-mono bg-green-100 dark:bg-green-500/10 hover:bg-green-200 dark:hover:bg-green-500/20 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                    className="text-xs text-green-600 dark:text-green-300/60 font-mono bg-green-100 dark:bg-green-500/10 hover:bg-green-200 dark:hover:bg-green-500/20 px-3 py-1.5 rounded-lg transition-all duration-200 border border-green-200 dark:border-green-500/30 hover:border-green-300 dark:hover:border-green-500/50 hover:scale-105"
                     title="Click to copy transaction hash"
                   >
                     Tx: {swapState.swapHash.slice(0, 10)}...{swapState.swapHash.slice(-8)}
                   </button>
-                  {/* 🚀 ENHANCED: Transaction link button with better styling */}
+                  
+                  {/* 🚀 ENHANCED: Explorer link with icon */}
                   {swapState.explorerUrl && (
                     <a
                       href={swapState.explorerUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs bg-green-100 dark:bg-green-500/20 hover:bg-green-200 dark:hover:bg-green-500/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-lg transition-all duration-200 border border-green-200 dark:border-green-500/30 hover:border-green-300 dark:hover:border-green-500/50 hover:scale-105"
+                      className="inline-flex items-center gap-1.5 text-xs bg-green-100 dark:bg-green-500/20 hover:bg-green-200 dark:hover:bg-green-500/30 text-green-700 dark:text-green-300 px-3 py-1.5 rounded-lg transition-all duration-200 border border-green-200 dark:border-green-500/30 hover:border-green-300 dark:hover:border-green-500/50 hover:scale-105"
                       onClick={() => console.log('🔗 Opening transaction in explorer')}
                     >
-                      View ↗
+                      <span>View</span>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
                     </a>
+                  )}
+                  
+                  {/* 🚀 NEW: Provider info badge */}
+                  {swapState.completedQuote?.provider && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-md border border-blue-200 dark:border-blue-500/30">
+                      <div className="w-2 h-2 bg-blue-400 rounded-full" />
+                      {swapState.completedQuote.provider}
+                    </span>
                   )}
                 </div>
               )}
             </div>
             
-            {/* 🚀 NEW: Manual dismiss button (Jupiter-style) */}
+            {/* 🚀 ENHANCED: Dismiss button with hover effects */}
             <button
               onClick={() => {
                 console.log('❌ Manual dismiss success state')
                 resetSwapState()
+                // Trigger input reset immediately for better UX
+                if (onInputReset) {
+                  onInputReset()
+                }
               }}
-                             className="w-6 h-6 flex items-center justify-center rounded-full bg-green-100 dark:bg-green-500/10 hover:bg-green-200 dark:hover:bg-green-500/20 text-green-600 dark:text-green-300 hover:text-green-700 dark:hover:text-green-200 transition-colors group"
-              title="Dismiss"
+              className="group relative w-8 h-8 flex items-center justify-center rounded-full bg-green-100 dark:bg-green-500/10 hover:bg-green-200 dark:hover:bg-green-500/20 text-green-600 dark:text-green-300 hover:text-green-700 dark:hover:text-green-200 transition-all duration-200 hover:scale-110"
+              title="Dismiss and start new swap"
             >
-              <X className="w-3 h-3 group-hover:scale-110 transition-transform" />
+              <X className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              {/* Tooltip */}
+              <div className="absolute -top-8 right-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                New swap
+              </div>
             </button>
           </div>
         </div>
