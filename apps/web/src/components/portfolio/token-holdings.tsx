@@ -130,7 +130,8 @@ const TokenDonutChart = ({ tokens, totalValue }: { tokens: any[], totalValue: nu
 }
 
 export function TokenHoldings() {
-  const { holdings, isLoading, error } = useTokenHoldings()
+  // FIXED: Use refresh function from hook to enable proper data refresh
+  const { holdings, isLoading, error, refreshing } = useTokenHoldings()
   const [selectedToken, setSelectedToken] = useState<any>(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [showAllTokens, setShowAllTokens] = useState(false)
@@ -237,7 +238,14 @@ export function TokenHoldings() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      {/* FIXED: Add shimmer overlay when refreshing */}
+      {refreshing && (
+        <div className="absolute inset-0 bg-card/30 backdrop-blur-sm rounded-xl overflow-hidden z-10">
+          <div className="h-full w-full bg-gradient-to-r from-transparent via-primary/20 to-transparent animate-shimmer bg-[length:200%_100%]" />
+        </div>
+      )}
+      
       {/* Header with Toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -247,6 +255,10 @@ export function TokenHoldings() {
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>{sortedTokens.length} assets</span>
+            {/* FIXED: Show refresh status */}
+            {refreshing && (
+              <span className="text-primary animate-pulse">• Refreshing...</span>
+            )}
           </div>
         </div>
         

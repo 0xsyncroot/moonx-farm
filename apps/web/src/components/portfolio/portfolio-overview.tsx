@@ -151,11 +151,27 @@ export function PortfolioOverview() {
   const refreshAllData = async () => {
     try {
       console.log('🔄 Refreshing all portfolio data...')
-      await Promise.all([
-        refresh(),
-        refreshHoldings()
-      ])
-      console.log('✅ All portfolio data refreshed successfully')
+      
+      // Execute refreshes in parallel for better performance
+      const refreshPromises = [
+        refresh(), // Portfolio overview refresh
+        refreshHoldings() // Token holdings refresh
+      ]
+      
+      // Wait for all refreshes to complete
+      const results = await Promise.allSettled(refreshPromises)
+      
+      // Log results for debugging
+      results.forEach((result, index) => {
+        const name = index === 0 ? 'portfolio overview' : 'token holdings'
+        if (result.status === 'fulfilled') {
+          console.log(`✅ ${name} refresh completed successfully`)
+        } else {
+          console.error(`❌ ${name} refresh failed:`, result.reason)
+        }
+      })
+      
+      console.log('✅ All portfolio data refresh operations completed')
     } catch (error) {
       console.error('❌ Failed to refresh portfolio data:', error)
     }
@@ -353,6 +369,17 @@ export function PortfolioOverview() {
 
   // Check if any data is refreshing
   const isRefreshing = refreshing || holdingsRefreshing
+
+  // Debug refresh states
+  useEffect(() => {
+    if (refreshing || holdingsRefreshing) {
+      console.log('🔄 Refresh states:', { 
+        overviewRefreshing: refreshing, 
+        holdingsRefreshing: holdingsRefreshing,
+        combinedRefreshing: isRefreshing 
+      })
+    }
+  }, [refreshing, holdingsRefreshing, isRefreshing])
 
   // Shimmer loading overlay component (memoized)
   const ShimmerOverlay = useMemo(() => {
