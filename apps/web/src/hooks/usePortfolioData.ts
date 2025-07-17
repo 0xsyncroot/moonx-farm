@@ -215,7 +215,11 @@ export function usePortfolioData() {
         
         const response = await coreApi.getTokenHoldings({ 
           includeSpam: false, 
-          minValueUSD: 0 
+          includeUnverified: false,
+          hideSmallBalances: true, // Hide balances under $1 for cleaner UI
+          sortBy: 'value',
+          sortOrder: 'desc',
+          limit: 500 // Reasonable limit for UI performance
         })
         
         console.log('💼 Holdings response:', response)

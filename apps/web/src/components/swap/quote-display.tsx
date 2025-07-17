@@ -376,6 +376,7 @@ export function QuoteDisplay({
                   decimalSeparator="."
                   decimalScale={minReceived < 1 ? 6 : 4}
                   fixedDecimalScale={false}
+                  allowLeadingZeros={false}
                   suffix={` ${toToken?.symbol || ''}`}
                 />
               </span>

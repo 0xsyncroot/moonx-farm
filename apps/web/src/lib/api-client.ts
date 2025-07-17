@@ -463,22 +463,94 @@ class ApiClient {
   // Note: All Core service endpoints require authentication except health
 
   // Portfolio Management
-  public async getPortfolio(params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }): Promise<any> {
+  public async getPortfolio(params?: { 
+    // Chain filters
+    chainIds?: string; 
+    
+    // Position & Category filters  
+    positionTypes?: string; // Comma-separated: SPOT,STAKED,LP,YIELD,BRIDGE,LOCKED
+    categories?: string; // Comma-separated: DeFi,Gaming,NFT,Stablecoin
+    
+    // Security & Quality filters
+    includeSpam?: boolean; // Default: false
+    includeUnverified?: boolean; // Default: false
+    minSecurityScore?: number; // 0-100
+    maxRiskScore?: number; // 0-100
+    
+    // Value filters
+    minValue?: number; // Minimum token value in USD
+    maxValueUSD?: number; // Maximum token value in USD
+    hideSmallBalances?: boolean; // Hide balances under $1
+    
+    // Sorting & Pagination
+    sortBy?: 'value' | 'symbol' | 'balance' | 'positionType' | 'riskScore' | 'securityScore';
+    sortOrder?: 'asc' | 'desc'; // Default: desc
+    limit?: number; // Default: 500
+    offset?: number; // Default: 0
+  }): Promise<any> {
     const searchParams = new URLSearchParams()
+    
     if (params?.chainIds) searchParams.append('chainIds', params.chainIds)
+    if (params?.positionTypes) searchParams.append('positionTypes', params.positionTypes)
+    if (params?.categories) searchParams.append('categories', params.categories)
     if (params?.includeSpam !== undefined) searchParams.append('includeSpam', params.includeSpam.toString())
-    if (params?.minValueUSD) searchParams.append('minValueUSD', params.minValueUSD.toString())
+    if (params?.includeUnverified !== undefined) searchParams.append('includeUnverified', params.includeUnverified.toString())
+    if (params?.minSecurityScore !== undefined) searchParams.append('minSecurityScore', params.minSecurityScore.toString())
+    if (params?.maxRiskScore !== undefined) searchParams.append('maxRiskScore', params.maxRiskScore.toString())
+    if (params?.minValue !== undefined) searchParams.append('minValue', params.minValue.toString())
+    if (params?.maxValueUSD !== undefined) searchParams.append('maxValueUSD', params.maxValueUSD.toString())
+    if (params?.hideSmallBalances !== undefined) searchParams.append('hideSmallBalances', params.hideSmallBalances.toString())
+    if (params?.sortBy) searchParams.append('sortBy', params.sortBy)
+    if (params?.sortOrder) searchParams.append('sortOrder', params.sortOrder)
+    if (params?.limit !== undefined) searchParams.append('limit', params.limit.toString())
+    if (params?.offset !== undefined) searchParams.append('offset', params.offset.toString())
     
     const url = `/portfolio${searchParams.toString() ? '?' + searchParams.toString() : ''}`
     const response = await this.coreClient.get(url)
     return response.data
   }
 
-  public async getTokenHoldings(params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }): Promise<any> {
+  public async getTokenHoldings(params?: { 
+    // Chain filters
+    chainIds?: string; 
+    
+    // Position & Category filters  
+    positionTypes?: string; // Comma-separated: SPOT,STAKED,LP,YIELD,BRIDGE,LOCKED
+    categories?: string; // Comma-separated: DeFi,Gaming,NFT,Stablecoin
+    
+    // Security & Quality filters
+    includeSpam?: boolean; // Default: false
+    includeUnverified?: boolean; // Default: false
+    minSecurityScore?: number; // 0-100
+    maxRiskScore?: number; // 0-100
+    
+    // Value filters
+    minValue?: number; // Minimum token value in USD
+    maxValueUSD?: number; // Maximum token value in USD
+    hideSmallBalances?: boolean; // Hide balances under $1
+    
+    // Sorting & Pagination
+    sortBy?: 'value' | 'symbol' | 'balance' | 'positionType' | 'riskScore' | 'securityScore';
+    sortOrder?: 'asc' | 'desc'; // Default: desc
+    limit?: number; // Default: 500
+    offset?: number; // Default: 0
+  }): Promise<any> {
     const searchParams = new URLSearchParams()
+    
     if (params?.chainIds) searchParams.append('chainIds', params.chainIds)
+    if (params?.positionTypes) searchParams.append('positionTypes', params.positionTypes)
+    if (params?.categories) searchParams.append('categories', params.categories)
     if (params?.includeSpam !== undefined) searchParams.append('includeSpam', params.includeSpam.toString())
-    if (params?.minValueUSD) searchParams.append('minValueUSD', params.minValueUSD.toString())
+    if (params?.includeUnverified !== undefined) searchParams.append('includeUnverified', params.includeUnverified.toString())
+    if (params?.minSecurityScore !== undefined) searchParams.append('minSecurityScore', params.minSecurityScore.toString())
+    if (params?.maxRiskScore !== undefined) searchParams.append('maxRiskScore', params.maxRiskScore.toString())
+    if (params?.minValue !== undefined) searchParams.append('minValue', params.minValue.toString())
+    if (params?.maxValueUSD !== undefined) searchParams.append('maxValueUSD', params.maxValueUSD.toString())
+    if (params?.hideSmallBalances !== undefined) searchParams.append('hideSmallBalances', params.hideSmallBalances.toString())
+    if (params?.sortBy) searchParams.append('sortBy', params.sortBy)
+    if (params?.sortOrder) searchParams.append('sortOrder', params.sortOrder)
+    if (params?.limit !== undefined) searchParams.append('limit', params.limit.toString())
+    if (params?.offset !== undefined) searchParams.append('offset', params.offset.toString())
     
     const url = `/portfolio/holdings${searchParams.toString() ? '?' + searchParams.toString() : ''}`
     const response = await this.coreClient.get(url)
@@ -564,12 +636,11 @@ class ApiClient {
   }
 
   public async recordTrade(tradeData: {
-    walletAddress: string
     txHash: string
     chainId: number
     blockNumber?: number
     timestamp?: string
-    type: 'swap' | 'buy' | 'sell'
+    type?: 'swap' | 'buy' | 'sell'
     status?: 'pending' | 'completed' | 'failed'
     fromToken: {
       address: string
@@ -599,7 +670,6 @@ class ApiClient {
     dexName?: string
     routerAddress?: string
     aggregator?: 'lifi' | '1inch' | 'relay' | 'jupiter'
-    executedAt?: string
   }): Promise<any> {
 
     const response = await this.coreClient.post('/portfolio/trades', tradeData)
@@ -760,9 +830,57 @@ export const aggregatorApi = {
 
 export const coreApi = {
   // Portfolio Management
-  getPortfolio: (params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }) => 
+  getPortfolio: (params?: { 
+    // Chain filters
+    chainIds?: string; 
+    
+    // Position & Category filters  
+    positionTypes?: string; // Comma-separated: SPOT,STAKED,LP,YIELD,BRIDGE,LOCKED
+    categories?: string; // Comma-separated: DeFi,Gaming,NFT,Stablecoin
+    
+    // Security & Quality filters
+    includeSpam?: boolean; // Default: false
+    includeUnverified?: boolean; // Default: false
+    minSecurityScore?: number; // 0-100
+    maxRiskScore?: number; // 0-100
+    
+    // Value filters
+    minValue?: number; // Minimum token value in USD
+    maxValueUSD?: number; // Maximum token value in USD
+    hideSmallBalances?: boolean; // Hide balances under $1
+    
+    // Sorting & Pagination
+    sortBy?: 'value' | 'symbol' | 'balance' | 'positionType' | 'riskScore' | 'securityScore';
+    sortOrder?: 'asc' | 'desc'; // Default: desc
+    limit?: number; // Default: 500
+    offset?: number; // Default: 0
+  }) => 
     apiClient.getPortfolio(params),
-  getTokenHoldings: (params?: { chainIds?: string; includeSpam?: boolean; minValueUSD?: number }) => 
+  getTokenHoldings: (params?: { 
+    // Chain filters
+    chainIds?: string; 
+    
+    // Position & Category filters  
+    positionTypes?: string; // Comma-separated: SPOT,STAKED,LP,YIELD,BRIDGE,LOCKED
+    categories?: string; // Comma-separated: DeFi,Gaming,NFT,Stablecoin
+    
+    // Security & Quality filters
+    includeSpam?: boolean; // Default: false
+    includeUnverified?: boolean; // Default: false
+    minSecurityScore?: number; // 0-100
+    maxRiskScore?: number; // 0-100
+    
+    // Value filters
+    minValue?: number; // Minimum token value in USD
+    maxValueUSD?: number; // Maximum token value in USD
+    hideSmallBalances?: boolean; // Hide balances under $1
+    
+    // Sorting & Pagination
+    sortBy?: 'value' | 'symbol' | 'balance' | 'positionType' | 'riskScore' | 'securityScore';
+    sortOrder?: 'asc' | 'desc'; // Default: desc
+    limit?: number; // Default: 500
+    offset?: number; // Default: 0
+  }) => 
     apiClient.getTokenHoldings(params),
   getQuickPortfolio: () => apiClient.getQuickPortfolio(),
   refreshPortfolio: () => apiClient.refreshPortfolio(),

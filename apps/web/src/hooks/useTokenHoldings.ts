@@ -3,19 +3,55 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { coreApi } from '@/lib/api-client'
 
-// Types for token holdings
+// Types for token holdings (updated to match modern API response)
 interface TokenHolding {
+  // Core holding data
   tokenSymbol: string
   tokenName: string
   tokenAddress: string
   chainId: number
   balance: string
   balanceFormatted: number
-  valueUSD: number
+  balanceUSD: number // Updated from valueUSD
   priceUSD: number
+  
+  // Enhanced fields from modern schema
+  positionType: 'SPOT' | 'STAKED' | 'LP' | 'YIELD' | 'BRIDGE' | 'LOCKED'
   logoUrl?: string
-  isSpam: boolean
+  isVerified: boolean
+  isScam: boolean // Updated from isSpam
+  securityScore: number
+  riskScore: number
+  
+  // Specialized position data
+  yieldInfo?: {
+    apy?: number
+    protocol?: string
+    rewards?: Array<{symbol: string; amount: number; valueUsd: number}>
+  }
+  lpInfo?: {
+    poolTokens?: Array<{symbol: string; balance: number}>
+    reserves?: Array<{symbol: string; amount: number}>
+    feesEarned?: number
+    poolShare?: number
+  }
+  bridgeInfo?: {
+    originalChain?: number
+    bridgeProtocol?: string
+    bridgeTx?: string
+  }
+  stakingInfo?: {
+    validator?: string
+    rewards?: number
+    unlockTime?: string
+  }
+  
+  // Calculated allocation
   allocation?: number
+  
+  // Legacy compatibility (for components still using old field names)
+  valueUSD?: number // Alias for balanceUSD
+  isSpam?: boolean // Alias for isScam
 }
 
 // Cache for holdings data
@@ -74,7 +110,11 @@ export function useTokenHoldings() {
         
         const response = await coreApi.getTokenHoldings({ 
           includeSpam: false, 
-          minValueUSD: 0
+          includeUnverified: false,
+          hideSmallBalances: true, // Hide balances under $1 for cleaner UI
+          sortBy: 'value',
+          sortOrder: 'desc',
+          limit: 500 // Reasonable limit for UI performance
         })
         
         console.log('💼 Holdings response:', response)
@@ -89,7 +129,24 @@ export function useTokenHoldings() {
           
           // Backend returns array directly as response.data
           if (Array.isArray(response.data)) {
-            holdings = response.data
+            // Map response to add legacy compatibility fields
+            holdings = response.data.map((holding: any) => ({
+              ...holding,
+              // Legacy compatibility - add aliases for components still using old field names
+              valueUSD: holding.balanceUSD || holding.valueUSD || 0,
+              isSpam: holding.isScam || holding.isSpam || false,
+              // Ensure all modern fields have defaults
+              positionType: holding.positionType || 'SPOT',
+              isVerified: holding.isVerified || false,
+              isScam: holding.isScam || false,
+              securityScore: holding.securityScore || 50,
+              riskScore: holding.riskScore || 30,
+              yieldInfo: holding.yieldInfo || {},
+              lpInfo: holding.lpInfo || {},
+              bridgeInfo: holding.bridgeInfo || {},
+              stakingInfo: holding.stakingInfo || {},
+              allocation: holding.allocation || 0
+            }))
           } else {
             console.warn('💼 Unexpected holdings response structure:', response.data)
             console.warn('💼 Expected array, got:', typeof response.data)

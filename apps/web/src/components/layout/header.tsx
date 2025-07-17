@@ -317,7 +317,6 @@ export function Header() {
                     height={36}
                     className="rounded-xl shadow-lg object-contain"
                   />
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-900"></div>
                 </div>
                 <div className="hidden sm:block">
                   <span className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">

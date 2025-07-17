@@ -13,6 +13,7 @@ import { toast } from 'react-hot-toast'
 import { coreApi } from '@/lib/api-client'
 import { TokenHoldings } from './token-holdings'
 import { formatCurrency, formatBalance, formatPercentage, generateQRCodeUrl, truncateAddress, isNativeToken, copyToClipboard as copyToClipboardUtil } from '@/utils/formatting'
+import { NumericFormat } from 'react-number-format'
 
 // ERC20 ABI for transfer function
 const ERC20_ABI = [
@@ -50,6 +51,54 @@ export function PortfolioOverview() {
   // Get real smart wallet address
   const walletAddress = smartWalletClient?.account?.address || wagmiAddress
 
+  // FIXED: Platform-safe number parsing utility to prevent Mac/Windows differences
+  const safeParse = (value: string | number): number => {
+    if (!value) return 0
+    
+    // Convert to string for processing
+    const stringValue = value.toString()
+    if (stringValue.trim() === '') return 0
+    
+    // Step 1: Normalize the string by removing all characters except digits, dots, and minus
+    // This handles cases where different locales might inject different characters
+    let normalized = stringValue.replace(/[^\d.-]/g, '')
+    
+    // Step 2: Handle multiple dots - keep only the last one as decimal separator
+    const dotIndex = normalized.lastIndexOf('.')
+    if (dotIndex !== -1) {
+      // Remove all dots except the last one
+      normalized = normalized.substring(0, dotIndex).replace(/\./g, '') + normalized.substring(dotIndex)
+    }
+    
+    // Step 3: Parse using standard parseFloat
+    const parsed = parseFloat(normalized)
+    
+    // Step 4: Validate result
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      console.warn('safeParse: Invalid number parsed:', { 
+        original: value, 
+        normalized, 
+        parsed,
+        platform: navigator.platform,
+        locale: navigator.language 
+      })
+      return 0
+    }
+    
+    // FIXED: Debug logging for platform differences (only in development)
+    if (process.env.NODE_ENV === 'development' && normalized !== stringValue) {
+      console.log('safeParse: Number normalized:', { 
+        original: value, 
+        stringValue,
+        normalized, 
+        parsed,
+        platform: navigator.platform 
+      })
+    }
+    
+    return parsed
+  }
+
   // Default to zero values if no data
   const data = overview || {
     totalValue: 0,
@@ -69,9 +118,13 @@ export function PortfolioOverview() {
   // Filter and paginate holdings for withdraw (only tokens with value > 0)
   const filteredHoldings = useMemo(() => {
     return holdingsData.filter(holding => {
-      const hasValue = holding.valueUSD > 0 && holding.balanceFormatted > 0
+      // FIXED: Add more robust validation to prevent edge cases
+      const valueUSD = holding.valueUSD || 0
+      const balanceFormatted = holding.balanceFormatted || 0
+      const hasValue = valueUSD > 0 && balanceFormatted > 0 && !isNaN(balanceFormatted)
+      
       const matchesSearch = !searchTerm || 
-        holding.tokenSymbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (holding.tokenSymbol && holding.tokenSymbol.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (holding.tokenName && holding.tokenName.toLowerCase().includes(searchTerm.toLowerCase()))
       return hasValue && matchesSearch
     })
@@ -79,7 +132,7 @@ export function PortfolioOverview() {
 
   // Pagination logic
   const tokensPerPage = 10
-  const totalPages = Math.ceil(filteredHoldings.length / tokensPerPage)
+  const totalPages = filteredHoldings.length > 0 ? Math.ceil(filteredHoldings.length / tokensPerPage) : 1
   const paginatedHoldings = filteredHoldings.slice(
     (currentPage - 1) * tokensPerPage,
     currentPage * tokensPerPage
@@ -186,12 +239,19 @@ export function PortfolioOverview() {
   const handleWithdraw = async () => {
     if (!selectedWithdrawToken || !withdrawAmount || !recipientAddress) return
 
+    // FIXED: Add comprehensive validation for selectedWithdrawToken
+    if (!selectedWithdrawToken.tokenSymbol || !selectedWithdrawToken.chainId) {
+      toast.error('Invalid token data. Please refresh and try again.')
+      return
+    }
+
     // Debug token data structure
     console.log('🔍 Debug token data:', {
       selectedToken: selectedWithdrawToken,
       tokenSymbol: selectedWithdrawToken.tokenSymbol,
       tokenAddress: selectedWithdrawToken.tokenAddress,
       chainId: selectedWithdrawToken.chainId,
+      balanceFormatted: selectedWithdrawToken.balanceFormatted,
       allTokenFields: Object.keys(selectedWithdrawToken)
     })
 
@@ -204,9 +264,21 @@ export function PortfolioOverview() {
       return
     }
 
-    const amount = parseFloat(withdrawAmount)
-    if (amount <= 0 || amount > selectedWithdrawToken.balanceFormatted) {
+    // FIXED: Use platform-safe parsing to prevent Mac/Windows differences
+    const amount = safeParse(withdrawAmount)
+    
+    // FIXED: Add better validation for edge cases
+    if (amount <= 0) {
       toast.error('Invalid withdrawal amount')
+      return
+    }
+    
+    // For transaction execution, ensure clean format (no commas, dots only as decimal)
+    const cleanWithdrawAmount = amount.toString()
+    
+    const maxBalance = selectedWithdrawToken.balanceFormatted || 0
+    if (amount > maxBalance) {
+      toast.error(`Amount exceeds available balance of ${formatBalance(maxBalance)}`)
       return
     }
 
@@ -226,15 +298,24 @@ export function PortfolioOverview() {
       const chainId = selectedWithdrawToken.chainId
       const isNativeToken = isNative
       
-      console.log('🚀 Executing withdraw transaction:', {
-        token: selectedWithdrawToken.tokenSymbol,
-        amount: withdrawAmount,
-        recipient: recipientAddress,
-        chainId,
-        tokenAddress,
-        isNativeToken,
-        walletAddress: targetSmartWalletClient.account?.address
-      })
+          console.log('🚀 Executing withdraw transaction:', {
+      token: selectedWithdrawToken.tokenSymbol,
+      amount: cleanWithdrawAmount,
+      originalAmount: withdrawAmount,
+      parsedAmount: amount,
+      recipient: recipientAddress,
+      chainId,
+      tokenAddress,
+      isNativeToken,
+      walletAddress: targetSmartWalletClient.account?.address,
+      // FIXED: Platform debugging info
+      platform: {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        languages: navigator.languages,
+        platform: navigator.platform
+      }
+    })
 
       let txHash: string
 
@@ -244,7 +325,7 @@ export function PortfolioOverview() {
         
         const tx = await targetSmartWalletClient.sendTransaction({
           to: recipientAddress as `0x${string}`,
-          value: parseEther(withdrawAmount),
+          value: parseEther(cleanWithdrawAmount),
         })
         
         txHash = tx
@@ -252,25 +333,28 @@ export function PortfolioOverview() {
         
       } else {
         // ERC20 token transfer (USDC, USDT, etc.)
+        const tokenDecimals = selectedWithdrawToken.tokenDecimals ?? 18
+        
         console.log('🔄 Executing ERC20 token transfer...', {
           tokenAddress,
-          amount: withdrawAmount,
-          decimals: selectedWithdrawToken.tokenDecimals
+          amount: cleanWithdrawAmount,
+          decimals: tokenDecimals
         })
         
         if (!tokenAddress) {
           throw new Error('Token address is required for ERC20 transfer')
         }
         
-        const transferAmount = parseUnits(
-          withdrawAmount, 
-          selectedWithdrawToken.tokenDecimals || 18
-        )
+        // FIXED: Handle edge case where decimals might be 0
+        const transferAmount = tokenDecimals === 0 
+          ? BigInt(Math.floor(amount))
+          : parseUnits(cleanWithdrawAmount, tokenDecimals)
         
         console.log('📊 Transfer details:', {
-          rawAmount: withdrawAmount,
+          rawAmount: cleanWithdrawAmount,
+          originalFormattedAmount: withdrawAmount,
           parsedAmount: transferAmount.toString(),
-          decimals: selectedWithdrawToken.tokenDecimals || 18
+          decimals: tokenDecimals
         })
         
         const tx = await targetSmartWalletClient.writeContract({
@@ -429,7 +513,11 @@ export function PortfolioOverview() {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg p-3 shadow-sm">
               <div className="flex items-center gap-2 mb-1">
-                <Activity className="h-4 w-4 text-primary" />
+                {data.unrealizedPnL >= 0 ? (
+                  <TrendingUp className="h-4 w-4 text-success" />
+                ) : (
+                  <TrendingDown className="h-4 w-4 text-error" />
+                )}
                 <span className="text-xs text-muted-foreground">Unrealized P&L</span>
               </div>
               <div className={`text-lg font-bold ${data.unrealizedPnL >= 0 ? 'text-success' : 'text-error'}`}>
@@ -438,16 +526,24 @@ export function PortfolioOverview() {
             </div>
             <div className="bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg p-3 shadow-sm">
               <div className="flex items-center gap-2 mb-1">
-                <Award className="h-4 w-4 text-primary" />
+                {(pnlMetrics.winRate || 0) >= 50 ? (
+                  <Award className="h-4 w-4 text-success" />
+                ) : (
+                  <TrendingDown className="h-4 w-4 text-error" />
+                )}
                 <span className="text-xs text-muted-foreground">Win Rate</span>
               </div>
-              <div className="text-lg font-bold text-foreground">
+              <div className={`text-lg font-bold ${(pnlMetrics.winRate || 0) >= 50 ? 'text-success' : 'text-error'}`}>
                 {(pnlMetrics.winRate || 0).toFixed(1)}%
               </div>
             </div>
             <div className="bg-card/60 backdrop-blur-sm border border-border/40 rounded-lg p-3 shadow-sm">
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-4 w-4 text-success" />
+                {data.realizedPnL >= 0 ? (
+                  <TrendingUp className="h-4 w-4 text-success" />
+                ) : (
+                  <TrendingDown className="h-4 w-4 text-error" />
+                )}
                 <span className="text-xs text-muted-foreground">Realized P&L</span>
               </div>
               <div className={`text-lg font-bold ${data.realizedPnL >= 0 ? 'text-success' : 'text-error'}`}>
@@ -552,7 +648,7 @@ export function PortfolioOverview() {
               </div>
               <div className="p-4 bg-muted/10 rounded-lg">
                 <div className="text-sm text-muted-foreground">Win Rate</div>
-                <div className="text-xl font-bold text-success">
+                <div className={`text-xl font-bold ${(pnlMetrics.winRate || 0) >= 50 ? 'text-success' : 'text-error'}`}>
                   {(pnlMetrics.winRate || 0).toFixed(1)}%
                 </div>
               </div>
@@ -734,7 +830,7 @@ export function PortfolioOverview() {
                                 </div>
                               </div>
                               <div className="text-right">
-                                <div className="text-sm font-medium">{formatCurrency(holding.valueUSD)}</div>
+                                <div className="text-sm font-medium">{formatCurrency(holding.valueUSD || 0)}</div>
                                 <div className="text-xs text-muted-foreground flex items-center gap-1">
                                   <ExternalLink className="h-3 w-3" />
                                   Switch to {chainConfig?.name}
@@ -806,18 +902,31 @@ export function PortfolioOverview() {
                       <div>
                         <label className="text-sm font-medium text-foreground">Amount</label>
                         <div className="mt-1 space-y-2">
-                          <input
-                            type="number"
-                            placeholder="Enter amount"
+                          <NumericFormat
                             value={withdrawAmount}
-                            onChange={(e) => setWithdrawAmount(e.target.value)}
-                            max={selectedWithdrawToken.balanceFormatted}
+                            onValueChange={(values) => {
+                              setWithdrawAmount(values.value || '')
+                            }}
+                            placeholder="Enter amount"
+                            thousandSeparator=","
+                            decimalSeparator="."
+                            decimalScale={8}
+                            allowNegative={false}
+                            fixedDecimalScale={false}
+                            // FIXED: Ensure consistent formatting across platforms
+                            allowLeadingZeros={false}
                             className="w-full px-3 py-2 bg-muted/20 border border-border/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
                           />
                           <div className="flex items-center justify-between text-xs text-muted-foreground">
                             <span>Available: {formatBalance(selectedWithdrawToken.balanceFormatted)}</span>
                             <button
-                              onClick={() => setWithdrawAmount(selectedWithdrawToken.balanceFormatted.toString())}
+                              onClick={() => {
+                                // FIXED: Ensure Max button works correctly with NumericFormat and platform differences
+                                const maxAmount = selectedWithdrawToken.balanceFormatted || 0
+                                // Use safeParse to ensure consistent number handling
+                                const safeMaxAmount = safeParse(maxAmount.toString())
+                                setWithdrawAmount(safeMaxAmount.toString())
+                              }}
                               className="text-primary hover:text-primary/80"
                             >
                               Max

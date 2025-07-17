@@ -242,36 +242,54 @@ export function SwapButton({
         
                   // 🆕 Record trade in database for P&L tracking
           try {
+            // Validate required data before sending
+            if (!hash || !quote.fromToken?.address || !quote.toToken?.address || 
+                !quote.fromToken?.symbol || !quote.toToken?.symbol ||
+                !quote.fromAmount || !quote.toAmount) {
+              console.error('❌ Missing required trade data:', {
+                hash: !!hash,
+                fromToken: !!quote.fromToken?.address,
+                toToken: !!quote.toToken?.address,
+                fromSymbol: !!quote.fromToken?.symbol,
+                toSymbol: !!quote.toToken?.symbol,
+                fromAmount: !!quote.fromAmount,
+                toAmount: !!quote.toAmount
+              })
+              throw new Error('Missing required trade data for recording')
+            }
+
             const tradeData = {
-              walletAddress: smartWalletClient?.account?.address,
               txHash: hash,
               chainId: quote.fromToken?.chainId || 1,
-              type: 'swap',
+              type: 'swap' as const,
+              status: 'completed' as const,
+              timestamp: new Date().toISOString(),
               fromToken: {
-                symbol: quote.fromToken?.symbol || 'Unknown',
-                name: quote.fromToken?.name || quote.fromToken?.symbol || 'Unknown',
-                address: quote.fromToken?.address || '',
-                decimals: quote.fromToken?.decimals || 18,
-                amount: quote.fromAmount || '0',
-                amountFormatted: parseFloat(quote.fromAmount || '0') / Math.pow(10, quote.fromToken?.decimals || 18),
-                priceUSD: quote.fromToken?.priceUSD || 0,
-                valueUSD: (quote.fromToken?.priceUSD || 0) * (parseFloat(quote.fromAmount || '0') / Math.pow(10, quote.fromToken?.decimals || 18))
+                address: quote.fromToken.address,
+                symbol: quote.fromToken.symbol,
+                name: quote.fromToken.name || quote.fromToken.symbol,
+                decimals: quote.fromToken.decimals || 18,
+                amount: quote.fromAmount,
+                amountFormatted: parseFloat(quote.fromAmount) / Math.pow(10, quote.fromToken.decimals || 18),
+                priceUSD: quote.fromToken.priceUSD || 0,
+                valueUSD: (quote.fromToken.priceUSD || 0) * (parseFloat(quote.fromAmount) / Math.pow(10, quote.fromToken.decimals || 18))
               },
               toToken: {
-                symbol: quote.toToken?.symbol || 'Unknown',
-                name: quote.toToken?.name || quote.toToken?.symbol || 'Unknown',
-                address: quote.toToken?.address || '',
-                decimals: quote.toToken?.decimals || 18,
-                amount: quote.toAmount || '0',
-                amountFormatted: parseFloat(quote.toAmount || '0') / Math.pow(10, quote.toToken?.decimals || 18),
-                priceUSD: quote.toToken?.priceUSD || 0,
-                valueUSD: (quote.toToken?.priceUSD || 0) * (parseFloat(quote.toAmount || '0') / Math.pow(10, quote.toToken?.decimals || 18))
+                address: quote.toToken.address,
+                symbol: quote.toToken.symbol,
+                name: quote.toToken.name || quote.toToken.symbol,
+                decimals: quote.toToken.decimals || 18,
+                amount: quote.toAmount,
+                amountFormatted: parseFloat(quote.toAmount) / Math.pow(10, quote.toToken.decimals || 18),
+                priceUSD: quote.toToken.priceUSD || 0,
+                valueUSD: (quote.toToken.priceUSD || 0) * (parseFloat(quote.toAmount) / Math.pow(10, quote.toToken.decimals || 18))
               },
-              gasFeeETH: 0, // Will be updated by backend from tx receipt
-              gasFeeUSD: 0, // Will be calculated by backend
+              gasFeeUSD: 0, // Will be calculated by backend from tx receipt
               dexName: quote.metadata?.tool || quote.provider || 'Unknown',
               slippage: quote.slippageTolerance || 0.5,
-              executedAt: new Date().toISOString()
+              aggregator: (['lifi', '1inch', 'relay', 'jupiter'].includes(quote.provider) 
+                ? quote.provider as 'lifi' | '1inch' | 'relay' | 'jupiter' 
+                : undefined)
             }
           
           // Call core-service to record trade using api-client

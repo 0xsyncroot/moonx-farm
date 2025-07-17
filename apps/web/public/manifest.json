@@ -1,0 +1,68 @@
+{
+  "name": "MoonXFarm - Cross-Chain DEX Aggregator",
+  "short_name": "MoonXFarm",
+  "description": "Trade cryptocurrencies across multiple chains with zero gas fees using Account Abstraction technology",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/logo-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/logo-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Swap Tokens",
+      "short_name": "Swap",
+      "description": "Quick token swap with best rates",
+      "url": "/swap",
+      "icons": [{ "src": "/icons/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Portfolio",
+      "short_name": "Portfolio",
+      "description": "View portfolio and P&L analytics",
+      "url": "/portfolio",
+      "icons": [{ "src": "/icons/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Orders",
+      "short_name": "Orders",
+      "description": "Manage limit orders and DCA",
+      "url": "/orders",
+      "icons": [{ "src": "/icons/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+} 

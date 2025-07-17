@@ -35,6 +35,25 @@ export function TokenInput({
   chainInfo
 }: TokenInputProps) {
   const isFromToken = type === 'from'
+
+  // FIXED: Platform-safe number parsing utility to prevent Mac/Windows differences
+  const safeParse = (value: string | number): number => {
+    if (!value) return 0
+    const stringValue = value.toString()
+    if (stringValue.trim() === '') return 0
+    
+    // Normalize by removing all characters except digits, dots, and minus
+    let normalized = stringValue.replace(/[^\d.-]/g, '')
+    
+    // Handle multiple dots - keep only the last one as decimal separator  
+    const dotIndex = normalized.lastIndexOf('.')
+    if (dotIndex !== -1) {
+      normalized = normalized.substring(0, dotIndex).replace(/\./g, '') + normalized.substring(dotIndex)
+    }
+    
+    const parsed = parseFloat(normalized)
+    return isNaN(parsed) || !isFinite(parsed) ? 0 : parsed
+  }
   
   // 🔧 FIX: Local state to handle immediate UI updates and prevent race conditions
   const [pendingAmount, setPendingAmount] = useState<string>('')
@@ -57,10 +76,10 @@ export function TokenInput({
       return false
     }
     
-    // 🚀 IMPROVED: Better validation for large numbers
+    // 🚀 FIXED: Better validation for large numbers with platform-safe parsing
     try {
-      const numValue = parseFloat(currentAmount)
-      if (isNaN(numValue) || numValue <= 0) {
+      const numValue = safeParse(currentAmount)
+      if (numValue <= 0) {
         return false
       }
       
@@ -105,33 +124,30 @@ export function TokenInput({
     }
     
     try {
-      // Use balanceFormatted instead of balanceNumber to avoid precision loss
-      // Remove any formatting commas and ensure clean number string
-      const cleanBalance = balance.balanceFormatted.replace(/,/g, '')
-      const balanceNumber = parseFloat(cleanBalance)
+      // FIXED: Use platform-safe parsing instead of direct parseFloat
+      const balanceNumber = safeParse(balance.balanceFormatted)
       
-      // 🚀 IMPROVED: Better validation for large numbers
-      if (isNaN(balanceNumber) || balanceNumber <= 0 || !isFinite(balanceNumber)) {
-        console.warn('Invalid balance number:', cleanBalance)
+      // FIXED: Improved validation
+      if (balanceNumber <= 0) {
+        console.warn('Invalid balance number:', balance.balanceFormatted)
         return
       }
       
-      // 🚀 IMPROVED: Always preserve full precision, no arbitrary limits
-      let valueToSet = cleanBalance
+      // 🚀 IMPROVED: Always preserve full precision, no arbitrary limits  
+      let valueToSet = balanceNumber.toString()
       
       // Only format if the number is extremely large (to avoid scientific notation)
       if (balanceNumber > 1e15) {
         valueToSet = balanceNumber.toFixed(0) // No decimals for very large numbers
       } else {
         // Keep original precision for all other cases
-        valueToSet = cleanBalance
+        valueToSet = balanceNumber.toString()
       }
       
       // 🚀 IMPROVED: Better logging for debugging large numbers
       if (process.env.NODE_ENV === 'development') {
         console.log('Setting balance:', {
           originalBalance: balance.balanceFormatted,
-          cleanBalance,
           balanceNumber,
           valueToSet,
           valueLength: valueToSet?.length,
@@ -197,9 +213,9 @@ export function TokenInput({
                     if (!balance.balanceFormatted) return '0'
                     
                     try {
-                      const balanceNum = parseFloat(balance.balanceFormatted.replace(/,/g, ''))
+                      const balanceNum = safeParse(balance.balanceFormatted)
                       
-                      if (isNaN(balanceNum) || balanceNum === 0) return '0'
+                                              if (balanceNum === 0) return '0'
                       
                       // 🚀 Jupiter-style formatting: Clean and compact (kept for balance display space)
                       if (balanceNum >= 1e9) return `${(balanceNum / 1e9).toFixed(1)}B`
@@ -262,6 +278,8 @@ export function TokenInput({
                   displayType="text"
                   thousandSeparator=","
                   decimalSeparator="."
+                  fixedDecimalScale={false}
+                  allowLeadingZeros={false}
                   // 🚀 REMOVED: decimalScale restriction to allow unlimited decimals
                   className={cn(
                     "w-full font-bold bg-transparent border-0 outline-none",
@@ -302,6 +320,8 @@ export function TokenInput({
                   thousandSeparator=","
                   decimalSeparator="."
                   allowNegative={false}
+                  fixedDecimalScale={false}
+                  allowLeadingZeros={false}
                   // 🚀 REMOVED: decimalScale restriction to allow unlimited decimals
                   // 🚀 IMPROVED: More flexible validation - only prevent invalid numbers
                   isAllowed={(values) => {
@@ -352,8 +372,8 @@ export function TokenInput({
               
               {token?.priceUSD && displayedValue && (() => {
                 try {
-                  const numValue = parseFloat(displayedValue)
-                  if (isNaN(numValue) || numValue === 0) {
+                  const numValue = safeParse(displayedValue)
+                                      if (numValue === 0) {
                     return (
                       <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
                         ≈ $0.00
@@ -374,6 +394,7 @@ export function TokenInput({
                         decimalSeparator="."
                         decimalScale={usdValue >= 1000 ? 2 : 4}
                         fixedDecimalScale={usdValue >= 1000}
+                        allowLeadingZeros={false}
                       />
                     </p>
                   )

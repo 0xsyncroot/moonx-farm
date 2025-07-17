@@ -54,6 +54,54 @@ import { getChainConfig } from '@/config/chains'
 export function SwapInterface() {
   const { walletInfo } = useAuth()
   const searchParams = useSearchParams()
+
+  // FIXED: Platform-safe number parsing utility to prevent Mac/Windows differences
+  const safeParse = (value: string | number): number => {
+    if (!value) return 0
+    
+    // Convert to string for processing
+    const stringValue = value.toString()
+    if (stringValue.trim() === '') return 0
+    
+    // Step 1: Normalize the string by removing all characters except digits, dots, and minus
+    // This handles cases where different locales might inject different characters
+    let normalized = stringValue.replace(/[^\d.-]/g, '')
+    
+    // Step 2: Handle multiple dots - keep only the last one as decimal separator
+    const dotIndex = normalized.lastIndexOf('.')
+    if (dotIndex !== -1) {
+      // Remove all dots except the last one
+      normalized = normalized.substring(0, dotIndex).replace(/\./g, '') + normalized.substring(dotIndex)
+    }
+    
+    // Step 3: Parse using standard parseFloat
+    const parsed = parseFloat(normalized)
+    
+    // Step 4: Validate result
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      console.warn('safeParse: Invalid number parsed:', { 
+        original: value, 
+        normalized, 
+        parsed,
+        platform: navigator.platform,
+        locale: navigator.language 
+      })
+      return 0
+    }
+    
+    // FIXED: Debug logging for platform differences (only in development)
+    if (process.env.NODE_ENV === 'development' && normalized !== stringValue) {
+      console.log('safeParse: Number normalized:', { 
+        original: value, 
+        stringValue,
+        normalized, 
+        parsed,
+        platform: navigator.platform 
+      })
+    }
+    
+    return parsed
+  }
   
   // UI State
   const [showFromTokenSelector, setShowFromTokenSelector] = useState(false)
@@ -190,7 +238,7 @@ export function SwapInterface() {
       (lastValidParamsRef.current.amount && 
        currentParams.amount && 
        lastValidParamsRef.current.amount !== currentParams.amount &&
-       Math.abs(parseFloat(lastValidParamsRef.current.amount) - parseFloat(currentParams.amount)) > parseFloat(lastValidParamsRef.current.amount) * 0.1)
+       Math.abs(safeParse(lastValidParamsRef.current.amount) - safeParse(currentParams.amount)) > safeParse(lastValidParamsRef.current.amount) * 0.1)
     )
     
     if (shouldClear && isInitialized) {
@@ -217,9 +265,9 @@ export function SwapInterface() {
       return false
     }
     
-    // Parse amount safely
-    const parsedAmount = parseFloat(amount)
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    // FIXED: Use platform-safe parsing
+    const parsedAmount = safeParse(amount)
+    if (parsedAmount <= 0) {
       return false
     }
     
@@ -243,8 +291,9 @@ export function SwapInterface() {
       return false
     }
     
-    const parsedAmount = parseFloat(currentAmount)
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    // FIXED: Use platform-safe parsing
+    const parsedAmount = safeParse(currentAmount)
+    if (parsedAmount <= 0) {
       return false
     }
     
@@ -261,9 +310,9 @@ export function SwapInterface() {
       balanceFormatted: fromTokenBalance.balanceFormatted
     })
     
-    // Clear dependent states on significant amount change
-    const oldAmountNum = parseFloat(amount || '0')
-    const newAmountNum = parseFloat(newAmount || '0')
+    // FIXED: Clear dependent states on significant amount change with platform-safe parsing
+    const oldAmountNum = safeParse(amount || '0')
+    const newAmountNum = safeParse(newAmount || '0')
     
     if (amount && newAmount && Math.abs(oldAmountNum - newAmountNum) > oldAmountNum * 0.1) {
       clearDependentStates()
@@ -305,8 +354,8 @@ export function SwapInterface() {
     console.log('🔄 Attempting error recovery')
     clearDependentStates()
     
-    // Try to refetch if we have valid request params
-    if (fromToken && toToken && amount && parseFloat(amount) > 0) {
+    // FIXED: Try to refetch if we have valid request params with platform-safe parsing
+    if (fromToken && toToken && amount && safeParse(amount) > 0) {
       setTimeout(() => {
         refetch().catch(console.warn)
       }, 1000)
@@ -429,8 +478,8 @@ export function SwapInterface() {
           }
         }
         
-        if (slippageParam && parseFloat(slippageParam) !== slippage) {
-          setSlippage(parseFloat(slippageParam))
+        if (slippageParam && safeParse(slippageParam) !== slippage) {
+          setSlippage(safeParse(slippageParam))
           hasLoadedAnyParam = true
           if (process.env.NODE_ENV === 'development') {
             console.log('🔗 Loading slippage from URL:', slippageParam)
@@ -761,20 +810,20 @@ export function SwapInterface() {
     if (!activeQuote || !toToken) return 0
     
     try {
-      // Use toAmountMin from API if available
+      // FIXED: Use toAmountMin from API if available with platform-safe parsing
       if (activeQuote.toAmountMin && activeQuote.toAmountMin !== '0') {
         const formatted = formatTokenAmount(activeQuote.toAmountMin, toToken.decimals)
-        const parsed = parseFloat(formatted)
-        if (!isNaN(parsed) && isFinite(parsed) && parsed > 0) {
+        const parsed = safeParse(formatted)
+        if (parsed > 0) {
           return parsed
         }
       }
       
-      // Calculate from toAmount with slippage
+      // FIXED: Calculate from toAmount with slippage using platform-safe parsing
       if (activeQuote.toAmount) {
         const formatted = formatTokenAmount(activeQuote.toAmount, toToken.decimals)
-        const parsed = parseFloat(formatted)
-        if (!isNaN(parsed) && isFinite(parsed) && parsed > 0) {
+        const parsed = safeParse(formatted)
+        if (parsed > 0) {
           const slippageDecimal = (slippage || 0.5) / 100
           const minAmount = parsed * (1 - slippageDecimal)
           return Math.max(0, minAmount)
@@ -868,9 +917,9 @@ export function SwapInterface() {
     
     try {
       const formatted = formatTokenAmount(amount, token.decimals)
-      const parsed = parseFloat(formatted)
+      const parsed = safeParse(formatted)
       
-      if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) return ''
+      if (parsed < 0) return ''
       if (parsed === 0) return '0'
       if (parsed < 0.000001) return formatted
       
@@ -1134,7 +1183,7 @@ export function SwapInterface() {
             fromAmount={amount}
             quote={activeQuote || null}
             disabled={!fromToken || !toToken || !amount || amount === '0' || isLoading || hasInsufficientBalance || isChainSwitching || isTestnetSwitching}
-            priceImpactTooHigh={activeQuote?.priceImpact ? Math.abs(parseFloat(activeQuote.priceImpact)) > 15 : false}
+            priceImpactTooHigh={activeQuote?.priceImpact ? Math.abs(safeParse(activeQuote.priceImpact)) > 15 : false}
             hasInsufficientBalance={hasInsufficientBalance}
             onPauseCountdown={pauseCountdown}
             onResumeCountdown={resumeCountdown}

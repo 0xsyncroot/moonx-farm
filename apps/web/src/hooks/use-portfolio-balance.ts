@@ -41,7 +41,11 @@ export function usePortfolioBalance(): PortfolioBalance {
       // Fetch portfolio from core service
       const response = await coreApi.getPortfolio({ 
         includeSpam: false, 
-        minValueUSD: 0.01 
+        includeUnverified: false,
+        hideSmallBalances: true, // Hide balances under $1 for cleaner UI
+        sortBy: 'value',
+        sortOrder: 'desc',
+        limit: 500 // Reasonable limit for UI performance
       })
       return response
     },

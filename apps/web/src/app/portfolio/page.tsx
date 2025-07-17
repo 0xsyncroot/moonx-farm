@@ -23,16 +23,6 @@ export default function PortfolioPage() {
     <div key={pageKey} className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
       <main className="container mx-auto mobile-padding py-8">
         <div className="space-y-6">
-          {/* Page Header - Clean */}
-          <div className="text-center space-y-2">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-              Portfolio Dashboard
-            </h1>
-            <p className="text-muted-foreground">
-              Track your trades and share your success
-            </p>
-          </div>
-
           {/* Portfolio Overview */}
           <PortfolioOverview />
 
